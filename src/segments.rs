@@ -321,8 +321,8 @@ pub fn extract_segments_tensor(
             }
             if sw > 0.0 {
                 // Structure tensor eigen
-                let J = Matrix2::new(sxx, sxy, sxy, syy);
-                let eig = SymmetricEigen::new(J);
+                let jac = Matrix2::new(sxx, sxy, sxy, syy);
+                let eig = SymmetricEigen::new(jac);
                 let l0 = eig.eigenvalues[0];
                 let l1 = eig.eigenvalues[1];
                 let (lmax, lmin, vmax, vmin) = if l0 >= l1 {

@@ -1,7 +1,7 @@
+use crate::lsd_vp::Engine as LsdVpEngine;
 use crate::pyramid::Pyramid;
-use crate::segments::LsdVpEngine;
 use crate::types::{GridResult, ImageU8, Pose};
-use nalgebra::{Matrix3, Vector3};
+use nalgebra::Matrix3;
 use std::time::Instant;
 
 #[derive(Clone, Debug)]
@@ -47,18 +47,17 @@ impl GridDetector {
         // 2) Low-res hypothesis with LSD→VP engine
         let l = pyr.levels.last().unwrap();
         let mut engine = LsdVpEngine::default();
-        let mut H = Matrix3::<f32>::identity();
+        let mut hmtx0 = Matrix3::<f32>::identity();
         let mut confidence = 0.0f32;
         if let Some(hyp) = engine.infer(l) {
-            H = hyp.H0;
+            hmtx0 = hyp.hmtx0;
             confidence = hyp.confidence;
-            self.last_hmtx = Some(H);
+            self.last_hmtx = Some(hmtx0);
         }
-        // TODO: randomized Hough for two line families -> initial homography H0
-        let hmtx0 = Matrix3::<f32>::identity(); // placeholder
-                                                // 3) Refinement (placeholder)
+        // 3) Refinement (placeholder)
         let hmtx = hmtx0; // TODO: refine via edge bundles & robust fit
-                          // 4) Pose recovery from H and intrinsics
+    
+        // 4) Pose recovery from H and intrinsics
         let pose = if hmtx != Matrix3::identity() {
             Some(pose_from_h(self.params.kmtx, hmtx))
         } else {
@@ -73,7 +72,7 @@ impl GridDetector {
             visible_range: (0, 0, 0, 0),
             coverage: 0.0,
             reproj_rmse: 0.0,
-            confidence: 0.0,
+            confidence: confidence,
             latency_ms: latency,
         }
     }
@@ -87,28 +86,37 @@ impl GridDetector {
 }
 
 fn pose_from_h(k: Matrix3<f32>, h: Matrix3<f32>) -> Pose {
-    // Computes R,t from planar homography: K^-1 H = [r1 r2 t] up to scale
+    // Computes R,t from planar homography: K^-1 H ~= [r1 r2 t]
     let k_inv = k.try_inverse().unwrap_or_else(Matrix3::identity);
-    let h_ = k_inv * h;
-    let h1 = h_.column(0).clone_owned();
-    let h2 = h_.column(1).clone_owned();
-    let h3 = h_.column(2).clone_owned();
-    let norm = 1.0 / h1.norm();
-    let mut r1 = h1 * norm;
-    let mut r2 = h2 * norm;
-    let mut r3 = r1.cross(&r2);
-    // Orthonormalize via polar decomposition (R = UV^T)
-    let mut rot = nalgebra::Matrix3::from_columns(&[r1, r2, r3]);
+    let normalized_h = k_inv * h;
+
+    let mut r1 = normalized_h.column(0).into_owned();
+    let mut r2 = normalized_h.column(1).into_owned();
+    let t_raw = normalized_h.column(2).into_owned();
+
+    // Use average column norm for a more stable scale estimate
+    let n1 = r1.norm();
+    let n2 = r2.norm();
+    let average_norm = (n1 + n2).max(1e-6) * 0.5;
+    let inv_scale = 1.0 / average_norm;
+
+    r1 *= inv_scale;
+    r2 *= inv_scale;
+
+    // Initial orthonormal basis prior to projection
+    let r3 = r1.cross(&r2);
+    let mut rot = Matrix3::from_columns(&[r1, r2, r3]);
+
     let svd = rot.svd(true, true);
-    let u = svd.u.unwrap();
-    let v_t = svd.v_t.unwrap();
-    rot = u * v_t;
-    r1 = rot.column(0).clone_owned();
-    r2 = rot.column(1).clone_owned();
-    r3 = rot.column(2).clone_owned();
-    let t = h3 * norm;
-    Pose {
-        r: rot,
-        t: Vector3::new(t[0], t[1], t[2]),
+    if let (Some(u), Some(v_t)) = (svd.u, svd.v_t) {
+        rot = u * v_t;
     }
+
+    if rot.determinant() < 0.0 {
+        let mut c2 = rot.column_mut(2);
+        c2.neg_mut();
+    }
+
+    let t = t_raw * inv_scale;
+    Pose { r: rot, t }
 }

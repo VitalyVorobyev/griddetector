@@ -1,5 +1,13 @@
 use crate::types::ImageF32;
 
+type Kernel3 = [[f32; 3]; 3];
+
+const SOBEL_KERNEL_X: Kernel3 = [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]];
+const SOBEL_KERNEL_Y: Kernel3 = [[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]];
+
+const SCHARR_KERNEL_X: Kernel3 = [[-3.0, 0.0, 3.0], [-10.0, 0.0, 10.0], [-3.0, 0.0, 3.0]];
+const SCHARR_KERNEL_Y: Kernel3 = [[-3.0, -10.0, -3.0], [0.0, 0.0, 0.0], [3.0, 10.0, 3.0]];
+
 #[derive(Clone, Debug)]
 pub struct Grad {
     pub gx: ImageF32,
@@ -8,56 +16,68 @@ pub struct Grad {
     pub ori_q8: Vec<u8>, // per-pixel quantized orientation in 8 bins
 }
 
-pub fn sobel_gradients(l: &ImageF32) -> Grad {
+#[inline]
+fn quantize_orientation(angle: f32) -> u8 {
+    let wrapped = (angle + std::f32::consts::PI).rem_euclid(2.0 * std::f32::consts::PI);
+    ((wrapped * (4.0 / std::f32::consts::PI)).floor() as i32 & 7) as u8
+}
+
+fn gradients_with_kernels(l: &ImageF32, kernel_x: &Kernel3, kernel_y: &Kernel3) -> Grad {
     let w = l.w;
     let h = l.h;
     let mut gx = ImageF32::new(w, h);
     let mut gy = ImageF32::new(w, h);
-    // Sobel 3x3
-    for y in 0..h {
-        let ym1 = y.saturating_sub(1);
-        let yp1 = (y + 1).min(h - 1);
-        for x in 0..w {
-            let xm1 = x.saturating_sub(1);
-            let xp1 = (x + 1).min(w - 1);
-            let tl = l.get(xm1, ym1);
-            let tc = l.get(x, ym1);
-            let tr = l.get(xp1, ym1);
-            let ml = l.get(xm1, y);
-            let mc = l.get(x, y);
-            let mr = l.get(xp1, y);
-            let bl = l.get(xm1, yp1);
-            let bc = l.get(x, yp1);
-            let br = l.get(xp1, yp1);
-            let gxv = -tl - 2.0 * ml - bl + tr + 2.0 * mr + br; // [-1 0 1; -2 0 2; -1 0 1]
-            let gyv = -tl - 2.0 * tc - tr + bl + 2.0 * bc + br; // [-1 -2 -1; 0 0 0; 1 2 1]
-            gx.set(x, y, gxv);
-            gy.set(x, y, gyv);
-        }
-    }
     let mut mag = ImageF32::new(w, h);
     let mut ori_q8 = vec![0u8; w * h];
+
+    if w == 0 || h == 0 {
+        return Grad {
+            gx,
+            gy,
+            mag,
+            ori_q8,
+        };
+    }
+
     for y in 0..h {
+        let y_idx = [y.saturating_sub(1), y, (y + 1).min(h - 1)];
         for x in 0..w {
-            let i = y * w + x;
-            let gxx = gx.get(x, y);
-            let gyy = gy.get(x, y);
-            let m = (gxx * gxx + gyy * gyy).sqrt();
-            mag.set(x, y, m);
-            let ang = gyy.atan2(gxx); // [-pi,pi]
-                                      // quantize to 8 bins (0..7) ignoring sign symmetry for now
-            let mut bin =
-                (((ang + std::f32::consts::PI) * (4.0 / std::f32::consts::PI)) as i32) & 7; // *8/(2pi)
-            if bin < 0 {
-                bin += 8;
+            let x_idx = [x.saturating_sub(1), x, (x + 1).min(w - 1)];
+
+            let mut sum_x = 0.0;
+            let mut sum_y = 0.0;
+            for ky in 0..3 {
+                let yy = y_idx[ky];
+                for kx in 0..3 {
+                    let xx = x_idx[kx];
+                    let sample = l.get(xx, yy);
+                    sum_x += sample * kernel_x[ky][kx];
+                    sum_y += sample * kernel_y[ky][kx];
+                }
             }
-            ori_q8[i] = bin as u8;
+
+            gx.set(x, y, sum_x);
+            gy.set(x, y, sum_y);
+
+            let magnitude = (sum_x * sum_x + sum_y * sum_y).sqrt();
+            mag.set(x, y, magnitude);
+            let idx = y * w + x;
+            ori_q8[idx] = quantize_orientation(sum_y.atan2(sum_x));
         }
     }
+
     Grad {
         gx,
         gy,
         mag,
         ori_q8,
     }
+}
+
+pub fn sobel_gradients(l: &ImageF32) -> Grad {
+    gradients_with_kernels(l, &SOBEL_KERNEL_X, &SOBEL_KERNEL_Y)
+}
+
+pub fn scharr_gradients(l: &ImageF32) -> Grad {
+    gradients_with_kernels(l, &SCHARR_KERNEL_X, &SCHARR_KERNEL_Y)
 }
