@@ -56,7 +56,7 @@ impl GridDetector {
         }
         // 3) Refinement (placeholder)
         let hmtx = hmtx0; // TODO: refine via edge bundles & robust fit
-    
+
         // 4) Pose recovery from H and intrinsics
         let pose = if hmtx != Matrix3::identity() {
             Some(pose_from_h(self.params.kmtx, hmtx))
