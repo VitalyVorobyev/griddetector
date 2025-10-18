@@ -1,0 +1,28 @@
+[package]
+name = "griddetector"
+version = "0.1.0"
+authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
+edition = "2021"
+license = "MIT"
+description = "High-performance regular grid/chessboard detector with image pyramid and pose recovery (Rust)"
+
+[lib]
+name = "grid_detector"
+path = "src/lib.rs"
+
+[[bin]]
+name = "grid_demo"
+path = "src/main.rs"
+
+[features]
+default = ["parallel"]
+parallel = ["dep:rayon"]
+
+[dependencies]
+nalgebra = "0.33"
+rayon = { version = "1.10", optional = true }
+thiserror = "1.0"
+log = "0.4"
+
+[dev-dependencies]
+rand = "0.8"
