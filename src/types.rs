@@ -1,12 +1,13 @@
 use nalgebra::{Matrix3, Vector3};
+use serde::Serialize;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Pose {
     pub r: Matrix3<f32>,
     pub t: Vector3<f32>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct GridResult {
     pub found: bool,
     pub hmtx: Matrix3<f32>, // world->image homography

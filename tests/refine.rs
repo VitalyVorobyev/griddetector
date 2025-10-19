@@ -22,7 +22,10 @@ fn refiner_improves_checkerboard_hypothesis() {
     };
 
     let pyramid = Pyramid::build_u8(image, 3);
-    let coarsest = pyramid.levels.last().expect("pyramid has at least one level");
+    let coarsest = pyramid
+        .levels
+        .last()
+        .expect("pyramid has at least one level");
 
     let mut engine = LsdVpEngine::default();
     let hypothesis = engine
@@ -43,7 +46,12 @@ fn refiner_improves_checkerboard_hypothesis() {
         let segs = lsd_extract_segments(img, mag_thresh, angle_tol, min_len);
         println!(
             "debug refine-level idx={} size={}x{} segs={} mag_thresh={:.3} min_len={:.1}",
-            idx, img.w, img.h, segs.len(), mag_thresh, min_len
+            idx,
+            img.w,
+            img.h,
+            segs.len(),
+            mag_thresh,
+            min_len
         );
     }
 
@@ -55,7 +63,10 @@ fn refiner_improves_checkerboard_hypothesis() {
         .refine(&pyramid, h_initial)
         .expect("refinement should succeed");
 
-    assert!(result.confidence > 0.0, "expected positive refinement confidence");
+    assert!(
+        result.confidence > 0.0,
+        "expected positive refinement confidence"
+    );
     let delta = (result.h_refined - h_initial).norm();
     assert!(
         delta < 1e-2 || result.inlier_ratio > 0.5,

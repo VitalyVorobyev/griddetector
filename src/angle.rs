@@ -82,16 +82,25 @@ mod tests {
     #[test]
     fn normalize_half_pi_basic() {
         assert!(approx_eq(normalize_half_pi(0.5), 0.5));
-        assert!(approx_eq(normalize_half_pi(-std::f32::consts::FRAC_PI_4), 3.0 * std::f32::consts::FRAC_PI_4));
+        assert!(approx_eq(
+            normalize_half_pi(-std::f32::consts::FRAC_PI_4),
+            3.0 * std::f32::consts::FRAC_PI_4
+        ));
         assert!(approx_eq(normalize_half_pi(std::f32::consts::PI), 0.0));
-        assert!(approx_eq(normalize_half_pi(3.0 * std::f32::consts::PI), 0.0));
+        assert!(approx_eq(
+            normalize_half_pi(3.0 * std::f32::consts::PI),
+            0.0
+        ));
     }
 
     #[test]
     fn angular_difference_is_symmetric() {
         let a = 0.25f32;
         let b = 1.7f32;
-        assert!(approx_eq(angular_difference(a, b), angular_difference(b, a)));
+        assert!(approx_eq(
+            angular_difference(a, b),
+            angular_difference(b, a)
+        ));
     }
 
     #[test]

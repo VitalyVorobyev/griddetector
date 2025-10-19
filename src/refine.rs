@@ -38,6 +38,7 @@
 //! - The current energy uses line constraints; grid-spacing metric refinement
 //!   (equal spacing) is intentionally deferred to a later milestone.
 use crate::angle::{angle_between, vp_direction};
+use crate::diagnostics::RefinementLevelDiagnostics;
 use crate::pyramid::Pyramid;
 use crate::segments::{lsd_extract_segments, lsd_extract_segments_masked, Segment};
 use log::debug;
@@ -116,6 +117,8 @@ pub struct RefinementResult {
     pub inlier_ratio: f32,
     /// Number of pyramid levels that contributed to refinement.
     pub levels_used: usize,
+    /// Diagnostics per pyramid level visited (coarse to fine order).
+    pub level_reports: Vec<RefinementLevelDiagnostics>,
 }
 
 #[derive(Clone, Debug)]
@@ -145,11 +148,7 @@ impl Refiner {
     /// Expects `initial_h` to be expressed in the input image coordinates
     /// (i.e., already rescaled from the pyramid level it was estimated on).
     /// Returns `None` if there are insufficient constraints on all levels.
-    pub fn refine(
-        &self,
-        pyr: &Pyramid,
-        initial_h: Matrix3<f32>,
-    ) -> Option<RefinementResult> {
+    pub fn refine(&self, pyr: &Pyramid, initial_h: Matrix3<f32>) -> Option<RefinementResult> {
         if pyr.levels.is_empty() {
             debug!("Refiner: empty pyramid");
             return None;
@@ -162,6 +161,7 @@ impl Refiner {
         let mut accumulated_weight = 0.0f32;
 
         let levels = pyr.levels.len();
+        let mut level_reports: Vec<RefinementLevelDiagnostics> = Vec::new();
         let mut prev_bundles: Option<Vec<Bundle>> = None;
         let mut prev_level_dims: Option<(usize, usize)> = None;
         for (lvl_idx, img) in pyr.levels.iter().enumerate().rev() {
@@ -249,14 +249,24 @@ impl Refiner {
                 min_len,
                 self.params.angle_tol_deg
             );
-            debug!(
-                "Refiner: level {} bundles={}",
-                lvl_idx,
-                bundles.len()
-            );
+            debug!("Refiner: level {} bundles={}", lvl_idx, bundles.len());
 
             prev_bundles = Some(bundles.clone());
             prev_level_dims = Some((img.w, img.h));
+
+            let mut level_diag = RefinementLevelDiagnostics {
+                level_index: lvl_idx,
+                width: img.w,
+                height: img.h,
+                segments: segs.len(),
+                bundles: bundles.len(),
+                family_u_count: 0,
+                family_v_count: 0,
+                improvement: None,
+                confidence: None,
+                inlier_ratio: None,
+            };
+            let mut early_stop = false;
 
             if let Some(level_res) = self.refine_level(&bundles, current_h) {
                 let improvement = (frobenius_norm(&(level_res.h_new - current_h))
@@ -272,12 +282,21 @@ impl Refiner {
                 accumulated_weight += weight;
                 last_inlier_ratio = level_res.inlier_ratio;
                 last_good_h = current_h;
+                level_diag.family_u_count = level_res.family_u_count;
+                level_diag.family_v_count = level_res.family_v_count;
+                level_diag.improvement = Some(improvement);
+                level_diag.confidence = Some(level_res.confidence);
+                level_diag.inlier_ratio = Some(level_res.inlier_ratio);
                 if improvement < 1e-3 {
                     debug!("Refiner: early stop due to small improvement");
-                    break;
+                    early_stop = true;
                 }
             } else {
                 debug!("Refiner: level {} refinement failed, continuing", lvl_idx);
+            }
+            level_reports.push(level_diag);
+            if early_stop {
+                break;
             }
         }
 
@@ -289,15 +308,12 @@ impl Refiner {
                 confidence: (accumulated_conf / accumulated_weight).clamp(0.0, 1.0),
                 inlier_ratio: last_inlier_ratio,
                 levels_used: total_levels,
+                level_reports,
             })
         }
     }
 
-    fn refine_level(
-        &self,
-        bundles: &[Bundle],
-        h_current: Matrix3<f32>,
-    ) -> Option<LevelRefinement> {
+    fn refine_level(&self, bundles: &[Bundle], h_current: Matrix3<f32>) -> Option<LevelRefinement> {
         let vpu = h_current.column(0).into_owned();
         let vpv = h_current.column(1).into_owned();
         let anchor = h_current.column(2).into_owned();
@@ -334,18 +350,22 @@ impl Refiner {
         }
 
         let delta = self.params.huber_delta;
-        let (vpu_new, stats_u) = estimate_vp_huber(&fam_u, &vpu, delta, self.params.max_iterations)?;
-        let (vpv_new, stats_v) = estimate_vp_huber(&fam_v, &vpv, delta, self.params.max_iterations)?;
+        let (vpu_new, stats_u) =
+            estimate_vp_huber(&fam_u, &vpu, delta, self.params.max_iterations)?;
+        let (vpv_new, stats_v) =
+            estimate_vp_huber(&fam_v, &vpv, delta, self.params.max_iterations)?;
         let anchor_new = estimate_anchor(&fam_u, &fam_v).unwrap_or(anchor);
 
         let h_new = Matrix3::from_columns(&[vpu_new, vpv_new, anchor_new]);
-        let combined_inlier =
-            (stats_u.inlier_weight + stats_v.inlier_weight) / (stats_u.total_weight + stats_v.total_weight + EPS);
+        let combined_inlier = (stats_u.inlier_weight + stats_v.inlier_weight)
+            / (stats_u.total_weight + stats_v.total_weight + EPS);
         let confidence = ((stats_u.confidence + stats_v.confidence) * 0.5).clamp(0.0, 1.0);
         Some(LevelRefinement {
             h_new,
             confidence,
             inlier_ratio: combined_inlier,
+            family_u_count: fam_u.len(),
+            family_v_count: fam_v.len(),
         })
     }
 }
@@ -354,6 +374,8 @@ struct LevelRefinement {
     h_new: Matrix3<f32>,
     confidence: f32,
     inlier_ratio: f32,
+    family_u_count: usize,
+    family_v_count: usize,
 }
 
 struct VpStats {
@@ -384,7 +406,8 @@ fn bundle_segments(
                 adj_line[1] = -adj_line[1];
                 adj_line[2] = -adj_line[2];
             }
-            let dot_norm = (existing.line[0] * adj_line[0] + existing.line[1] * adj_line[1]).clamp(-1.0, 1.0);
+            let dot_norm =
+                (existing.line[0] * adj_line[0] + existing.line[1] * adj_line[1]).clamp(-1.0, 1.0);
             let angle = dot_norm.acos();
             let dist = (existing.line[2] - adj_line[2]).abs();
             if angle <= orientation_tol && dist <= dist_tol {
@@ -412,7 +435,9 @@ fn merge_bundle(target: &mut Bundle, line: &[f32; 3], seg: &Segment, weight: f32
     target.line[0] = (target.line[0] * target.weight + line[0] * weight) / total;
     target.line[1] = (target.line[1] * target.weight + line[1] * weight) / total;
     target.line[2] = (target.line[2] * target.weight + line[2] * weight) / total;
-    let norm = (target.line[0] * target.line[0] + target.line[1] * target.line[1]).sqrt().max(EPS);
+    let norm = (target.line[0] * target.line[0] + target.line[1] * target.line[1])
+        .sqrt()
+        .max(EPS);
     target.line[0] /= norm;
     target.line[1] /= norm;
     target.line[2] /= norm;
@@ -423,10 +448,7 @@ fn merge_bundle(target: &mut Bundle, line: &[f32; 3], seg: &Segment, weight: f32
 }
 
 fn segment_center(seg: &Segment) -> [f32; 2] {
-    [
-        0.5 * (seg.p0[0] + seg.p1[0]),
-        0.5 * (seg.p0[1] + seg.p1[1]),
-    ]
+    [0.5 * (seg.p0[0] + seg.p1[0]), 0.5 * (seg.p0[1] + seg.p1[1])]
 }
 
 fn bundle_tangent(bundle: &Bundle) -> [f32; 2] {
@@ -539,8 +561,12 @@ fn fallback_vp_from_bundles(bundles: &[&Bundle]) -> Option<(Vector3<f32>, VpStat
 }
 
 fn estimate_anchor(fam_u: &[&Bundle], fam_v: &[&Bundle]) -> Option<Vector3<f32>> {
-    let best_u = fam_u.iter().max_by(|a, b| a.weight.partial_cmp(&b.weight).unwrap())?;
-    let best_v = fam_v.iter().max_by(|a, b| a.weight.partial_cmp(&b.weight).unwrap())?;
+    let best_u = fam_u
+        .iter()
+        .max_by(|a, b| a.weight.partial_cmp(&b.weight).unwrap())?;
+    let best_v = fam_v
+        .iter()
+        .max_by(|a, b| a.weight.partial_cmp(&b.weight).unwrap())?;
     let line_u = Vector3::new(best_u.line[0], best_u.line[1], best_u.line[2]);
     let line_v = Vector3::new(best_v.line[0], best_v.line[1], best_v.line[2]);
     let cross = line_u.cross(&line_v);
