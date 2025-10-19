@@ -4,10 +4,12 @@ use common::synthetic_image::checkerboard_u8;
 use grid_detector::lsd_vp::Engine as LsdVpEngine;
 use grid_detector::pyramid::Pyramid;
 use grid_detector::refine::{RefineParams, Refiner};
+use grid_detector::segments::lsd_extract_segments;
 use nalgebra::Matrix3;
 
 #[test]
 fn refiner_improves_checkerboard_hypothesis() {
+    let _ = env_logger::builder().is_test(true).try_init();
     let width = 640usize;
     let height = 480usize;
     let cell = 32usize;
@@ -31,7 +33,24 @@ fn refiner_improves_checkerboard_hypothesis() {
     let scale = Matrix3::new(scale_x, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 1.0);
     let h_initial = scale * hypothesis.hmtx0;
 
-    let refiner = Refiner::new(RefineParams::default());
+    // Debug: check segment counts with refine's thresholds per level
+    let levels = pyramid.levels.len();
+    for (idx, img) in pyramid.levels.iter().enumerate().rev() {
+        let scale_lvl = 2.0f32.powi((levels - 1 - idx) as i32);
+        let mag_thresh = (0.03f32 / scale_lvl.sqrt()).max(0.005);
+        let min_len = (6.0f32 * scale_lvl).max(4.0);
+        let angle_tol = 20.0f32.to_radians();
+        let segs = lsd_extract_segments(img, mag_thresh, angle_tol, min_len);
+        println!(
+            "debug refine-level idx={} size={}x{} segs={} mag_thresh={:.3} min_len={:.1}",
+            idx, img.w, img.h, segs.len(), mag_thresh, min_len
+        );
+    }
+
+    let mut p = RefineParams::default();
+    p.min_bundle_weight = 1.0;
+    p.min_bundles_per_family = 2;
+    let refiner = Refiner::new(p);
     let result = refiner
         .refine(&pyramid, h_initial)
         .expect("refinement should succeed");

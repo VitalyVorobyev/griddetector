@@ -37,8 +37,9 @@
 //!   either pre-rectify or integrate distortion into the projection model.
 //! - The current energy uses line constraints; grid-spacing metric refinement
 //!   (equal spacing) is intentionally deferred to a later milestone.
+use crate::angle::{angle_between, vp_direction};
 use crate::pyramid::Pyramid;
-use crate::segments::{lsd_extract_segments, Segment};
+use crate::segments::{lsd_extract_segments, lsd_extract_segments_masked, Segment};
 use log::debug;
 use nalgebra::{Matrix3, Vector3};
 
@@ -65,6 +66,11 @@ pub struct RefineParams {
     /// Merge distance (pixels) between normalized lines when forming bundles;
     /// applied to the absolute difference of the line offsets (c terms).
     pub merge_dist_px: f32,
+    /// Half-width (pixels) of the ROI strip around expected lines at the
+    /// coarsest level when ROI restriction is enabled.
+    pub roi_band_px: f32,
+    /// Factor used to widen the ROI band once if insufficient support is found.
+    pub roi_widen_factor: f32,
     /// Huber delta (in pixels) controlling the inlier region for the IRLS
     /// re-estimation of vanishing points.
     pub huber_delta: f32,
@@ -75,6 +81,9 @@ pub struct RefineParams {
     pub min_bundle_weight: f32,
     /// Minimum number of bundles per family (u and v) to attempt an update.
     pub min_bundles_per_family: usize,
+    /// If true, restricts segment extraction on finer levels to ROIs predicted
+    /// from the previous level's bundles instead of scanning the whole image.
+    pub restrict_to_roi: bool,
 }
 
 impl Default for RefineParams {
@@ -85,10 +94,13 @@ impl Default for RefineParams {
             base_min_len: 6.0,
             orientation_tol_deg: 22.5,
             merge_dist_px: 1.5,
+            roi_band_px: 3.5,
+            roi_widen_factor: 1.75,
             huber_delta: 1.0,
             max_iterations: 6,
             min_bundle_weight: 3.0,
             min_bundles_per_family: 4,
+            restrict_to_roi: false,
         }
     }
 }
@@ -150,6 +162,8 @@ impl Refiner {
         let mut accumulated_weight = 0.0f32;
 
         let levels = pyr.levels.len();
+        let mut prev_bundles: Option<Vec<Bundle>> = None;
+        let mut prev_level_dims: Option<(usize, usize)> = None;
         for (lvl_idx, img) in pyr.levels.iter().enumerate().rev() {
             total_levels += 1;
             let scale = 2.0f32.powi((levels - 1 - lvl_idx) as i32);
@@ -157,31 +171,92 @@ impl Refiner {
             let min_len = (self.params.base_min_len * scale).max(4.0);
             let angle_tol = self.params.angle_tol_deg.to_radians();
 
-            let segs = lsd_extract_segments(img, mag_thresh, angle_tol, min_len);
+            let min_segments = 12;
+            let min_bundle_count = self.params.min_bundles_per_family * 2;
+            let mut segs_and_bundles: Option<(Vec<Segment>, Vec<Bundle>)> = None;
+            if self.params.restrict_to_roi {
+                if let (Some(prev), Some((prev_w, _))) = (&prev_bundles, prev_level_dims) {
+                    if prev_w > 0 && img.w > 0 {
+                        let scale_ratio = img.w as f32 / prev_w as f32;
+                        if scale_ratio.is_finite() && scale_ratio > 0.0 {
+                            let base_band = (self.params.roi_band_px * scale).max(1.0);
+                            let widen = self.params.roi_widen_factor.max(1.0);
+                            for attempt in 0..=1 {
+                                let band = if attempt == 0 {
+                                    base_band
+                                } else {
+                                    base_band * widen
+                                };
+                                let mask = build_roi_mask_from_bundles(
+                                    img.w,
+                                    img.h,
+                                    prev,
+                                    scale_ratio,
+                                    band,
+                                );
+                                let segs_roi = lsd_extract_segments_masked(
+                                    img,
+                                    mag_thresh,
+                                    angle_tol,
+                                    min_len,
+                                    Some(mask.as_slice()),
+                                );
+                                if segs_roi.len() < min_segments {
+                                    continue;
+                                }
+                                let bundles_roi = bundle_segments(
+                                    &segs_roi,
+                                    self.params.orientation_tol_deg.to_radians(),
+                                    self.params.merge_dist_px,
+                                    self.params.min_bundle_weight,
+                                );
+                                if bundles_roi.len() >= min_bundle_count {
+                                    segs_and_bundles = Some((segs_roi, bundles_roi));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            let (segs, bundles) = if let Some(pair) = segs_and_bundles {
+                pair
+            } else {
+                let segs = lsd_extract_segments(img, mag_thresh, angle_tol, min_len);
+                if segs.len() < min_segments {
+                    continue;
+                }
+                let bundles = bundle_segments(
+                    &segs,
+                    self.params.orientation_tol_deg.to_radians(),
+                    self.params.merge_dist_px,
+                    self.params.min_bundle_weight,
+                );
+                if bundles.len() < min_bundle_count {
+                    continue;
+                }
+                (segs, bundles)
+            };
+
             debug!(
-                "Refiner: level {} size {}x{} segs={}",
+                "Refiner: level {} size {}x{} segs={} mag_thresh={:.3} min_len={:.1} angle_tol_deg={:.1}",
                 lvl_idx,
                 img.w,
                 img.h,
-                segs.len()
-            );
-            if segs.len() < 12 {
-                continue;
-            }
-            let bundles = bundle_segments(
-                &segs,
-                self.params.orientation_tol_deg.to_radians(),
-                self.params.merge_dist_px,
-                self.params.min_bundle_weight,
+                segs.len(),
+                mag_thresh,
+                min_len,
+                self.params.angle_tol_deg
             );
             debug!(
                 "Refiner: level {} bundles={}",
                 lvl_idx,
                 bundles.len()
             );
-            if bundles.len() < self.params.min_bundles_per_family * 2 {
-                continue;
-            }
+
+            prev_bundles = Some(bundles.clone());
+            prev_level_dims = Some((img.w, img.h));
 
             if let Some(level_res) = self.refine_level(&bundles, current_h) {
                 let improvement = (frobenius_norm(&(level_res.h_new - current_h))
@@ -358,35 +433,7 @@ fn bundle_tangent(bundle: &Bundle) -> [f32; 2] {
     [-bundle.line[1], bundle.line[0]]
 }
 
-fn angle_between(a: &[f32; 2], b: &[f32; 2]) -> f32 {
-    let dot = a[0] * b[0] + a[1] * b[1];
-    let na = (a[0] * a[0] + a[1] * a[1]).sqrt().max(EPS);
-    let nb = (b[0] * b[0] + b[1] * b[1]).sqrt().max(EPS);
-    (dot / (na * nb)).clamp(-1.0, 1.0).acos()
-}
-
-fn vp_direction(vp: &Vector3<f32>, anchor: &Vector3<f32>) -> Option<[f32; 2]> {
-    if vp[2].abs() <= 1e-3 {
-        let norm = (vp[0] * vp[0] + vp[1] * vp[1]).sqrt();
-        if norm <= EPS {
-            return None;
-        }
-        Some([vp[0] / norm, vp[1] / norm])
-    } else {
-        let vx = vp[0] / vp[2];
-        let vy = vp[1] / vp[2];
-        let ax = anchor[0] / anchor[2];
-        let ay = anchor[1] / anchor[2];
-        let dx = vx - ax;
-        let dy = vy - ay;
-        let norm = (dx * dx + dy * dy).sqrt();
-        if norm <= EPS {
-            None
-        } else {
-            Some([dx / norm, dy / norm])
-        }
-    }
-}
+// angle_between and vp_direction moved to crate::angle
 
 fn huber_weight(residual: f32, delta: f32) -> (f32, bool) {
     let abs = residual.abs();
@@ -512,4 +559,36 @@ fn frobenius_norm(m: &Matrix3<f32>) -> f32 {
         }
     }
     sum.sqrt()
+}
+
+fn build_roi_mask_from_bundles(
+    width: usize,
+    height: usize,
+    bundles: &[Bundle],
+    scale_ratio: f32,
+    band: f32,
+) -> Vec<u8> {
+    let mut mask = vec![0u8; width * height];
+    if bundles.is_empty() {
+        return mask;
+    }
+    let adjusted: Vec<[f32; 3]> = bundles
+        .iter()
+        .map(|b| [b.line[0], b.line[1], b.line[2] * scale_ratio])
+        .collect();
+    for y in 0..height {
+        let yf = y as f32;
+        let row = y * width;
+        for x in 0..width {
+            let xf = x as f32;
+            for coeff in &adjusted {
+                let dist = (coeff[0] * xf + coeff[1] * yf + coeff[2]).abs();
+                if dist <= band {
+                    mask[row + x] = 1;
+                    break;
+                }
+            }
+        }
+    }
+    mask
 }

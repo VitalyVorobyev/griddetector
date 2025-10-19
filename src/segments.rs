@@ -146,10 +146,21 @@ pub fn lsd_extract_segments(
     angle_tol: f32,  // radians, tolerance around seed normal angle
     min_len: f32,    // min length in pixels at this level
 ) -> Vec<Segment> {
-    LsdExtractor::new(l, mag_thresh, angle_tol, min_len).extract()
+    lsd_extract_segments_masked(l, mag_thresh, angle_tol, min_len, None)
 }
 
-struct LsdExtractor {
+/// Same as [`lsd_extract_segments`] but restricts seeds and region growth to pixels where `mask == 1`.
+pub fn lsd_extract_segments_masked(
+    l: &ImageF32,
+    mag_thresh: f32,
+    angle_tol: f32,
+    min_len: f32,
+    mask: Option<&[u8]>,
+) -> Vec<Segment> {
+    LsdExtractor::new(l, mag_thresh, angle_tol, min_len, mask).extract()
+}
+
+struct LsdExtractor<'a> {
     grad: Grad,
     width: usize,
     height: usize,
@@ -162,14 +173,31 @@ struct LsdExtractor {
     stack: Vec<usize>,
     region: RegionAccumulator,
     segments: Vec<Segment>,
+    mask: Option<&'a [u8]>,
 }
 
-impl LsdExtractor {
-    fn new(l: &ImageF32, mag_thresh: f32, angle_tol: f32, min_len: f32) -> Self {
+impl<'a> LsdExtractor<'a> {
+    fn new(
+        l: &ImageF32,
+        mag_thresh: f32,
+        angle_tol: f32,
+        min_len: f32,
+        mask: Option<&'a [u8]>,
+    ) -> Self {
         let grad = sobel_gradients(l);
         let width = l.w;
         let height = l.h;
         let n = width * height;
+        if cfg!(debug_assertions) {
+            if let Some(m) = mask {
+                debug_assert!(
+                    m.len() >= n,
+                    "mask length {} must be at least width*height ({})",
+                    m.len(),
+                    n
+                );
+            }
+        }
         Self {
             grad,
             width,
@@ -183,6 +211,7 @@ impl LsdExtractor {
             stack: Vec::with_capacity(64),
             region: RegionAccumulator::with_capacity(128),
             segments: Vec::new(),
+            mask,
         }
     }
 
@@ -196,6 +225,11 @@ impl LsdExtractor {
     fn process_seed(&mut self, idx: usize) {
         if self.used[idx] != 0 {
             return;
+        }
+        if let Some(mask) = self.mask {
+            if mask[idx] == 0 {
+                return;
+            }
         }
         let x = idx % self.width;
         let y = idx / self.width;
@@ -236,6 +270,11 @@ impl LsdExtractor {
                     continue;
                 }
                 let neighbor_idx = yn as usize * self.width + xn as usize;
+                if let Some(mask) = self.mask {
+                    if mask[neighbor_idx] == 0 {
+                        continue;
+                    }
+                }
                 if self.used[neighbor_idx] != 0 {
                     continue;
                 }
@@ -368,7 +407,7 @@ mod tests {
     #[test]
     fn lsd_extractor_finds_vertical_segment() {
         let img = step_image(32, 32, 16);
-        let segs = LsdExtractor::new(&img, 0.1, std::f32::consts::FRAC_PI_6, 4.0).extract();
+        let segs = LsdExtractor::new(&img, 0.1, std::f32::consts::FRAC_PI_6, 4.0, None).extract();
         assert!(
             !segs.is_empty(),
             "expected at least one segment on a vertical edge"
@@ -392,7 +431,7 @@ mod tests {
     #[test]
     fn lsd_extractor_rejects_flat_image() {
         let img = ImageF32::new(16, 16);
-        let segs = LsdExtractor::new(&img, 0.05, std::f32::consts::FRAC_PI_4, 2.0).extract();
+        let segs = LsdExtractor::new(&img, 0.05, std::f32::consts::FRAC_PI_4, 2.0, None).extract();
         assert!(
             segs.is_empty(),
             "no segments should be detected in a flat image, got {:?}",
