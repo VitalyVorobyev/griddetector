@@ -25,13 +25,13 @@ Early stage, under active development. APIs may change. Expect rough edges and o
 
 Build the demo binary:
 
-```
+```sh
 cargo run --release --bin grid_demo
 ```
 
 Add the library to another project (until on crates.io, use Git):
 
-```
+```sh
 cargo add griddetector --git https://github.com/VitalyVorobyev/griddetector
 ```
 
@@ -55,7 +55,7 @@ println!("found={} latency_ms={:.3}", res.found, res.latency_ms);
 
 To enable optional parallelism:
 
-```
+```sh
 cargo run --release --features parallel --bin grid_demo
 ```
 
