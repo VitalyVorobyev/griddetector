@@ -42,17 +42,15 @@ use grid_detector::image::ImageU8;
 use grid_detector::{GridDetector, GridParams};
 use nalgebra::Matrix3;
 
-fn main() {
-    // Provide your grayscale 8‑bit image buffer
-    let (w, h) = (640usize, 480usize);
-    let gray = vec![0u8; w * h];
-    let img = ImageU8 { w, h, stride: w, data: &gray };
+// Provide your grayscale 8‑bit image buffer
+let (w, h) = (640usize, 480usize);
+let gray = vec![0u8; w * h];
+let img = ImageU8 { w, h, stride: w, data: &gray };
 
-    // Configure detector (set your camera intrinsics)
-    let mut det = GridDetector::new(GridParams { kmtx: Matrix3::identity(), ..Default::default() });
-    let res = det.process(img);
-    println!("found={} latency_ms={:.3}", res.found, res.latency_ms);
-}
+// Configure detector (set your camera intrinsics)
+let mut det = GridDetector::new(GridParams { kmtx: Matrix3::identity(), ..Default::default() });
+let res = det.process(img);
+println!("found={} latency_ms={:.3}", res.found, res.latency_ms);
 ```
 
 To enable optional parallelism:

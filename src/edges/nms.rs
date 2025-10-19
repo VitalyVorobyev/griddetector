@@ -60,7 +60,7 @@ pub fn detect_edges_sobel_nms(l: &ImageF32, mag_thresh: f32) -> Vec<EdgeElement>
                 angle_deg += 180.0;
             }
 
-            let (n1x, n1y, n2x, n2y) = if angle_deg < 22.5 || angle_deg >= 157.5 {
+            let (n1x, n1y, n2x, n2y) = if !(22.5..157.5).contains(&angle_deg) {
                 (x - 1, y, x + 1, y)
             } else if angle_deg < 67.5 {
                 (x + 1, y - 1, x - 1, y + 1)

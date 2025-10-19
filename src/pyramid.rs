@@ -51,9 +51,9 @@ impl Pyramid {
                 let dst = down.row_mut(y);
                 let sy = (y * 2).min(prev.h - 1);
                 let src = tmp.row(sy);
-                for x in 0..nw {
+                for (x, d) in dst.iter_mut().enumerate() {
                     let sx = (x * 2).min(prev.w - 1);
-                    dst[x] = src[sx];
+                    *d = src[sx];
                 }
             }
             out.push(down);

@@ -5,6 +5,7 @@ authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
 edition = "2021"
 license = "MIT"
 description = "High-performance regular grid/chessboard detector with image pyramid and pose recovery (Rust)"
+readme = "README.md"
 
 [lib]
 name = "grid_detector"
@@ -19,9 +20,9 @@ default = ["parallel"]
 parallel = ["dep:rayon"]
 
 [dependencies]
-nalgebra = { version = "0.33", features = ["serde-serialize"] }
-rayon = { version = "1.10", optional = true }
-thiserror = "1.0"
+nalgebra = { version = "0.34", features = ["serde-serialize"] }
+rayon = { version = "1.11", optional = true }
+thiserror = "2.0"
 log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

@@ -14,7 +14,7 @@ fn main() {
 }
 
 fn run() -> Result<(), String> {
-    let config_path = env::args().nth(1).ok_or_else(|| usage())?;
+    let config_path = env::args().nth(1).ok_or_else(usage)?;
     let config = edge::load_config(Path::new(&config_path))?;
 
     let gray = load_grayscale_image(&config.input)?;

@@ -6,6 +6,7 @@ use serde::{Deserialize, Deserializer};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -15,15 +16,6 @@ pub enum OutputFormat {
 }
 
 impl OutputFormat {
-    pub fn from_str(s: &str) -> Result<Self, String> {
-        match s.to_lowercase().as_str() {
-            "text" => Ok(Self::Text),
-            "json" => Ok(Self::Json),
-            "both" => Ok(Self::Both),
-            other => Err(format!("Unknown format '{other}'. Use text|json|both.")),
-        }
-    }
-
     pub fn includes_text(&self) -> bool {
         matches!(self, Self::Text | Self::Both)
     }
@@ -33,13 +25,26 @@ impl OutputFormat {
     }
 }
 
+impl FromStr for OutputFormat {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "text" => Ok(Self::Text),
+            "json" => Ok(Self::Json),
+            "both" => Ok(Self::Both),
+            other => Err(format!("Unknown format '{other}'. Use text|json|both.")),
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for OutputFormat {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        OutputFormat::from_str(&s).map_err(DeError::custom)
+        s.parse().map_err(DeError::custom)
     }
 }
 
@@ -102,7 +107,7 @@ fn parse_args(program: &str) -> Result<RuntimeConfig, String> {
                 let value = args
                     .next()
                     .ok_or_else(|| format!("--format expects a value\n{}", usage(program)))?;
-                format_override = Some(OutputFormat::from_str(&value)?);
+                format_override = Some(value.parse()?);
             }
             "--json-out" => {
                 let value = args
