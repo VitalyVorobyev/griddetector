@@ -1,5 +1,9 @@
 # griddetector
 
+[![CI](https://github.com/VitalyVorobyev/griddetector/actions/workflows/ci.yml/badge.svg)](https://github.com/VitalyVorobyev/griddetector/actions/workflows/ci.yml)
+[![Release](https://github.com/VitalyVorobyev/griddetector/actions/workflows/release.yml/badge.svg)](https://github.com/VitalyVorobyev/griddetector/actions/workflows/release.yml)
+[![Security Audit](https://github.com/VitalyVorobyev/griddetector/actions/workflows/audit.yml/badge.svg)](https://github.com/VitalyVorobyev/griddetector/actions/workflows/audit.yml)
+
 Edge-based grid/chessboard detector written in Rust. It builds an image pyramid, extracts line segments (LSD‑like), groups them into two dominant line families to estimate vanishing points, composes a coarse homography, and recovers camera pose.
 
 This repo contains both a library crate (`grid_detector`) and a tiny demo binary (`grid_demo`). The public API is intentionally small and focused.
@@ -76,6 +80,12 @@ cargo run --release --features parallel --bin grid_demo
 ## Contributing
 
 Issues and PRs are welcome. Please open an issue to discuss significant changes.
+
+## Continuous Integration
+
+- **CI** (`ci.yml`): runs on pushes and PRs targeting `main`, checking formatting, Clippy lints (all targets & features), docs, tests, and `cargo package`.
+- **Release** (`release.yml`): fires on tags matching `v*`, revalidates the workspace, builds release binaries, packages the crate, and publishes GitHub release assets (binary tarball, `.crate`, checksums).
+- **Security Audit** (`audit.yml`): scheduled weekly (Mondays 05:00 UTC) and on manual dispatch, running `cargo audit` against the latest advisory DB.
 
 ## License
 
