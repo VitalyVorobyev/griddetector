@@ -1,7 +1,9 @@
+pub mod angle;
 pub mod detector;
 pub mod edges;
 pub mod lsd_vp;
 pub mod pyramid;
+pub mod refine;
 pub mod segments;
 pub mod types;
 

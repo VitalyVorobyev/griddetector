@@ -1,3 +1,25 @@
+//! Grayscale image pyramid with separable Gaussian blur and 2× decimation.
+//!
+//! Purpose
+//! - Build a multi-resolution representation to speed up coarse hypothesis
+//!   search (on low-res levels) and enable coarse-to-fine refinement.
+//!
+//! Design
+//! - L0 converts 8-bit grayscale input to `ImageF32` in [0,1].
+//! - Each subsequent level applies a separable 5-tap Gaussian blur
+//!   (kernel ≈ [1,4,6,4,1]/16) followed by 2× decimation.
+//! - Boundary handling uses clamping (replicate border) via saturating/`min`.
+//! - Storage uses a compact row-major buffer with `stride == w`.
+//!
+//! Notes
+//! - Values remain in [0,1] due to linear filtering on [0,1] input.
+//! - For square grids, 3–5 levels typically give a good speed/quality tradeoff
+//!   at common resolutions (e.g., 1280×1024).
+//! - The decimation is center-aligned by picking every other pixel post-blur.
+//!
+//! Complexity
+//! - Per level O(W·H) with two 1D passes (horizontal + vertical).
+//! - Memory O(sum of levels), typically ~4/3 of base image for 2× pyramids.
 use crate::types::{ImageF32, ImageU8};
 
 #[derive(Clone, Debug)]

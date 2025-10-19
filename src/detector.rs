@@ -1,5 +1,6 @@
 use crate::lsd_vp::Engine as LsdVpEngine;
 use crate::pyramid::Pyramid;
+use crate::refine::{RefineParams, Refiner};
 use crate::types::{GridResult, ImageU8, Pose};
 use log::debug;
 use nalgebra::Matrix3;
@@ -14,6 +15,8 @@ pub struct GridParams {
     pub canny_high: f32,
     pub min_cells: i32,
     pub confidence_thresh: f32,
+    pub enable_refine: bool,
+    pub refine_params: RefineParams,
 }
 
 impl Default for GridParams {
@@ -26,6 +29,8 @@ impl Default for GridParams {
             canny_high: 60.0,
             min_cells: 6,
             confidence_thresh: 0.35,
+            enable_refine: true,
+            refine_params: RefineParams::default(),
         }
     }
 }
@@ -33,13 +38,16 @@ impl Default for GridParams {
 pub struct GridDetector {
     params: GridParams,
     last_hmtx: Option<Matrix3<f32>>,
+    refiner: Refiner,
 }
 
 impl GridDetector {
     pub fn new(params: GridParams) -> Self {
+        let refiner = Refiner::new(params.refine_params.clone());
         Self {
             params,
             last_hmtx: None,
+            refiner,
         }
     }
 
@@ -62,34 +70,55 @@ impl GridDetector {
         // 2) Low-res hypothesis with LSD→VP engine
         let l = pyr.levels.last().unwrap();
         let mut engine = LsdVpEngine::default();
-        let mut hmtx0 = Matrix3::<f32>::identity();
         let mut confidence = 0.0f32;
-        let mut hmtx = Matrix3::<f32>::identity();
+        let mut h_candidate = None;
         if let Some(hyp) = engine.infer(l) {
-            hmtx0 = hyp.hmtx0;
             confidence = hyp.confidence;
             if l.w > 0 && l.h > 0 {
                 let scale_x = width as f32 / l.w as f32;
                 let scale_y = height as f32 / l.h as f32;
                 let scale = Matrix3::new(scale_x, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 1.0);
-                hmtx = scale * hmtx0;
-                self.last_hmtx = Some(hmtx);
+                let scaled = scale * hyp.hmtx0;
+                h_candidate = Some(scaled);
                 debug!(
                     "GridDetector::process hypothesis confidence={:.3} scale=({:.3},{:.3})",
                     confidence, scale_x, scale_y
                 );
             } else {
                 debug!("GridDetector::process coarsest level has zero dimension, skipping scale");
+                h_candidate = Some(hyp.hmtx0);
             }
         } else {
             debug!("GridDetector::process LSD→VP engine returned no hypothesis");
         }
-        // 3) Refinement (placeholder)
-        let hmtx = if hmtx != Matrix3::identity() {
-            hmtx
-        } else {
-            hmtx0
-        }; // TODO: refine via edge bundles & robust fit
+        let mut hmtx = h_candidate.unwrap_or_else(Matrix3::identity);
+
+        // 3) Refinement
+        if self.params.enable_refine && h_candidate.is_some() && hmtx != Matrix3::identity() {
+            match self.refiner.refine(&pyr, hmtx) {
+                Some(refine_res) => {
+                    debug!(
+                        "GridDetector::process refine confidence={:.3} inlier_ratio={:.3} levels_used={}",
+                        refine_res.confidence, refine_res.inlier_ratio, refine_res.levels_used
+                    );
+                    hmtx = refine_res.h_refined;
+                    confidence = combine_confidence(confidence, refine_res.confidence, refine_res.inlier_ratio);
+                }
+                None => {
+                    if let Some(prev) = self.last_hmtx {
+                        debug!("GridDetector::process refine failed -> fallback to last_hmtx");
+                        hmtx = prev;
+                        confidence *= 0.5;
+                    } else {
+                        debug!("GridDetector::process refine failed -> keeping coarse hypothesis");
+                    }
+                }
+            }
+        }
+
+        if hmtx != Matrix3::identity() {
+            self.last_hmtx = Some(hmtx);
+        }
 
         // 4) Pose recovery from H and intrinsics
         let found = hmtx != Matrix3::identity() && confidence >= self.params.confidence_thresh;
@@ -122,6 +151,15 @@ impl GridDetector {
     pub fn set_spacing(&mut self, s_mm: f32) {
         self.params.spacing_mm = s_mm;
     }
+    pub fn set_refine_params(&mut self, params: RefineParams) {
+        self.params.refine_params = params.clone();
+        self.refiner = Refiner::new(params);
+    }
+}
+
+fn combine_confidence(base: f32, refine_conf: f32, inlier_ratio: f32) -> f32 {
+    let blended = 0.5 * base + 0.5 * refine_conf;
+    (blended * inlier_ratio.clamp(0.0, 1.0)).clamp(0.0, 1.0)
 }
 
 fn pose_from_h(k: Matrix3<f32>, h: Matrix3<f32>) -> Pose {
