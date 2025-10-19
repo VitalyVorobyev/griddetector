@@ -60,6 +60,47 @@ impl Pyramid {
         }
         Self { levels: out }
     }
+
+    /// Build a pyramid where only the first `blur_levels` downscale steps
+    /// apply Gaussian blur before 2× decimation. If `blur_levels >= levels`,
+    /// blur is applied at all steps (same as `build_u8`). If `blur_levels == 0`,
+    /// no blur is applied at any step.
+    pub fn build_u8_with_blur_levels(gray: ImageU8, levels: usize, blur_levels: usize) -> Self {
+        let mut out = Vec::with_capacity(levels);
+        // L0: convert to f32 [0,1]
+        let mut l0 = ImageF32::new(gray.w, gray.h);
+        for y in 0..gray.h {
+            let src = gray.row(y);
+            let dst = l0.row_mut(y);
+            for x in 0..gray.w {
+                dst[x] = src[x] as f32 / 255.0;
+            }
+        }
+        out.push(l0);
+        for lvl in 1..levels {
+            let prev = &out[lvl - 1];
+            let (nw, nh) = (prev.w.div_ceil(2), prev.h.div_ceil(2));
+            let mut tmp = ImageF32::new(prev.w, prev.h);
+            let use_blur = lvl <= blur_levels;
+            if use_blur {
+                gaussian5x5_sep(prev, &mut tmp);
+            }
+            let src_img = if use_blur { &tmp } else { prev };
+            let mut down = ImageF32::new(nw, nh);
+            // 2x decimation (pick every other pixel)
+            for y in 0..nh {
+                let dst = down.row_mut(y);
+                let sy = (y * 2).min(src_img.h - 1);
+                let src = src_img.row(sy);
+                for (x, d) in dst.iter_mut().enumerate() {
+                    let sx = (x * 2).min(src_img.w - 1);
+                    *d = src[sx];
+                }
+            }
+            out.push(down);
+        }
+        Self { levels: out }
+    }
 }
 
 /// Simple 5-tap separable Gaussian (approx sigma≈1)

@@ -13,7 +13,7 @@ Builds a grayscale image pyramid using a separable 5‑tap Gaussian followed by 
    - Convert 8‑bit grayscale to `f32` in `[0, 1]`.
 
 2. For each next level (Lk → Lk+1)
-   - Apply separable 1D Gaussian blur with kernel `[1, 4, 6, 4, 1]/16`:
+   - Optionally apply separable 1D Gaussian blur with kernel `[1, 4, 6, 4, 1]/16`:
      - Horizontal pass, then vertical pass.
      - Borders use clamping (replicate) via index saturation.
    - Decimate by 2×: pick every other pixel `[2x, 2y]` from the blurred image.
@@ -40,3 +40,9 @@ let pyr = Pyramid::build_u8(gray, 4);
 - For 1280×1024 inputs, 3–5 levels balance speed and detection stability.
 - The blur is intentionally small and separable for performance; consider SIMD/parallelisation (`rayon`) if profiling shows this as a bottleneck.
 - If aliasing is observed at fine textures, slightly increase the blur strength or add a pre‑blur at L0.
+
+## Blur control
+
+- By default, blur is applied before every 2× downscale step.
+- You can limit blurring to only the first N downscale steps via configuration used by the CLI tools (`coarse_edges`, `coarse_segments`).
+- Programmatically, call `Pyramid::build_u8_with_blur_levels(gray, levels, blur_levels)` where `blur_levels` is the number of downscale steps that use blur (0 = never, `levels-1` = all).

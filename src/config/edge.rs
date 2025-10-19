@@ -17,11 +17,20 @@ pub struct EdgeToolConfig {
 #[serde(default)]
 pub struct PyramidConfig {
     pub levels: usize,
+    /// How many downscale steps apply Gaussian blur before decimation.
+    ///
+    /// - `None` (default): blur on all steps (legacy behavior).
+    /// - `0`: never blur (fastest, may alias).
+    /// - `1`: blur only before the first 2× downscale, etc.
+    pub blur_levels: Option<usize>,
 }
 
 impl Default for PyramidConfig {
     fn default() -> Self {
-        Self { levels: 4 }
+        Self {
+            levels: 4,
+            blur_levels: None,
+        }
     }
 }
 

@@ -1,0 +1,19 @@
+{
+    "input": "data/sample_board.png",
+    "pyramid": {
+        "levels": 4,
+        "blur_levels": 2
+    },
+    "lsd": {
+        "magnitude_threshold": 0.2,
+        "angle_tolerance_deg": 12.0,
+        "min_length": 10.0,
+        "enforce_polarity": false,
+        "limit_normal_span": false,
+        "normal_span_limit_px": 2.0
+    },
+    "output": {
+        "coarsest_image": "out/coarsest_level_segments.png",
+        "segments_json": "out/coarsest_segments.json"
+    }
+}
