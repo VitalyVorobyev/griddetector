@@ -27,7 +27,10 @@ pub struct PyramidConfig {
 
 impl Default for PyramidConfig {
     fn default() -> Self {
-        Self { levels: 4, blur_levels: None }
+        Self {
+            levels: 4,
+            blur_levels: None,
+        }
     }
 }
 
