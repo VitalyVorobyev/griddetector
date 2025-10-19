@@ -5,14 +5,14 @@
 //!   search (on low-res levels) and enable coarse-to-fine refinement.
 //!
 //! Design
-//! - L0 converts 8-bit grayscale input to `ImageF32` in [0,1].
+//! - L0 converts 8-bit grayscale input to `ImageF32` in \[0,1\].
 //! - Each subsequent level applies a separable 5-tap Gaussian blur
-//!   (kernel ≈ [1,4,6,4,1]/16) followed by 2× decimation.
+//!   (kernel ≈ \[1,4,6,4,1\]/16) followed by 2× decimation.
 //! - Boundary handling uses clamping (replicate border) via saturating/`min`.
 //! - Storage uses a compact row-major buffer with `stride == w`.
 //!
 //! Notes
-//! - Values remain in [0,1] due to linear filtering on [0,1] input.
+//! - Values remain in \[0,1\] due to linear filtering on \[0,1\] input.
 //! - For square grids, 3–5 levels typically give a good speed/quality tradeoff
 //!   at common resolutions (e.g., 1280×1024).
 //! - The decimation is center-aligned by picking every other pixel post-blur.
