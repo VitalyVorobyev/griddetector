@@ -32,7 +32,7 @@ cargo run --release --bin grid_demo
 Add the library to another project (until on crates.io, use Git):
 
 ```
-cargo add griddetector --git https://github.com/yourname/griddetector
+cargo add griddetector --git https://github.com/VitalyVorobyev/griddetector
 ```
 
 Minimal usage example:
@@ -64,12 +64,23 @@ cargo run --release --features parallel --bin grid_demo
 ## Modules Overview
 
 - `image`: lightweight image views/owners plus I/O helpers (see doc/image.md)
-- `pyramid`: grayscale `ImageU8` → multi‑level `ImageF32` pyramid
-- `edges`: Sobel/Scharr gradient utilities and orientation quantization
-- `segments`: LSD‑like region growing and PCA line fitting
-- `lsd_vp`: coarse vanishing‑point engine that returns an H₀ hypothesis
+- `pyramid`: grayscale `ImageU8` → multi‑level `ImageF32` pyramid ([doc/pyramid.md](doc/pyramid.md))
+- `edges`: Sobel/Scharr gradients and NMS ([doc/edges.md](doc/edges.md))
+- `segments`: LSD‑like region growing and PCA line fitting ([doc/segments.md](doc/segments.md))
+- `lsd_vp`: coarse vanishing‑point hypothesis ([doc/lsd_vp.md](doc/lsd_vp.md))
+- `refine`: coarse‑to‑fine homography refinement ([doc/refine.md](doc/refine.md))
 - `detector`: end‑to‑end pipeline wrapper that builds the pyramid, runs the engine, and recovers pose
 - `types`: result and pose structs (`GridResult`, `Pose`)
+
+## Documentation
+
+- Image module: [doc/image.md](doc/image.md)
+- Pyramid: [doc/pyramid.md](doc/pyramid.md)
+- Edges: [doc/edges.md](doc/edges.md)
+- Segments: [doc/segments.md](doc/segments.md)
+- LSD→VP: [doc/lsd_vp.md](doc/lsd_vp.md)
+- Refinement: [doc/refine.md](doc/refine.md)
+- Roadmap: [doc/roadmap.md](doc/roadmap.md)
 
 ## Roadmap
 
