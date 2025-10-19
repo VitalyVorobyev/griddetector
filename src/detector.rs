@@ -1,6 +1,7 @@
 use crate::lsd_vp::Engine as LsdVpEngine;
 use crate::pyramid::Pyramid;
 use crate::types::{GridResult, ImageU8, Pose};
+use log::debug;
 use nalgebra::Matrix3;
 use std::time::Instant;
 
@@ -12,6 +13,7 @@ pub struct GridParams {
     pub canny_low: f32,
     pub canny_high: f32,
     pub min_cells: i32,
+    pub confidence_thresh: f32,
 }
 
 impl Default for GridParams {
@@ -23,6 +25,7 @@ impl Default for GridParams {
             canny_low: 20.0,
             canny_high: 60.0,
             min_cells: 6,
+            confidence_thresh: 0.35,
         }
     }
 }
@@ -41,31 +44,67 @@ impl GridDetector {
     }
 
     pub fn process(&mut self, gray: ImageU8) -> GridResult {
-        let t0 = Instant::now();
+        let (width, height) = (gray.w, gray.h);
+        debug!(
+            "GridDetector::process start w={} h={} levels={}",
+            width, height, self.params.pyramid_levels
+        );
+        let total_start = Instant::now();
+
+        let pyr_start = Instant::now();
         // 1) Pyramid
         let pyr = Pyramid::build_u8(gray, self.params.pyramid_levels);
+        let pyr_ms = pyr_start.elapsed().as_secs_f64() * 1000.0;
+        debug!(
+            "GridDetector::process pyramid built in {:.3} ms",
+            pyr_ms
+        );
         // 2) Low-res hypothesis with LSD→VP engine
         let l = pyr.levels.last().unwrap();
         let mut engine = LsdVpEngine::default();
         let mut hmtx0 = Matrix3::<f32>::identity();
         let mut confidence = 0.0f32;
+        let mut hmtx = Matrix3::<f32>::identity();
         if let Some(hyp) = engine.infer(l) {
             hmtx0 = hyp.hmtx0;
             confidence = hyp.confidence;
-            self.last_hmtx = Some(hmtx0);
+            if l.w > 0 && l.h > 0 {
+                let scale_x = width as f32 / l.w as f32;
+                let scale_y = height as f32 / l.h as f32;
+                let scale = Matrix3::new(scale_x, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 1.0);
+                hmtx = scale * hmtx0;
+                self.last_hmtx = Some(hmtx);
+                debug!(
+                    "GridDetector::process hypothesis confidence={:.3} scale=({:.3},{:.3})",
+                    confidence, scale_x, scale_y
+                );
+            } else {
+                debug!("GridDetector::process coarsest level has zero dimension, skipping scale");
+            }
+        } else {
+            debug!("GridDetector::process LSD→VP engine returned no hypothesis");
         }
         // 3) Refinement (placeholder)
-        let hmtx = hmtx0; // TODO: refine via edge bundles & robust fit
+        let hmtx = if hmtx != Matrix3::identity() {
+            hmtx
+        } else {
+            hmtx0
+        }; // TODO: refine via edge bundles & robust fit
 
         // 4) Pose recovery from H and intrinsics
-        let pose = if hmtx != Matrix3::identity() {
+        let found = hmtx != Matrix3::identity() && confidence >= self.params.confidence_thresh;
+        let pose = if found {
             Some(pose_from_h(self.params.kmtx, hmtx))
         } else {
             None
         };
-        let latency = t0.elapsed().as_secs_f64() * 1000.0;
+        let latency = total_start.elapsed().as_secs_f64() * 1000.0;
+        debug!(
+            "GridDetector::process done found={} confidence={:.3} latency_ms={:.3}",
+            found, confidence, latency
+        );
         GridResult {
-            found: false, // flip to true when H is valid
+            found,
             hmtx,
             pose,
             origin_uv: (0, 0),

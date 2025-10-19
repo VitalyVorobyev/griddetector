@@ -1,6 +1,8 @@
 use crate::segments::{lsd_extract_segments, Segment};
 use crate::types::ImageF32;
+use log::debug;
 use nalgebra::{Matrix3, Vector3};
+use std::time::Instant;
 
 /// Coarse hypothesis returned by the LSD→VP engine
 #[derive(Clone, Debug)]
@@ -34,6 +36,7 @@ impl Default for Engine {
 impl Engine {
     /// Run the engine on a single pyramid level image. Returns a coarse H0 if successful.
     pub fn infer(&mut self, l: &ImageF32) -> Option<Hypothesis> {
+        let t0 = Instant::now();
         // 1) LSD-like segment extraction
         let segs = lsd_extract_segments(
             l,
@@ -42,7 +45,12 @@ impl Engine {
             self.min_len,
         );
         if segs.len() < 12 {
-            // TODO: log debug "too few segments"
+            debug!(
+                "LSD-VP: insufficient segments on level {}x{} ({} < 12)",
+                l.w,
+                l.h,
+                segs.len()
+            );
             return None;
         }
 
@@ -89,6 +97,10 @@ impl Engine {
             }
         }
         if first == second || hist[first] <= 0.0 || hist[second] <= 0.0 {
+            debug!(
+                "LSD-VP: dominant orientation peaks invalid (first={}, second={})",
+                first, second
+            );
             return None;
         }
         let a1 = (first as f32 + 0.5) * bin_w;
@@ -109,6 +121,11 @@ impl Engine {
             }
         }
         if fam1.len() < 6 || fam2.len() < 6 {
+            debug!(
+                "LSD-VP: insufficient family support fam1={} fam2={}",
+                fam1.len(),
+                fam2.len()
+            );
             return None;
         }
 
@@ -130,6 +147,16 @@ impl Engine {
             * (fam2.len().min(50) as f32 / 50.0)
             * (sep / (0.5 * std::f32::consts::PI)).min(1.0))
         .clamp(0.0, 1.0);
+        let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
+        debug!(
+            "LSD-VP: segs={} fam1={} fam2={} sep_deg={:.1} confidence={:.3} elapsed_ms={:.3}",
+            segs.len(),
+            fam1.len(),
+            fam2.len(),
+            sep.to_degrees(),
+            conf,
+            elapsed_ms
+        );
         Some(Hypothesis {
             hmtx0,
             confidence: conf,
@@ -164,7 +191,21 @@ fn estimate_vp(segs: &Vec<&Segment>) -> Option<Vector3<f32>> {
     }
     let det = a11 * a22 - a12 * a12;
     if det.abs() < 1e-6 {
-        return None;
+        debug!("LSD-VP: normal matrix near-singular when estimating VP, falling back to point at infinity");
+        let mut sum_tx = 0.0f32;
+        let mut sum_ty = 0.0f32;
+        for s in segs.iter() {
+            sum_tx += s.dir[0];
+            sum_ty += s.dir[1];
+        }
+        let norm = (sum_tx * sum_tx + sum_ty * sum_ty).sqrt();
+        if norm < 1e-6 {
+            debug!("LSD-VP: fallback direction degenerate");
+            return None;
+        }
+        let dir_x = sum_tx / norm;
+        let dir_y = sum_ty / norm;
+        return Some(Vector3::new(dir_x, dir_y, 0.0));
     }
     let inv11 = a22 / det;
     let inv12 = -a12 / det;
