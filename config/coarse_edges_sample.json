@@ -1,0 +1,13 @@
+{
+    "input": "data/sample_board.png",
+    "pyramid": {
+        "levels": 4
+    },
+    "edge": {
+        "magnitude_threshold": 0.12
+    },
+    "output": {
+        "coarsest_image": "out/coarsest_level.png",
+        "edges_json": "out/coarsest_edges.json"
+    }
+}
