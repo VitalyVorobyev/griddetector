@@ -1,6 +1,12 @@
+use crate::diagnostics::{
+    DetailedResult, LsdDiagnostics, ProcessingDiagnostics, PyramidLevelDiagnostics,
+    RefinementDiagnostics,
+};
+use crate::image::{ImageU8, ImageView};
 use crate::lsd_vp::Engine as LsdVpEngine;
 use crate::pyramid::Pyramid;
-use crate::types::{GridResult, ImageU8, Pose};
+use crate::refine::{RefineParams, Refiner};
+use crate::types::{GridResult, Pose};
 use log::debug;
 use nalgebra::Matrix3;
 use std::time::Instant;
@@ -10,10 +16,10 @@ pub struct GridParams {
     pub pyramid_levels: usize,
     pub spacing_mm: f32,
     pub kmtx: Matrix3<f32>,
-    pub canny_low: f32,
-    pub canny_high: f32,
     pub min_cells: i32,
     pub confidence_thresh: f32,
+    pub enable_refine: bool,
+    pub refine_params: RefineParams,
 }
 
 impl Default for GridParams {
@@ -22,28 +28,57 @@ impl Default for GridParams {
             pyramid_levels: 4,
             spacing_mm: 5.0,
             kmtx: Matrix3::identity(),
-            canny_low: 20.0,
-            canny_high: 60.0,
             min_cells: 6,
             confidence_thresh: 0.35,
+            enable_refine: true,
+            refine_params: RefineParams::default(),
         }
+    }
+}
+
+fn rescale_lsd_segments(diag: &mut LsdDiagnostics, scale_x: f32, scale_y: f32) {
+    if !scale_x.is_finite() || !scale_y.is_finite() {
+        return;
+    }
+    for seg in &mut diag.segments_sample {
+        let old_len = seg.len;
+        seg.p0[0] *= scale_x;
+        seg.p0[1] *= scale_y;
+        seg.p1[0] *= scale_x;
+        seg.p1[1] *= scale_y;
+        let dx = seg.p1[0] - seg.p0[0];
+        let dy = seg.p1[1] - seg.p0[1];
+        let new_len = (dx * dx + dy * dy).sqrt();
+        if old_len > f32::EPSILON {
+            seg.strength *= new_len / old_len;
+        } else if new_len <= f32::EPSILON {
+            seg.strength = 0.0;
+        }
+        seg.len = new_len;
     }
 }
 
 pub struct GridDetector {
     params: GridParams,
     last_hmtx: Option<Matrix3<f32>>,
+    refiner: Refiner,
 }
 
 impl GridDetector {
     pub fn new(params: GridParams) -> Self {
+        let refiner = Refiner::new(params.refine_params.clone());
         Self {
             params,
             last_hmtx: None,
+            refiner,
         }
     }
 
     pub fn process(&mut self, gray: ImageU8) -> GridResult {
+        self.process_with_diagnostics(gray).result
+    }
+
+    pub fn process_with_diagnostics(&mut self, gray: ImageU8) -> DetailedResult {
         let (width, height) = (gray.w, gray.h);
         debug!(
             "GridDetector::process start w={} h={} levels={}",
@@ -52,46 +87,96 @@ impl GridDetector {
         let total_start = Instant::now();
 
         let pyr_start = Instant::now();
-        // 1) Pyramid
         let pyr = Pyramid::build_u8(gray, self.params.pyramid_levels);
         let pyr_ms = pyr_start.elapsed().as_secs_f64() * 1000.0;
-        debug!(
-            "GridDetector::process pyramid built in {:.3} ms",
-            pyr_ms
-        );
-        // 2) Low-res hypothesis with LSD→VP engine
+        debug!("GridDetector::process pyramid built in {:.3} ms", pyr_ms);
+
+        let pyramid_levels_diag = pyr
+            .levels
+            .iter()
+            .enumerate()
+            .map(|(level, lvl)| {
+                let sum: f32 = if let Some(slice) = lvl.as_slice() {
+                    slice.iter().copied().sum()
+                } else {
+                    lvl.rows().map(|r| r.iter().copied().sum::<f32>()).sum()
+                };
+                let denom = (lvl.w * lvl.h).max(1) as f32;
+                PyramidLevelDiagnostics {
+                    level,
+                    width: lvl.w,
+                    height: lvl.h,
+                    mean_intensity: sum / denom,
+                }
+            })
+            .collect::<Vec<_>>();
+
         let l = pyr.levels.last().unwrap();
         let mut engine = LsdVpEngine::default();
-        let mut hmtx0 = Matrix3::<f32>::identity();
         let mut confidence = 0.0f32;
-        let mut hmtx = Matrix3::<f32>::identity();
-        if let Some(hyp) = engine.infer(l) {
-            hmtx0 = hyp.hmtx0;
+        let mut h_candidate = None;
+        let mut lsd_diag = None;
+        if let Some(mut hyp) = engine.infer(l) {
             confidence = hyp.confidence;
+            let hmtx0 = hyp.hmtx0;
             if l.w > 0 && l.h > 0 {
                 let scale_x = width as f32 / l.w as f32;
                 let scale_y = height as f32 / l.h as f32;
+                rescale_lsd_segments(&mut hyp.diagnostics, scale_x, scale_y);
                 let scale = Matrix3::new(scale_x, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 1.0);
-                hmtx = scale * hmtx0;
-                self.last_hmtx = Some(hmtx);
+                let scaled = scale * hmtx0;
+                h_candidate = Some(scaled);
                 debug!(
                     "GridDetector::process hypothesis confidence={:.3} scale=({:.3},{:.3})",
                     confidence, scale_x, scale_y
                 );
             } else {
                 debug!("GridDetector::process coarsest level has zero dimension, skipping scale");
+                h_candidate = Some(hmtx0);
             }
+            lsd_diag = Some(hyp.diagnostics.clone());
         } else {
             debug!("GridDetector::process LSD→VP engine returned no hypothesis");
         }
-        // 3) Refinement (placeholder)
-        let hmtx = if hmtx != Matrix3::identity() {
-            hmtx
-        } else {
-            hmtx0
-        }; // TODO: refine via edge bundles & robust fit
+        let mut hmtx = h_candidate.unwrap_or_else(Matrix3::identity);
 
-        // 4) Pose recovery from H and intrinsics
+        let mut refinement_diag = None;
+        if self.params.enable_refine && h_candidate.is_some() && hmtx != Matrix3::identity() {
+            match self.refiner.refine(&pyr, hmtx) {
+                Some(refine_res) => {
+                    debug!(
+                        "GridDetector::process refine confidence={:.3} inlier_ratio={:.3} levels_used={}",
+                        refine_res.confidence, refine_res.inlier_ratio, refine_res.levels_used
+                    );
+                    refinement_diag = Some(RefinementDiagnostics {
+                        levels_used: refine_res.levels_used,
+                        aggregated_confidence: refine_res.confidence,
+                        final_inlier_ratio: refine_res.inlier_ratio,
+                        levels: refine_res.level_reports.clone(),
+                    });
+                    hmtx = refine_res.h_refined;
+                    confidence = combine_confidence(
+                        confidence,
+                        refine_res.confidence,
+                        refine_res.inlier_ratio,
+                    );
+                }
+                None => {
+                    if let Some(prev) = self.last_hmtx {
+                        debug!("GridDetector::process refine failed -> fallback to last_hmtx");
+                        hmtx = prev;
+                        confidence *= 0.5;
+                    } else {
+                        debug!("GridDetector::process refine failed -> keeping coarse hypothesis");
+                    }
+                }
+            }
+        }
+
+        if hmtx != Matrix3::identity() {
+            self.last_hmtx = Some(hmtx);
+        }
+
         let found = hmtx != Matrix3::identity() && confidence >= self.params.confidence_thresh;
         let pose = if found {
             Some(pose_from_h(self.params.kmtx, hmtx))
@@ -103,7 +188,7 @@ impl GridDetector {
             "GridDetector::process done found={} confidence={:.3} latency_ms={:.3}",
             found, confidence, latency
         );
-        GridResult {
+        let result = GridResult {
             found,
             hmtx,
             pose,
@@ -111,8 +196,22 @@ impl GridDetector {
             visible_range: (0, 0, 0, 0),
             coverage: 0.0,
             reproj_rmse: 0.0,
-            confidence: confidence,
+            confidence,
             latency_ms: latency,
+        };
+        let diagnostics = ProcessingDiagnostics {
+            input_width: width,
+            input_height: height,
+            pyramid_levels: pyramid_levels_diag,
+            pyramid_build_ms: pyr_ms,
+            lsd: lsd_diag,
+            refinement: refinement_diag,
+            homography: hmtx,
+            total_latency_ms: latency,
+        };
+        DetailedResult {
+            result,
+            diagnostics,
         }
     }
 
@@ -122,6 +221,15 @@ impl GridDetector {
     pub fn set_spacing(&mut self, s_mm: f32) {
         self.params.spacing_mm = s_mm;
     }
+    pub fn set_refine_params(&mut self, params: RefineParams) {
+        self.params.refine_params = params.clone();
+        self.refiner = Refiner::new(params);
+    }
+}
+
+fn combine_confidence(base: f32, refine_conf: f32, inlier_ratio: f32) -> f32 {
+    let blended = 0.5 * base + 0.5 * refine_conf;
+    (blended * inlier_ratio.clamp(0.0, 1.0)).clamp(0.0, 1.0)
 }
 
 fn pose_from_h(k: Matrix3<f32>, h: Matrix3<f32>) -> Pose {

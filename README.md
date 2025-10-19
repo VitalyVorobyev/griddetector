@@ -1,5 +1,9 @@
 # griddetector
 
+[![CI](https://github.com/VitalyVorobyev/griddetector/actions/workflows/ci.yml/badge.svg)](https://github.com/VitalyVorobyev/griddetector/actions/workflows/ci.yml)
+[![Release](https://github.com/VitalyVorobyev/griddetector/actions/workflows/release.yml/badge.svg)](https://github.com/VitalyVorobyev/griddetector/actions/workflows/release.yml)
+[![Security Audit](https://github.com/VitalyVorobyev/griddetector/actions/workflows/audit.yml/badge.svg)](https://github.com/VitalyVorobyev/griddetector/actions/workflows/audit.yml)
+
 Edge-based grid/chessboard detector written in Rust. It builds an image pyramid, extracts line segments (LSD‑like), groups them into two dominant line families to estimate vanishing points, composes a coarse homography, and recovers camera pose.
 
 This repo contains both a library crate (`grid_detector`) and a tiny demo binary (`grid_demo`). The public API is intentionally small and focused.
@@ -21,50 +25,60 @@ Early stage, under active development. APIs may change. Expect rough edges and o
 
 Build the demo binary:
 
-```
+```sh
 cargo run --release --bin grid_demo
 ```
 
 Add the library to another project (until on crates.io, use Git):
 
-```
-cargo add griddetector --git https://github.com/yourname/griddetector
+```sh
+cargo add griddetector --git https://github.com/VitalyVorobyev/griddetector
 ```
 
 Minimal usage example:
 
 ```rust
-use grid_detector::types::ImageU8;
+use grid_detector::image::ImageU8;
 use grid_detector::{GridDetector, GridParams};
 use nalgebra::Matrix3;
 
-fn main() {
-    // Provide your grayscale 8‑bit image buffer
-    let (w, h) = (640usize, 480usize);
-    let gray = vec![0u8; w * h];
-    let img = ImageU8 { w, h, stride: w, data: &gray };
+// Provide your grayscale 8‑bit image buffer
+let (w, h) = (640usize, 480usize);
+let gray = vec![0u8; w * h];
+let img = ImageU8 { w, h, stride: w, data: &gray };
 
-    // Configure detector (set your camera intrinsics)
-    let mut det = GridDetector::new(GridParams { kmtx: Matrix3::identity(), ..Default::default() });
-    let res = det.process(img);
-    println!("found={} latency_ms={:.3}", res.found, res.latency_ms);
-}
+// Configure detector (set your camera intrinsics)
+let mut det = GridDetector::new(GridParams { kmtx: Matrix3::identity(), ..Default::default() });
+let res = det.process(img);
+println!("found={} latency_ms={:.3}", res.found, res.latency_ms);
 ```
 
 To enable optional parallelism:
 
-```
+```sh
 cargo run --release --features parallel --bin grid_demo
 ```
 
 ## Modules Overview
 
-- `pyramid`: grayscale `ImageU8` → multi‑level `ImageF32` pyramid
-- `edges`: Sobel/Scharr gradient utilities and orientation quantization
-- `segments`: LSD‑like region growing and PCA line fitting
-- `lsd_vp`: coarse vanishing‑point engine that returns an H₀ hypothesis
+- `image`: lightweight image views/owners plus I/O helpers (see doc/image.md)
+- `pyramid`: grayscale `ImageU8` → multi‑level `ImageF32` pyramid ([doc/pyramid.md](doc/pyramid.md))
+- `edges`: Sobel/Scharr gradients and NMS ([doc/edges.md](doc/edges.md))
+- `segments`: LSD‑like region growing and PCA line fitting ([doc/segments.md](doc/segments.md))
+- `lsd_vp`: coarse vanishing‑point hypothesis ([doc/lsd_vp.md](doc/lsd_vp.md))
+- `refine`: coarse‑to‑fine homography refinement ([doc/refine.md](doc/refine.md))
 - `detector`: end‑to‑end pipeline wrapper that builds the pyramid, runs the engine, and recovers pose
-- `types`: small image and result types (`ImageU8`, `ImageF32`, `GridResult`, `Pose`)
+- `types`: result and pose structs (`GridResult`, `Pose`)
+
+## Documentation
+
+- Image module: [doc/image.md](doc/image.md)
+- Pyramid: [doc/pyramid.md](doc/pyramid.md)
+- Edges: [doc/edges.md](doc/edges.md)
+- Segments: [doc/segments.md](doc/segments.md)
+- LSD→VP: [doc/lsd_vp.md](doc/lsd_vp.md)
+- Refinement: [doc/refine.md](doc/refine.md)
+- Roadmap: [doc/roadmap.md](doc/roadmap.md)
 
 ## Roadmap
 
@@ -76,6 +90,12 @@ cargo run --release --features parallel --bin grid_demo
 ## Contributing
 
 Issues and PRs are welcome. Please open an issue to discuss significant changes.
+
+## Continuous Integration
+
+- **CI** (`ci.yml`): runs on pushes and PRs targeting `main`, checking formatting, Clippy lints (all targets & features), docs, tests, and `cargo package`.
+- **Release** (`release.yml`): fires on tags matching `v*`, revalidates the workspace, builds release binaries, packages the crate, and publishes GitHub release assets (binary tarball, `.crate`, checksums).
+- **Security Audit** (`audit.yml`): scheduled weekly (Mondays 05:00 UTC) and on manual dispatch, running `cargo audit` against the latest advisory DB.
 
 ## License
 

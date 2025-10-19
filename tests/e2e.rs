@@ -1,7 +1,7 @@
 mod common;
 
 use common::synthetic_image::checkerboard_u8;
-use grid_detector::types::ImageU8;
+use grid_detector::image::ImageU8;
 use grid_detector::{GridDetector, GridParams};
 use nalgebra::Matrix3;
 

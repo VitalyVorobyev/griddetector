@@ -1,5 +1,47 @@
+//! Lightweight LSD-like segment extractor.
+//!
+//! This module implements a fast, edge-based line-segment extractor inspired by
+//! LSD (Line Segment Detector) but tailored for grid/chessboard detection and
+//! multi-scale refinement. The algorithm performs:
+//!
+//! - Gradient computation (via `edges::sobel_gradients`), producing per-pixel
+//!   `gx`, `gy`, magnitude, and implicitly an orientation.
+//! - Region growing from seeds using orientation consistency: pixels whose
+//!   gradient orientation is within a tolerance of the seed normal are grown
+//!   into a region, while enforcing a minimum gradient magnitude.
+//! - PCA line fitting: the pixel coordinates of a grown region are summarized
+//!   online and a 2×2 covariance matrix is eigendecomposed to obtain the
+//!   principal direction. This yields a robust tangent direction for the line.
+//! - Endpoint projection and normal form: by projecting region points onto the
+//!   principal axis we obtain endpoints `p0` and `p1`. The line is stored in
+//!   normalized normal form `ax + by + c = 0` with `sqrt(a^2+b^2)=1`.
+//! - Significance tests: require a minimum region size, minimum length, and a
+//!   minimum fraction of pixels aligned with the seed orientation.
+//!
+//! Output segments include auxiliary attributes used by refinement/bundling:
+//! - `len`: endpoint distance along the tangent.
+//! - `avg_mag`: average gradient magnitude over the region.
+//! - `strength`: `len * avg_mag` (proxy for saliency used as a weight).
+//!
+//! Notes
+//! - Orientation is taken modulo π (180°), appropriate for grid lines where
+//!   directionality is ambiguous. See `angle::normalize_half_pi`.
+//! - The extractor is designed to be lightweight rather than exhaustive; it’s
+//!   biased toward long, coherent edges that are useful for vanishing points
+//!   and later refinement.
+//! - Parameters are expressed in the current pyramid level’s pixel scale; when
+//!   used across scales, callers should adapt thresholds accordingly.
+//!
+//! Complexity
+//! - Region growing visits each pixel at most once, giving O(W·H) behavior per
+//!   level; PCA fitting and endpoint estimation are linear in region size.
+//!
+//! See also
+//! - `crate::lsd_vp` for orientation clustering and VP estimation.
+//! - `crate::refine` for coarse-to-fine Huber-weighted refinement using bundles.
+use crate::angle::{angular_difference, normalize_half_pi};
 use crate::edges::{sobel_gradients, Grad};
-use crate::types::ImageF32;
+use crate::image::ImageF32;
 use nalgebra::{Matrix2, SymmetricEigen};
 
 #[derive(Clone, Debug)]
@@ -9,6 +51,8 @@ pub struct Segment {
     pub dir: [f32; 2],
     pub len: f32,
     pub line: [f32; 3], // ax + by + c = 0, with sqrt(a^2+b^2)=1
+    pub avg_mag: f32,
+    pub strength: f32,
 }
 
 const NEIGH_OFFSETS: [(isize, isize); 8] = [
@@ -22,29 +66,6 @@ const NEIGH_OFFSETS: [(isize, isize); 8] = [
     (1, 1),
 ];
 
-#[inline]
-fn normalize_half_pi(angle: f32) -> f32 {
-    let norm = angle.rem_euclid(std::f32::consts::PI);
-    if norm >= std::f32::consts::PI {
-        norm - std::f32::consts::PI
-    } else {
-        norm
-    }
-}
-
-#[inline]
-fn angular_difference(a: f32, b: f32) -> f32 {
-    let mut diff = (a - b).abs();
-    if diff > std::f32::consts::PI {
-        diff = diff.rem_euclid(std::f32::consts::PI);
-    }
-    if diff > std::f32::consts::PI * 0.5 {
-        std::f32::consts::PI - diff
-    } else {
-        diff
-    }
-}
-
 struct RegionAccumulator {
     indices: Vec<usize>,
     sum_x: f32,
@@ -53,6 +74,7 @@ struct RegionAccumulator {
     sum_yy: f32,
     sum_xy: f32,
     aligned: usize,
+    sum_mag: f32,
 }
 
 impl RegionAccumulator {
@@ -65,6 +87,7 @@ impl RegionAccumulator {
             sum_yy: 0.0,
             sum_xy: 0.0,
             aligned: 0,
+            sum_mag: 0.0,
         }
     }
 
@@ -76,9 +99,10 @@ impl RegionAccumulator {
         self.sum_yy = 0.0;
         self.sum_xy = 0.0;
         self.aligned = 0;
+        self.sum_mag = 0.0;
     }
 
-    fn push(&mut self, idx: usize, x: usize, y: usize, aligned: bool) {
+    fn push(&mut self, idx: usize, x: usize, y: usize, mag: f32, aligned: bool) {
         self.indices.push(idx);
         let xf = x as f32;
         let yf = y as f32;
@@ -90,6 +114,7 @@ impl RegionAccumulator {
         if aligned {
             self.aligned += 1;
         }
+        self.sum_mag += mag;
     }
 
     fn len(&self) -> usize {
@@ -101,6 +126,14 @@ impl RegionAccumulator {
             0.0
         } else {
             self.aligned as f32 / self.indices.len() as f32
+        }
+    }
+
+    fn avg_mag(&self) -> f32 {
+        if self.indices.is_empty() {
+            0.0
+        } else {
+            self.sum_mag / self.indices.len() as f32
         }
     }
 
@@ -118,10 +151,21 @@ pub fn lsd_extract_segments(
     angle_tol: f32,  // radians, tolerance around seed normal angle
     min_len: f32,    // min length in pixels at this level
 ) -> Vec<Segment> {
-    LsdExtractor::new(l, mag_thresh, angle_tol, min_len).extract()
+    lsd_extract_segments_masked(l, mag_thresh, angle_tol, min_len, None)
 }
 
-struct LsdExtractor {
+/// Same as [`lsd_extract_segments`] but restricts seeds and region growth to pixels where `mask == 1`.
+pub fn lsd_extract_segments_masked(
+    l: &ImageF32,
+    mag_thresh: f32,
+    angle_tol: f32,
+    min_len: f32,
+    mask: Option<&[u8]>,
+) -> Vec<Segment> {
+    LsdExtractor::new(l, mag_thresh, angle_tol, min_len, mask).extract()
+}
+
+struct LsdExtractor<'a> {
     grad: Grad,
     width: usize,
     height: usize,
@@ -134,14 +178,31 @@ struct LsdExtractor {
     stack: Vec<usize>,
     region: RegionAccumulator,
     segments: Vec<Segment>,
+    mask: Option<&'a [u8]>,
 }
 
-impl LsdExtractor {
-    fn new(l: &ImageF32, mag_thresh: f32, angle_tol: f32, min_len: f32) -> Self {
+impl<'a> LsdExtractor<'a> {
+    fn new(
+        l: &ImageF32,
+        mag_thresh: f32,
+        angle_tol: f32,
+        min_len: f32,
+        mask: Option<&'a [u8]>,
+    ) -> Self {
         let grad = sobel_gradients(l);
         let width = l.w;
         let height = l.h;
         let n = width * height;
+        if cfg!(debug_assertions) {
+            if let Some(m) = mask {
+                debug_assert!(
+                    m.len() >= n,
+                    "mask length {} must be at least width*height ({})",
+                    m.len(),
+                    n
+                );
+            }
+        }
         Self {
             grad,
             width,
@@ -155,6 +216,7 @@ impl LsdExtractor {
             stack: Vec::with_capacity(64),
             region: RegionAccumulator::with_capacity(128),
             segments: Vec::new(),
+            mask,
         }
     }
 
@@ -168,6 +230,11 @@ impl LsdExtractor {
     fn process_seed(&mut self, idx: usize) {
         if self.used[idx] != 0 {
             return;
+        }
+        if let Some(mask) = self.mask {
+            if mask[idx] == 0 {
+                return;
+            }
         }
         let x = idx % self.width;
         let y = idx / self.width;
@@ -198,7 +265,8 @@ impl LsdExtractor {
             let y = idx / self.width;
             let angle = self.angle_at(idx);
             let aligned = angular_difference(angle, seed_angle) <= self.half_angle_tol;
-            self.region.push(idx, x, y, aligned);
+            let mag = self.grad.mag.get(x, y);
+            self.region.push(idx, x, y, mag, aligned);
 
             for (dx, dy) in NEIGH_OFFSETS {
                 let xn = x as isize + dx;
@@ -207,6 +275,11 @@ impl LsdExtractor {
                     continue;
                 }
                 let neighbor_idx = yn as usize * self.width + xn as usize;
+                if let Some(mask) = self.mask {
+                    if mask[neighbor_idx] == 0 {
+                        continue;
+                    }
+                }
                 if self.used[neighbor_idx] != 0 {
                     continue;
                 }
@@ -293,6 +366,8 @@ impl LsdExtractor {
         let nx = -ty;
         let ny = tx;
         let c = -(nx * cx + ny * cy);
+        let avg_mag = self.region.avg_mag();
+        let strength = len * avg_mag.max(1e-3);
 
         Some(Segment {
             p0,
@@ -300,6 +375,8 @@ impl LsdExtractor {
             dir: [tx, ty],
             len,
             line: [nx, ny, c],
+            avg_mag,
+            strength,
         })
     }
 
@@ -335,7 +412,7 @@ mod tests {
     #[test]
     fn lsd_extractor_finds_vertical_segment() {
         let img = step_image(32, 32, 16);
-        let segs = LsdExtractor::new(&img, 0.1, std::f32::consts::FRAC_PI_6, 4.0).extract();
+        let segs = LsdExtractor::new(&img, 0.1, std::f32::consts::FRAC_PI_6, 4.0, None).extract();
         assert!(
             !segs.is_empty(),
             "expected at least one segment on a vertical edge"
@@ -359,7 +436,7 @@ mod tests {
     #[test]
     fn lsd_extractor_rejects_flat_image() {
         let img = ImageF32::new(16, 16);
-        let segs = LsdExtractor::new(&img, 0.05, std::f32::consts::FRAC_PI_4, 2.0).extract();
+        let segs = LsdExtractor::new(&img, 0.05, std::f32::consts::FRAC_PI_4, 2.0, None).extract();
         assert!(
             segs.is_empty(),
             "no segments should be detected in a flat image, got {:?}",

@@ -1,0 +1,65 @@
+name: Publish Rust docs
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ '*' ]          # also publish when you push a tag (optional)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write            # required for actions/deploy-pages
+  id-token: write         # required for OIDC with pages
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rust-docs
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build docs
+        env:
+          RUSTFLAGS: ""                      # customize if needed
+          RUSTDOCFLAGS: "-D warnings"
+        run: |
+          # Build docs for the whole workspace without deps (faster)
+          cargo doc --workspace --all-features --no-deps --locked
+
+          # Optional: create a root index that lists crates (target/doc already has one).
+          # If you want the root to redirect to a specific crate, uncomment and set CRATE:
+          # CRATE="your_crate_name_with_underscores"
+          # cp "target/doc/${CRATE}/index.html" target/doc/index.html
+
+          # Optional: custom domain
+          # echo "docs.example.com" > target/doc/CNAME
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/doc
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
