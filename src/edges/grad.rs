@@ -1,4 +1,4 @@
-use crate::types::ImageF32;
+use crate::image::ImageF32;
 
 type Kernel3 = [[f32; 3]; 3];
 

@@ -41,7 +41,7 @@
 //! - `crate::refine` for coarse-to-fine Huber-weighted refinement using bundles.
 use crate::angle::{angular_difference, normalize_half_pi};
 use crate::edges::{sobel_gradients, Grad};
-use crate::types::ImageF32;
+use crate::image::ImageF32;
 use nalgebra::{Matrix2, SymmetricEigen};
 
 #[derive(Clone, Debug)]

@@ -14,7 +14,7 @@ fn refiner_improves_checkerboard_hypothesis() {
     let height = 480usize;
     let cell = 32usize;
     let buffer = checkerboard_u8(width, height, cell);
-    let image = grid_detector::types::ImageU8 {
+    let image = grid_detector::image::ImageU8 {
         w: width,
         h: height,
         stride: width,

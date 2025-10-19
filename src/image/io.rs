@@ -1,4 +1,4 @@
-use crate::types::{ImageF32, ImageU8};
+use super::{ImageF32, ImageU8, ImageView};
 use image::{DynamicImage, GrayImage, ImageBuffer, Luma};
 use serde::Serialize;
 use std::fs;
@@ -55,8 +55,9 @@ pub fn save_grayscale_f32(image: &ImageF32, path: &Path) -> Result<(), String> {
     ensure_parent_dir(path)?;
     let mut out = GrayImage::new(image.w as u32, image.h as u32);
     for y in 0..image.h {
+        let row = image.row(y);
         for x in 0..image.w {
-            let v = (image.get(x, y) * 255.0).clamp(0.0, 255.0);
+            let v = (row[x] * 255.0).clamp(0.0, 255.0);
             out.put_pixel(x as u32, y as u32, Luma([v as u8]));
         }
     }

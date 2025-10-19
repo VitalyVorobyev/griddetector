@@ -27,8 +27,8 @@
 //! - The returned `H0` is defined in the current level’s coordinates; callers
 //!   should rescale to full‑resolution before use.
 use crate::diagnostics::{LsdDiagnostics, LsdSegmentDiagnostics};
+use crate::image::ImageF32;
 use crate::segments::{lsd_extract_segments, Segment};
-use crate::types::ImageF32;
 use log::debug;
 use nalgebra::{Matrix3, Vector3};
 use serde::Serialize;

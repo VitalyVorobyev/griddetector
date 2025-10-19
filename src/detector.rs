@@ -2,10 +2,11 @@ use crate::diagnostics::{
     DetailedResult, LsdDiagnostics, ProcessingDiagnostics, PyramidLevelDiagnostics,
     RefinementDiagnostics,
 };
+use crate::image::ImageU8;
 use crate::lsd_vp::Engine as LsdVpEngine;
 use crate::pyramid::Pyramid;
 use crate::refine::{RefineParams, Refiner};
-use crate::types::{GridResult, ImageU8, Pose};
+use crate::types::{GridResult, Pose};
 use log::debug;
 use nalgebra::Matrix3;
 use std::time::Instant;

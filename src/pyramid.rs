@@ -20,7 +20,7 @@
 //! Complexity
 //! - Per level O(W·H) with two 1D passes (horizontal + vertical).
 //! - Memory O(sum of levels), typically ~4/3 of base image for 2× pyramids.
-use crate::types::{ImageF32, ImageU8};
+use crate::image::{ImageF32, ImageU8, ImageView, ImageViewMut};
 
 #[derive(Clone, Debug)]
 pub struct Pyramid {
@@ -33,8 +33,10 @@ impl Pyramid {
         // L0: convert to f32 [0,1]
         let mut l0 = ImageF32::new(gray.w, gray.h);
         for y in 0..gray.h {
+            let src = gray.row(y);
+            let dst = l0.row_mut(y);
             for x in 0..gray.w {
-                l0.set(x, y, gray.get(x, y) as f32 / 255.0);
+                dst[x] = src[x] as f32 / 255.0;
             }
         }
         out.push(l0);
@@ -46,8 +48,12 @@ impl Pyramid {
             let mut down = ImageF32::new(nw, nh);
             // 2x decimation (pick every other pixel)
             for y in 0..nh {
+                let dst = down.row_mut(y);
+                let sy = (y * 2).min(prev.h - 1);
+                let src = tmp.row(sy);
                 for x in 0..nw {
-                    down.set(x, y, tmp.get(x * 2.min(prev.w - 1), y * 2.min(prev.h - 1)));
+                    let sx = (x * 2).min(prev.w - 1);
+                    dst[x] = src[sx];
                 }
             }
             out.push(down);
@@ -64,18 +70,20 @@ fn gaussian5x5_sep(inp: &ImageF32, out: &mut ImageF32) {
     let mut tmp = ImageF32::new(w, h);
     // horizontal
     for y in 0..h {
+        let in_row = inp.row(y);
+        let out_row = tmp.row_mut(y);
         for x in 0..w {
             let xm1 = x.saturating_sub(1);
             let xm2 = x.saturating_sub(2);
             let xp1 = (x + 1).min(w - 1);
             let xp2 = (x + 2).min(w - 1);
-            let v = (inp.get(xm2, y)
-                + 4.0 * inp.get(xm1, y)
-                + 6.0 * inp.get(x, y)
-                + 4.0 * inp.get(xp1, y)
-                + inp.get(xp2, y))
+            let v = (in_row[xm2]
+                + 4.0 * in_row[xm1]
+                + 6.0 * in_row[x]
+                + 4.0 * in_row[xp1]
+                + in_row[xp2])
                 * (1.0 / 16.0);
-            tmp.set(x, y, v);
+            out_row[x] = v;
         }
     }
     // vertical
@@ -84,14 +92,16 @@ fn gaussian5x5_sep(inp: &ImageF32, out: &mut ImageF32) {
         let ym2 = y.saturating_sub(2);
         let yp1 = (y + 1).min(h - 1);
         let yp2 = (y + 2).min(h - 1);
+        let r_m2 = tmp.row(ym2);
+        let r_m1 = tmp.row(ym1);
+        let r_0 = tmp.row(y);
+        let r_p1 = tmp.row(yp1);
+        let r_p2 = tmp.row(yp2);
+        let out_row = out.row_mut(y);
         for x in 0..w {
-            let v = (tmp.get(x, ym2)
-                + 4.0 * tmp.get(x, ym1)
-                + 6.0 * tmp.get(x, y)
-                + 4.0 * tmp.get(x, yp1)
-                + tmp.get(x, yp2))
-                * (1.0 / 16.0);
-            out.set(x, y, v);
+            let v =
+                (r_m2[x] + 4.0 * r_m1[x] + 6.0 * r_0[x] + 4.0 * r_p1[x] + r_p2[x]) * (1.0 / 16.0);
+            out_row[x] = v;
         }
     }
 }

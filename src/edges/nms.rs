@@ -1,5 +1,5 @@
 use crate::edges::grad::sobel_gradients;
-use crate::types::ImageF32;
+use crate::image::ImageF32;
 use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize)]

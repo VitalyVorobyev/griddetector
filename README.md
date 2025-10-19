@@ -38,7 +38,7 @@ cargo add griddetector --git https://github.com/yourname/griddetector
 Minimal usage example:
 
 ```rust
-use grid_detector::types::ImageU8;
+use grid_detector::image::ImageU8;
 use grid_detector::{GridDetector, GridParams};
 use nalgebra::Matrix3;
 
@@ -63,12 +63,13 @@ cargo run --release --features parallel --bin grid_demo
 
 ## Modules Overview
 
+- `image`: lightweight image views/owners plus I/O helpers
 - `pyramid`: grayscale `ImageU8` → multi‑level `ImageF32` pyramid
 - `edges`: Sobel/Scharr gradient utilities and orientation quantization
 - `segments`: LSD‑like region growing and PCA line fitting
 - `lsd_vp`: coarse vanishing‑point engine that returns an H₀ hypothesis
 - `detector`: end‑to‑end pipeline wrapper that builds the pyramid, runs the engine, and recovers pose
-- `types`: small image and result types (`ImageU8`, `ImageF32`, `GridResult`, `Pose`)
+- `types`: result and pose structs (`GridResult`, `Pose`)
 
 ## Roadmap
 

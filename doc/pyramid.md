@@ -28,7 +28,7 @@ Builds a grayscale image pyramid using a separable 5‑tap Gaussian followed by 
 
 ```rust
 use grid_detector::pyramid::Pyramid;
-use grid_detector::types::ImageU8;
+use grid_detector::image::ImageU8;
 
 let gray = ImageU8 { w, h, stride: w, data: &buffer };
 let pyr = Pyramid::build_u8(gray, 4);
@@ -40,4 +40,3 @@ let pyr = Pyramid::build_u8(gray, 4);
 - For 1280×1024 inputs, 3–5 levels balance speed and detection stability.
 - The blur is intentionally small and separable for performance; consider SIMD/parallelisation (`rayon`) if profiling shows this as a bottleneck.
 - If aliasing is observed at fine textures, slightly increase the blur strength or add a pre‑blur at L0.
-
