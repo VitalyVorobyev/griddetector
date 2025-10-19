@@ -63,7 +63,7 @@ cargo run --release --features parallel --bin grid_demo
 
 ## Modules Overview
 
-- `image`: lightweight image views/owners plus I/O helpers
+- `image`: lightweight image views/owners plus I/O helpers (see doc/image.md)
 - `pyramid`: grayscale `ImageU8` → multi‑level `ImageF32` pyramid
 - `edges`: Sobel/Scharr gradient utilities and orientation quantization
 - `segments`: LSD‑like region growing and PCA line fitting

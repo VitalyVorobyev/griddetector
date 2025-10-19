@@ -1,9 +1,16 @@
+//! I/O helpers for grayscale images and JSON.
+//!
+//! - `load_grayscale_image`: read a PNG/JPEG/etc. into an owned 8-bit gray buffer.
+//! - `save_grayscale_f32`: write an `ImageF32` to a grayscale PNG.
+//! - `save_grayscale_u8`: write an owned 8-bit gray buffer to a PNG.
+//! - `write_json_file`: pretty-print a serializable value to disk.
 use super::{ImageF32, ImageU8, ImageView};
 use image::{DynamicImage, GrayImage, ImageBuffer, Luma};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
 
+/// Owned 8-bit grayscale buffer with stride and borrowed view conversion.
 #[derive(Clone, Debug)]
 pub struct GrayImageU8 {
     width: usize,
@@ -13,6 +20,7 @@ pub struct GrayImageU8 {
 }
 
 impl GrayImageU8 {
+    /// Construct an owned grayscale buffer given raw bytes.
     pub fn new(width: usize, height: usize, data: Vec<u8>) -> Self {
         let stride = width;
         Self {
@@ -23,14 +31,17 @@ impl GrayImageU8 {
         }
     }
 
+    /// Image width in pixels
     pub fn width(&self) -> usize {
         self.width
     }
 
+    /// Image height in pixels
     pub fn height(&self) -> usize {
         self.height
     }
 
+    /// Borrow as a read-only `ImageU8` view
     pub fn as_view(&self) -> ImageU8<'_> {
         ImageU8 {
             w: self.width,
@@ -41,6 +52,7 @@ impl GrayImageU8 {
     }
 }
 
+/// Load an image from disk and convert to 8-bit grayscale.
 pub fn load_grayscale_image(path: &Path) -> Result<GrayImageU8, String> {
     let img = image::open(path)
         .map_err(|e| format!("Failed to open {}: {e}", path.display()))?
@@ -51,6 +63,7 @@ pub fn load_grayscale_image(path: &Path) -> Result<GrayImageU8, String> {
     Ok(GrayImageU8::new(width, height, data))
 }
 
+/// Save a float image to a grayscale PNG, clamping values in [0, 255].
 pub fn save_grayscale_f32(image: &ImageF32, path: &Path) -> Result<(), String> {
     ensure_parent_dir(path)?;
     let mut out = GrayImage::new(image.w as u32, image.h as u32);
@@ -65,6 +78,7 @@ pub fn save_grayscale_f32(image: &ImageF32, path: &Path) -> Result<(), String> {
         .map_err(|e| format!("Failed to save {}: {e}", path.display()))
 }
 
+/// Save an 8-bit grayscale buffer to a PNG.
 pub fn save_grayscale_u8(buffer: &GrayImageU8, path: &Path) -> Result<(), String> {
     ensure_parent_dir(path)?;
     let data = buffer.data.clone();
@@ -76,6 +90,7 @@ pub fn save_grayscale_u8(buffer: &GrayImageU8, path: &Path) -> Result<(), String
         .map_err(|e| format!("Failed to save {}: {e}", path.display()))
 }
 
+/// Serialize a value as pretty JSON to `path`, creating parent directories.
 pub fn write_json_file<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     ensure_parent_dir(path)?;
     let json = serde_json::to_string_pretty(value)

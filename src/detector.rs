@@ -2,7 +2,7 @@ use crate::diagnostics::{
     DetailedResult, LsdDiagnostics, ProcessingDiagnostics, PyramidLevelDiagnostics,
     RefinementDiagnostics,
 };
-use crate::image::ImageU8;
+use crate::image::{ImageU8, ImageView};
 use crate::lsd_vp::Engine as LsdVpEngine;
 use crate::pyramid::Pyramid;
 use crate::refine::{RefineParams, Refiner};
@@ -96,7 +96,11 @@ impl GridDetector {
             .iter()
             .enumerate()
             .map(|(level, lvl)| {
-                let sum: f32 = lvl.data.iter().copied().sum();
+                let sum: f32 = if let Some(slice) = lvl.as_slice() {
+                    slice.iter().copied().sum()
+                } else {
+                    lvl.rows().map(|r| r.iter().copied().sum::<f32>()).sum()
+                };
                 let denom = (lvl.w * lvl.h).max(1) as f32;
                 PyramidLevelDiagnostics {
                     level,

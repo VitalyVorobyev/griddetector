@@ -1,18 +1,41 @@
+//! Non‑maximum suppression on gradient magnitude with direction alignment.
+//!
+//! This module performs a Canny‑style, simplified non‑maximum suppression (NMS)
+//! using Sobel gradients to estimate local edge direction. For each pixel, it
+//! suppresses responses that are not strictly greater than their two neighbors
+//! along the quantized gradient direction and emits a sparse list of edge
+//! elements.
+//!
+//! Border handling uses clamping in gradient computation and ignores the outer
+//!most 1‑pixel frame in NMS to avoid out‑of‑bounds checks in neighbor lookup.
 use crate::edges::grad::sobel_gradients;
 use crate::image::ImageF32;
 use serde::Serialize;
 
+/// A sparse edge sample after NMS suitable for visualization or simple post‑processing.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EdgeElement {
+    /// X coordinate in pixels
     pub x: u32,
+    /// Y coordinate in pixels
     pub y: u32,
+    /// Gradient magnitude at (x, y)
     pub magnitude: f32,
     /// Gradient direction in radians, range (-π, π]
     pub direction: f32,
 }
 
 /// Simple Sobel-based edge detector with 4-neighborhood non-maximum suppression.
+/// Detect edges by applying Sobel gradients followed by 4‑direction NMS.
+///
+/// - Direction quantization uses 4 bins (0°, 45°, 90°, 135°) to select the
+///   two comparison neighbors.
+/// - A pixel is kept if its magnitude is strictly greater than both neighbors
+///   along that direction and above `mag_thresh`.
+///
+/// Returns a vector of `EdgeElement` containing position, magnitude, and
+/// continuous gradient direction for visualization.
 pub fn detect_edges_sobel_nms(l: &ImageF32, mag_thresh: f32) -> Vec<EdgeElement> {
     let grad = sobel_gradients(l);
     let w = l.w;
