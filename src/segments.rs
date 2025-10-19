@@ -55,6 +55,15 @@ pub struct Segment {
     pub strength: f32,
 }
 
+/// Options controlling region growth heuristics in the LSD-like extractor.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LsdOptions {
+    /// If true, disallow merging gradients that flip polarity (180° apart).
+    pub enforce_polarity: bool,
+    /// Optional maximum span (in pixels) along the segment normal.
+    pub normal_span_limit: Option<f32>,
+}
+
 const NEIGH_OFFSETS: [(isize, isize); 8] = [
     (-1, -1),
     (0, -1),
@@ -151,7 +160,18 @@ pub fn lsd_extract_segments(
     angle_tol: f32,  // radians, tolerance around seed normal angle
     min_len: f32,    // min length in pixels at this level
 ) -> Vec<Segment> {
-    lsd_extract_segments_masked(l, mag_thresh, angle_tol, min_len, None)
+    lsd_extract_segments_with_options(l, mag_thresh, angle_tol, min_len, LsdOptions::default())
+}
+
+/// Same as [`lsd_extract_segments`] but allows passing custom growth options.
+pub fn lsd_extract_segments_with_options(
+    l: &ImageF32,
+    mag_thresh: f32,
+    angle_tol: f32,
+    min_len: f32,
+    options: LsdOptions,
+) -> Vec<Segment> {
+    lsd_extract_segments_masked_with_options(l, mag_thresh, angle_tol, min_len, None, options)
 }
 
 /// Same as [`lsd_extract_segments`] but restricts seeds and region growth to pixels where `mask == 1`.
@@ -162,7 +182,26 @@ pub fn lsd_extract_segments_masked(
     min_len: f32,
     mask: Option<&[u8]>,
 ) -> Vec<Segment> {
-    LsdExtractor::new(l, mag_thresh, angle_tol, min_len, mask).extract()
+    lsd_extract_segments_masked_with_options(
+        l,
+        mag_thresh,
+        angle_tol,
+        min_len,
+        mask,
+        LsdOptions::default(),
+    )
+}
+
+/// Masked variant with explicit options.
+pub fn lsd_extract_segments_masked_with_options(
+    l: &ImageF32,
+    mag_thresh: f32,
+    angle_tol: f32,
+    min_len: f32,
+    mask: Option<&[u8]>,
+    options: LsdOptions,
+) -> Vec<Segment> {
+    LsdExtractor::new(l, mag_thresh, angle_tol, min_len, mask, options).extract()
 }
 
 struct LsdExtractor<'a> {
@@ -179,6 +218,8 @@ struct LsdExtractor<'a> {
     region: RegionAccumulator,
     segments: Vec<Segment>,
     mask: Option<&'a [u8]>,
+    enforce_polarity: bool,
+    normal_span_limit: Option<f32>,
 }
 
 impl<'a> LsdExtractor<'a> {
@@ -188,6 +229,7 @@ impl<'a> LsdExtractor<'a> {
         angle_tol: f32,
         min_len: f32,
         mask: Option<&'a [u8]>,
+        options: LsdOptions,
     ) -> Self {
         let grad = sobel_gradients(l);
         let width = l.w;
@@ -217,6 +259,10 @@ impl<'a> LsdExtractor<'a> {
             region: RegionAccumulator::with_capacity(128),
             segments: Vec::new(),
             mask,
+            enforce_polarity: options.enforce_polarity,
+            normal_span_limit: options
+                .normal_span_limit
+                .filter(|v| v.is_finite() && *v > 0.0),
         }
     }
 
@@ -264,7 +310,7 @@ impl<'a> LsdExtractor<'a> {
             let x = idx % self.width;
             let y = idx / self.width;
             let angle = self.angle_at(idx);
-            let aligned = angular_difference(angle, seed_angle) <= self.half_angle_tol;
+            let aligned = self.angle_difference(angle, seed_angle) <= self.half_angle_tol;
             let mag = self.grad.mag.get(x, y);
             self.region.push(idx, x, y, mag, aligned);
 
@@ -289,7 +335,7 @@ impl<'a> LsdExtractor<'a> {
                     continue;
                 }
                 let neighbor_angle = self.angle_at(neighbor_idx);
-                if angular_difference(neighbor_angle, seed_angle) <= self.angle_tol {
+                if self.angle_difference(neighbor_angle, seed_angle) <= self.angle_tol {
                     self.used[neighbor_idx] = 1;
                     self.stack.push(neighbor_idx);
                 }
@@ -334,6 +380,10 @@ impl<'a> LsdExtractor<'a> {
 
         let mut smin = f32::INFINITY;
         let mut smax = f32::NEG_INFINITY;
+        let nx = -ty;
+        let ny = tx;
+        let mut nmin = f32::INFINITY;
+        let mut nmax = f32::NEG_INFINITY;
         for &idx in &self.region.indices {
             let x = (idx % self.width) as f32;
             let y = (idx / self.width) as f32;
@@ -345,6 +395,15 @@ impl<'a> LsdExtractor<'a> {
             }
             if s > smax {
                 smax = s;
+            }
+            if self.normal_span_limit.is_some() {
+                let n = dx * nx + dy * ny;
+                if n < nmin {
+                    nmin = n;
+                }
+                if n > nmax {
+                    nmax = n;
+                }
             }
         }
 
@@ -361,10 +420,17 @@ impl<'a> LsdExtractor<'a> {
             return None;
         }
 
+        if let Some(limit) = self.normal_span_limit {
+            if nmin.is_finite() && nmax.is_finite() {
+                let normal_span = nmax - nmin;
+                if !normal_span.is_finite() || normal_span > limit {
+                    return None;
+                }
+            }
+        }
+
         let p0 = [cx + smin * tx, cy + smin * ty];
         let p1 = [cx + smax * tx, cy + smax * ty];
-        let nx = -ty;
-        let ny = tx;
         let c = -(nx * cx + ny * cy);
         let avg_mag = self.region.avg_mag();
         let strength = len * avg_mag.max(1e-3);
@@ -385,13 +451,39 @@ impl<'a> LsdExtractor<'a> {
         if cached.is_nan() {
             let x = idx % self.width;
             let y = idx / self.width;
-            let angle = normalize_half_pi(self.grad.gy.get(x, y).atan2(self.grad.gx.get(x, y)));
+            let raw_angle = self.grad.gy.get(x, y).atan2(self.grad.gx.get(x, y));
+            let angle = if self.enforce_polarity {
+                normalize_signed_pi(raw_angle)
+            } else {
+                normalize_half_pi(raw_angle)
+            };
             self.angle_cache[idx] = angle;
             angle
         } else {
             cached
         }
     }
+
+    fn angle_difference(&self, a: f32, b: f32) -> f32 {
+        if self.enforce_polarity {
+            let mut diff = (a - b).abs();
+            if diff > std::f32::consts::PI {
+                diff = 2.0 * std::f32::consts::PI - diff;
+            }
+            diff
+        } else {
+            angular_difference(a, b)
+        }
+    }
+}
+
+#[inline]
+fn normalize_signed_pi(angle: f32) -> f32 {
+    let mut norm = angle.rem_euclid(2.0 * std::f32::consts::PI);
+    if norm > std::f32::consts::PI {
+        norm -= 2.0 * std::f32::consts::PI;
+    }
+    norm
 }
 
 #[cfg(test)]
@@ -412,7 +504,15 @@ mod tests {
     #[test]
     fn lsd_extractor_finds_vertical_segment() {
         let img = step_image(32, 32, 16);
-        let segs = LsdExtractor::new(&img, 0.1, std::f32::consts::FRAC_PI_6, 4.0, None).extract();
+        let segs = LsdExtractor::new(
+            &img,
+            0.1,
+            std::f32::consts::FRAC_PI_6,
+            4.0,
+            None,
+            LsdOptions::default(),
+        )
+        .extract();
         assert!(
             !segs.is_empty(),
             "expected at least one segment on a vertical edge"
@@ -436,7 +536,15 @@ mod tests {
     #[test]
     fn lsd_extractor_rejects_flat_image() {
         let img = ImageF32::new(16, 16);
-        let segs = LsdExtractor::new(&img, 0.05, std::f32::consts::FRAC_PI_4, 2.0, None).extract();
+        let segs = LsdExtractor::new(
+            &img,
+            0.05,
+            std::f32::consts::FRAC_PI_4,
+            2.0,
+            None,
+            LsdOptions::default(),
+        )
+        .extract();
         assert!(
             segs.is_empty(),
             "no segments should be detected in a flat image, got {:?}",

@@ -29,6 +29,13 @@ Build the demo binary:
 cargo run --release --bin grid_demo
 ```
 
+Coarsest-level inspection helpers:
+
+```sh
+cargo run --release --bin coarse_edges config/coarse_edges.json
+cargo run --release --bin coarse_segments config/coarse_segments.json
+```
+
 Add the library to another project (until on crates.io, use Git):
 
 ```sh
@@ -67,7 +74,7 @@ cargo run --release --features parallel --bin grid_demo
 - `segments`: LSD‑like region growing and PCA line fitting ([doc/segments.md](doc/segments.md))
 - `lsd_vp`: coarse vanishing‑point hypothesis ([doc/lsd_vp.md](doc/lsd_vp.md))
 - `refine`: coarse‑to‑fine homography refinement ([doc/refine.md](doc/refine.md))
-- `detector`: end‑to‑end pipeline wrapper that builds the pyramid, runs the engine, and recovers pose
+- `detector`: end-to-end pipeline wrapper that builds the pyramid, runs the engine, and recovers pose
 - `types`: result and pose structs (`GridResult`, `Pose`)
 
 ## Documentation
@@ -79,6 +86,7 @@ cargo run --release --features parallel --bin grid_demo
 - LSD→VP: [doc/lsd_vp.md](doc/lsd_vp.md)
 - Refinement: [doc/refine.md](doc/refine.md)
 - Roadmap: [doc/roadmap.md](doc/roadmap.md)
+- Tools: `tools/plot_coarse_edges.py`, `tools/plot_coarse_segments.py`
 
 ## Roadmap
 
