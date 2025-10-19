@@ -24,13 +24,17 @@
 //! - `strength`: `len * avg_mag` (proxy for saliency used as a weight).
 //!
 //! Notes
-//! - Orientation is taken modulo π (180°), appropriate for grid lines where
-//!   directionality is ambiguous. See `angle::normalize_half_pi`.
+//! - Orientation is taken modulo π (180°) by default, appropriate for grid
+//!   lines where directionality is ambiguous. See `angle::normalize_half_pi`.
+//!   You can enable polarity‑gated growth to require consistent signed
+//!   gradients and prevent merging opposite‑polarity parallel edges.
 //! - The extractor is designed to be lightweight rather than exhaustive; it’s
 //!   biased toward long, coherent edges that are useful for vanishing points
 //!   and later refinement.
 //! - Parameters are expressed in the current pyramid level’s pixel scale; when
 //!   used across scales, callers should adapt thresholds accordingly.
+//! - An optional normal‑span limit can reject grown regions that are too thick
+//!   across the fitted line, mitigating double‑ridge merges (e.g., Charuco).
 //!
 //! Complexity
 //! - Region growing visits each pixel at most once, giving O(W·H) behavior per
@@ -56,6 +60,11 @@ pub struct Segment {
 }
 
 /// Options controlling region growth heuristics in the LSD-like extractor.
+///
+/// - `enforce_polarity`: Compare signed angles (no π folding) during growth to
+///   avoid fusing opposite‑polarity parallel edges.
+/// - `normal_span_limit`: Cap the perpendicular thickness of a grown region by
+///   rejecting segments whose span along the fitted normal exceeds the value.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct LsdOptions {
     /// If true, disallow merging gradients that flip polarity (180° apart).
