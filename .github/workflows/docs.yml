@@ -35,9 +35,10 @@ jobs:
       - name: Build docs
         env:
           RUSTFLAGS: ""                      # customize if needed
+          RUSTDOCFLAGS: "-D warnings"
         run: |
           # Build docs for the whole workspace without deps (faster)
-          cargo doc --workspace --all-features --no-deps
+          cargo doc --workspace --all-features --no-deps --locked
 
           # Optional: create a root index that lists crates (target/doc already has one).
           # If you want the root to redirect to a specific crate, uncomment and set CRATE:
