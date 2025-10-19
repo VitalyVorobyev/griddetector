@@ -39,22 +39,25 @@ fn gradients_with_kernels(l: &ImageF32, kernel_x: &Kernel3, kernel_y: &Kernel3) 
         };
     }
 
-    for y in 0..h {
-        let y_idx = [y.saturating_sub(1), y, (y + 1).min(h - 1)];
-        for x in 0..w {
-            let x_idx = [x.saturating_sub(1), x, (x + 1).min(w - 1)];
+        for y in 0..h {
+            let y_idx = [y.saturating_sub(1), y, (y + 1).min(h - 1)];
+            for x in 0..w {
+                let x_idx = [x.saturating_sub(1), x, (x + 1).min(w - 1)];
 
-            let mut sum_x = 0.0;
-            let mut sum_y = 0.0;
-            for ky in 0..3 {
-                let yy = y_idx[ky];
-                for kx in 0..3 {
-                    let xx = x_idx[kx];
-                    let sample = l.get(xx, yy);
-                    sum_x += sample * kernel_x[ky][kx];
-                    sum_y += sample * kernel_y[ky][kx];
+                let mut sum_x = 0.0;
+                let mut sum_y = 0.0;
+                for (ky, &yy) in y_idx.iter().enumerate() {
+                    let kernel_row_x = &kernel_x[ky];
+                    let kernel_row_y = &kernel_y[ky];
+                    for (xx, (&kx_weight, &ky_weight)) in x_idx
+                        .iter()
+                        .zip(kernel_row_x.iter().zip(kernel_row_y.iter()))
+                    {
+                        let sample = l.get(*xx, yy);
+                        sum_x += sample * kx_weight;
+                        sum_y += sample * ky_weight;
+                    }
                 }
-            }
 
             gx.set(x, y, sum_x);
             gy.set(x, y, sum_y);

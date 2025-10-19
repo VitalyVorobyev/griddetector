@@ -58,12 +58,10 @@ fn run() -> Result<(), String> {
             } else {
                 println!("\nJSON report written to {}", path.display());
             }
+        } else if config.format == OutputFormat::Both {
+            println!("\nJSON report:\n{json}");
         } else {
-            if config.format == OutputFormat::Both {
-                println!("\nJSON report:\n{json}");
-            } else {
-                println!("{json}");
-            }
+            println!("{json}");
         }
     }
 

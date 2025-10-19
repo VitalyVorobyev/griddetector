@@ -40,7 +40,7 @@ impl Pyramid {
         out.push(l0);
         for lvl in 1..levels {
             let prev = &out[lvl - 1];
-            let (nw, nh) = ((prev.w + 1) / 2, (prev.h + 1) / 2);
+            let (nw, nh) = (prev.w.div_ceil(2), prev.h.div_ceil(2));
             let mut tmp = ImageF32::new(prev.w, prev.h);
             gaussian5x5_sep(prev, &mut tmp);
             let mut down = ImageF32::new(nw, nh);

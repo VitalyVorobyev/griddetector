@@ -55,10 +55,12 @@ fn refiner_improves_checkerboard_hypothesis() {
         );
     }
 
-    let mut p = RefineParams::default();
-    p.min_bundle_weight = 1.0;
-    p.min_bundles_per_family = 2;
-    let refiner = Refiner::new(p);
+    let params = RefineParams {
+        min_bundle_weight: 1.0,
+        min_bundles_per_family: 2,
+        ..Default::default()
+    };
+    let refiner = Refiner::new(params);
     let result = refiner
         .refine(&pyramid, h_initial)
         .expect("refinement should succeed");
