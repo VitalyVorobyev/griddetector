@@ -1,5 +1,6 @@
 use crate::diagnostics::{
-    DetailedResult, ProcessingDiagnostics, PyramidLevelDiagnostics, RefinementDiagnostics,
+    DetailedResult, LsdDiagnostics, ProcessingDiagnostics, PyramidLevelDiagnostics,
+    RefinementDiagnostics,
 };
 use crate::lsd_vp::Engine as LsdVpEngine;
 use crate::pyramid::Pyramid;
@@ -14,8 +15,6 @@ pub struct GridParams {
     pub pyramid_levels: usize,
     pub spacing_mm: f32,
     pub kmtx: Matrix3<f32>,
-    pub canny_low: f32,
-    pub canny_high: f32,
     pub min_cells: i32,
     pub confidence_thresh: f32,
     pub enable_refine: bool,
@@ -28,13 +27,33 @@ impl Default for GridParams {
             pyramid_levels: 4,
             spacing_mm: 5.0,
             kmtx: Matrix3::identity(),
-            canny_low: 20.0,
-            canny_high: 60.0,
             min_cells: 6,
             confidence_thresh: 0.35,
             enable_refine: true,
             refine_params: RefineParams::default(),
         }
+    }
+}
+
+fn rescale_lsd_segments(diag: &mut LsdDiagnostics, scale_x: f32, scale_y: f32) {
+    if !scale_x.is_finite() || !scale_y.is_finite() {
+        return;
+    }
+    for seg in &mut diag.segments_sample {
+        let old_len = seg.len;
+        seg.p0[0] *= scale_x;
+        seg.p0[1] *= scale_y;
+        seg.p1[0] *= scale_x;
+        seg.p1[1] *= scale_y;
+        let dx = seg.p1[0] - seg.p0[0];
+        let dy = seg.p1[1] - seg.p0[1];
+        let new_len = (dx * dx + dy * dy).sqrt();
+        if old_len > f32::EPSILON {
+            seg.strength *= new_len / old_len;
+        } else if new_len <= f32::EPSILON {
+            seg.strength = 0.0;
+        }
+        seg.len = new_len;
     }
 }
 
@@ -92,13 +111,13 @@ impl GridDetector {
         let mut confidence = 0.0f32;
         let mut h_candidate = None;
         let mut lsd_diag = None;
-        if let Some(hyp) = engine.infer(l) {
+        if let Some(mut hyp) = engine.infer(l) {
             confidence = hyp.confidence;
-            lsd_diag = Some(hyp.diagnostics.clone());
             let hmtx0 = hyp.hmtx0;
             if l.w > 0 && l.h > 0 {
                 let scale_x = width as f32 / l.w as f32;
                 let scale_y = height as f32 / l.h as f32;
+                rescale_lsd_segments(&mut hyp.diagnostics, scale_x, scale_y);
                 let scale = Matrix3::new(scale_x, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 1.0);
                 let scaled = scale * hmtx0;
                 h_candidate = Some(scaled);
@@ -110,6 +129,7 @@ impl GridDetector {
                 debug!("GridDetector::process coarsest level has zero dimension, skipping scale");
                 h_candidate = Some(hmtx0);
             }
+            lsd_diag = Some(hyp.diagnostics.clone());
         } else {
             debug!("GridDetector::process LSD→VP engine returned no hypothesis");
         }

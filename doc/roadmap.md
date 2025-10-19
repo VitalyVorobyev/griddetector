@@ -12,7 +12,6 @@ H0 is built at the last pyramid level and not rescaled to original coordinates.
 No grid indexing (u,v lattice), origin detection, or coverage/quality metrics.
 Outlier handling is minimal (no robust fit/RANSAC; no line bundling/merging).
 Parallelism optional feature not used; frequent allocations in hot paths.
-Params mismatch: canny_low/high unused; confidence not propagated to found.
 Sparse tests; no integration/benchmarks and no example images.
 Roadmap
 
@@ -45,6 +44,6 @@ Optional std::simd for Sobel and Gaussian; measure wins before committing.
 Add Criterion benchmarks for: pyramid, gradients, LSD, VP, full pipeline.
 Milestone 6: API, Tests, Docs
 
-Clean GridParams (remove or implement canny_*), document parameters and defaults.
+Document GridParams parameters and defaults.
 Add more unit tests (edges/pyramid/VP), integration tests on synthetic + sample photos.
 Extend GridResult quality metrics (reproj_rmse, coverage, final confidence) and document semantics.
