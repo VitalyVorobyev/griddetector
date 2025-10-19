@@ -1,7 +1,8 @@
 {
     "input": "data/sample_board.png",
     "pyramid": {
-        "levels": 4
+        "levels": 4,
+        "blur_levels": 2
     },
     "edge": {
         "magnitude_threshold": 0.12

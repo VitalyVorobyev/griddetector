@@ -19,7 +19,13 @@ fn run() -> Result<(), String> {
 
     let gray = load_grayscale_image(&config.input)?;
     let levels = config.pyramid.levels.max(1);
-    let pyramid = Pyramid::build_u8(gray.as_view(), levels);
+    let pyramid = if let Some(blur_levels_cfg) = config.pyramid.blur_levels {
+        // Blur at most once per downscale step (levels-1 steps total)
+        let blur_levels = blur_levels_cfg.min(levels.saturating_sub(1));
+        Pyramid::build_u8_with_blur_levels(gray.as_view(), levels, blur_levels)
+    } else {
+        Pyramid::build_u8(gray.as_view(), levels)
+    };
     let coarsest_index = pyramid
         .levels
         .len()
