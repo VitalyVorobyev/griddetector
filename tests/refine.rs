@@ -27,7 +27,7 @@ fn refiner_improves_checkerboard_hypothesis() {
         .last()
         .expect("pyramid has at least one level");
 
-    let mut engine = LsdVpEngine::default();
+    let engine = LsdVpEngine::default();
     let hypothesis = engine
         .infer(coarsest)
         .expect("coarse hypothesis should be available on synthetic checkerboard");
