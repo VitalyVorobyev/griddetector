@@ -73,7 +73,7 @@ fn run() -> Result<(), String> {
             } = DetailedInferenceFields::from(detail);
             let segment_outputs = segments
                 .into_iter()
-                .zip(families.into_iter())
+                .zip(families)
                 .map(|(seg, fam)| {
                     if let Some(FamilyLabel::U) = fam {
                         fam_u += 1;

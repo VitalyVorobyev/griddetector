@@ -46,11 +46,11 @@ impl OrientationHistogram {
             return;
         }
         let mut smoothed = vec![0.0f32; n];
-        for i in 0..n {
+        for (i, dst) in smoothed.iter_mut().enumerate() {
             let prev = self.bins[(i + n - 1) % n];
             let curr = self.bins[i];
             let next = self.bins[(i + 1) % n];
-            smoothed[i] = (prev + 2.0 * curr + next) * 0.25;
+            *dst = (prev + 2.0 * curr + next) * 0.25;
         }
         self.bins = smoothed;
     }
