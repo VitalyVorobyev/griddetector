@@ -1,77 +1,8 @@
-//! Lightweight LSD-like segment extractor.
-//!
-//! This module implements a fast, edge-based line-segment extractor inspired by
-//! LSD (Line Segment Detector) but tailored for grid/chessboard detection and
-//! multi-scale refinement. The algorithm performs:
-//!
-//! - Gradient computation (via `edges::sobel_gradients`), producing per-pixel
-//!   `gx`, `gy`, magnitude, and implicitly an orientation.
-//! - Region growing from seeds using orientation consistency: pixels whose
-//!   gradient orientation is within a tolerance of the seed normal are grown
-//!   into a region, while enforcing a minimum gradient magnitude.
-//! - PCA line fitting: the pixel coordinates of a grown region are summarized
-//!   online and a 2×2 covariance matrix is eigendecomposed to obtain the
-//!   principal direction. This yields a robust tangent direction for the line.
-//! - Endpoint projection and normal form: by projecting region points onto the
-//!   principal axis we obtain endpoints `p0` and `p1`. The line is stored in
-//!   normalized normal form `ax + by + c = 0` with `sqrt(a^2+b^2)=1`.
-//! - Significance tests: require a minimum region size, minimum length, and a
-//!   minimum fraction of pixels aligned with the seed orientation.
-//!
-//! Output segments include auxiliary attributes used by refinement/bundling:
-//! - `len`: endpoint distance along the tangent.
-//! - `avg_mag`: average gradient magnitude over the region.
-//! - `strength`: `len * avg_mag` (proxy for saliency used as a weight).
-//!
-//! Notes
-//! - Orientation is taken modulo π (180°) by default, appropriate for grid
-//!   lines where directionality is ambiguous. See `angle::normalize_half_pi`.
-//!   You can enable polarity‑gated growth to require consistent signed
-//!   gradients and prevent merging opposite‑polarity parallel edges.
-//! - The extractor is designed to be lightweight rather than exhaustive; it’s
-//!   biased toward long, coherent edges that are useful for vanishing points
-//!   and later refinement.
-//! - Parameters are expressed in the current pyramid level’s pixel scale; when
-//!   used across scales, callers should adapt thresholds accordingly.
-//! - An optional normal‑span limit can reject grown regions that are too thick
-//!   across the fitted line, mitigating double‑ridge merges (e.g., Charuco).
-//!
-//! Complexity
-//! - Region growing visits each pixel at most once, giving O(W·H) behavior per
-//!   level; PCA fitting and endpoint estimation are linear in region size.
-//!
-//! See also
-//! - `crate::lsd_vp` for orientation clustering and VP estimation.
-//! - `crate::refine` for coarse-to-fine Huber-weighted refinement using bundles.
+use super::types::{LsdOptions, Segment};
 use crate::angle::{angular_difference, normalize_half_pi};
 use crate::edges::{sobel_gradients, Grad};
 use crate::image::ImageF32;
 use nalgebra::{Matrix2, SymmetricEigen};
-
-#[derive(Clone, Debug)]
-pub struct Segment {
-    pub p0: [f32; 2],
-    pub p1: [f32; 2],
-    pub dir: [f32; 2],
-    pub len: f32,
-    pub line: [f32; 3], // ax + by + c = 0, with sqrt(a^2+b^2)=1
-    pub avg_mag: f32,
-    pub strength: f32,
-}
-
-/// Options controlling region growth heuristics in the LSD-like extractor.
-///
-/// - `enforce_polarity`: Compare signed angles (no π folding) during growth to
-///   avoid fusing opposite‑polarity parallel edges.
-/// - `normal_span_limit`: Cap the perpendicular thickness of a grown region by
-///   rejecting segments whose span along the fitted normal exceeds the value.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct LsdOptions {
-    /// If true, disallow merging gradients that flip polarity (180° apart).
-    pub enforce_polarity: bool,
-    /// Optional maximum span (in pixels) along the segment normal.
-    pub normal_span_limit: Option<f32>,
-}
 
 const NEIGH_OFFSETS: [(isize, isize); 8] = [
     (-1, -1),
@@ -162,58 +93,7 @@ impl RegionAccumulator {
     }
 }
 
-/// Lightweight LSD-like extractor (region growing on gradient orientation, PCA fit, simple significance test)
-pub fn lsd_extract_segments(
-    l: &ImageF32,
-    mag_thresh: f32, // min gradient magnitude (0..1 scale at this pyramid level)
-    angle_tol: f32,  // radians, tolerance around seed normal angle
-    min_len: f32,    // min length in pixels at this level
-) -> Vec<Segment> {
-    lsd_extract_segments_with_options(l, mag_thresh, angle_tol, min_len, LsdOptions::default())
-}
-
-/// Same as [`lsd_extract_segments`] but allows passing custom growth options.
-pub fn lsd_extract_segments_with_options(
-    l: &ImageF32,
-    mag_thresh: f32,
-    angle_tol: f32,
-    min_len: f32,
-    options: LsdOptions,
-) -> Vec<Segment> {
-    lsd_extract_segments_masked_with_options(l, mag_thresh, angle_tol, min_len, None, options)
-}
-
-/// Same as [`lsd_extract_segments`] but restricts seeds and region growth to pixels where `mask == 1`.
-pub fn lsd_extract_segments_masked(
-    l: &ImageF32,
-    mag_thresh: f32,
-    angle_tol: f32,
-    min_len: f32,
-    mask: Option<&[u8]>,
-) -> Vec<Segment> {
-    lsd_extract_segments_masked_with_options(
-        l,
-        mag_thresh,
-        angle_tol,
-        min_len,
-        mask,
-        LsdOptions::default(),
-    )
-}
-
-/// Masked variant with explicit options.
-pub fn lsd_extract_segments_masked_with_options(
-    l: &ImageF32,
-    mag_thresh: f32,
-    angle_tol: f32,
-    min_len: f32,
-    mask: Option<&[u8]>,
-    options: LsdOptions,
-) -> Vec<Segment> {
-    LsdExtractor::new(l, mag_thresh, angle_tol, min_len, mask, options).extract()
-}
-
-struct LsdExtractor<'a> {
+pub(super) struct LsdExtractor<'a> {
     grad: Grad,
     width: usize,
     height: usize,
@@ -232,7 +112,7 @@ struct LsdExtractor<'a> {
 }
 
 impl<'a> LsdExtractor<'a> {
-    fn new(
+    pub(super) fn new(
         l: &ImageF32,
         mag_thresh: f32,
         angle_tol: f32,
@@ -275,7 +155,7 @@ impl<'a> LsdExtractor<'a> {
         }
     }
 
-    fn extract(mut self) -> Vec<Segment> {
+    pub(super) fn extract(mut self) -> Vec<Segment> {
         for idx in 0..(self.width * self.height) {
             self.process_seed(idx);
         }
@@ -493,71 +373,4 @@ fn normalize_signed_pi(angle: f32) -> f32 {
         norm -= 2.0 * std::f32::consts::PI;
     }
     norm
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn step_image(width: usize, height: usize, split_x: usize) -> ImageF32 {
-        let mut img = ImageF32::new(width, height);
-        for y in 0..height {
-            for x in 0..width {
-                let v = if x < split_x { 0.0 } else { 1.0 };
-                img.set(x, y, v);
-            }
-        }
-        img
-    }
-
-    #[test]
-    fn lsd_extractor_finds_vertical_segment() {
-        let img = step_image(32, 32, 16);
-        let segs = LsdExtractor::new(
-            &img,
-            0.1,
-            std::f32::consts::FRAC_PI_6,
-            4.0,
-            None,
-            LsdOptions::default(),
-        )
-        .extract();
-        assert!(
-            !segs.is_empty(),
-            "expected at least one segment on a vertical edge"
-        );
-        let longest = segs
-            .iter()
-            .max_by(|a, b| a.len.partial_cmp(&b.len).unwrap())
-            .unwrap();
-        assert!(
-            longest.dir[1].abs() > longest.dir[0].abs(),
-            "expected vertical-oriented segment, got dir={:?}",
-            longest.dir
-        );
-        assert!(
-            longest.len >= 8.0,
-            "expected a reasonably long segment, got len={}",
-            longest.len
-        );
-    }
-
-    #[test]
-    fn lsd_extractor_rejects_flat_image() {
-        let img = ImageF32::new(16, 16);
-        let segs = LsdExtractor::new(
-            &img,
-            0.05,
-            std::f32::consts::FRAC_PI_4,
-            2.0,
-            None,
-            LsdOptions::default(),
-        )
-        .extract();
-        assert!(
-            segs.is_empty(),
-            "no segments should be detected in a flat image, got {:?}",
-            segs
-        );
-    }
 }
