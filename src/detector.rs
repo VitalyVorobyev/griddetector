@@ -112,7 +112,7 @@ impl GridDetector {
             .collect::<Vec<_>>();
 
         let l = pyr.levels.last().unwrap();
-        let mut engine = LsdVpEngine::default();
+        let engine = LsdVpEngine::default();
         let mut confidence = 0.0f32;
         let mut h_candidate = None;
         let mut lsd_diag = None;
