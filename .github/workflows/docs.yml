@@ -43,19 +43,18 @@ jobs:
           # Prevent GitHub Pages (Jekyll) from interfering with rustdoc output
           touch target/doc/.nojekyll
 
-          # Ensure a root index.html exists (point to your main crate).
-          # NOTE: crate folder uses underscores instead of hyphens.
-          CRATE_NAME="griddetector"
-          if [ -f "target/doc/${CRATE_NAME}/index.html" ]; then
-            cp "target/doc/${CRATE_NAME}/index.html" "target/doc/index.html"
+          # Ensure a root index.html exists by redirecting to the main crate docs.
+          # The crate docs directory follows the [lib] name in Cargo.toml (underscores, not hyphens).
+          CRATE_DIR="grid_detector"
+          if [ -f "target/doc/${CRATE_DIR}/index.html" ]; then
+            cat > target/doc/index.html <<HTML
+<!doctype html><meta charset="utf-8">
+<meta http-equiv="refresh" content="0; url=./${CRATE_DIR}/index.html">
+<link rel="canonical" href="./${CRATE_DIR}/index.html">
+HTML
+          else
+            echo "warning: crate docs not found at target/doc/${CRATE_DIR}/index.html" >&2
           fi
-
-          # Optional: if you prefer a tiny redirect page instead:
-          # cat > target/doc/index.html <<'HTML'
-          # <!doctype html><meta charset="utf-8">
-          # <meta http-equiv="refresh" content="0; url=./griddetector/index.html">
-          # <link rel="canonical" href="./griddetector/index.html">
-          # HTML
 
       - name: Sanity check artifact layout
         run: |
