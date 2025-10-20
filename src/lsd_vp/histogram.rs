@@ -183,6 +183,12 @@ mod tests {
         let refined = hist.refined_angle(4, 1);
         let expected = normalize_half_pi(target);
         let diff = (refined - expected).abs();
-        assert!(diff < bw * 0.5, "refined={} expected={} diff={}", refined, expected, diff);
+        assert!(
+            diff < bw * 0.5,
+            "refined={} expected={} diff={}",
+            refined,
+            expected,
+            diff
+        );
     }
 }

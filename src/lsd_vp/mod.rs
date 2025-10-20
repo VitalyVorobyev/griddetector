@@ -31,4 +31,4 @@ mod engine;
 mod histogram;
 mod vp;
 
-pub use engine::{Engine, Hypothesis};
+pub use engine::{DetailedInference, Engine, FamilyLabel, Hypothesis};

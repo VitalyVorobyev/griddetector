@@ -36,6 +36,22 @@ cargo run --release --bin coarse_edges config/coarse_edges.json
 cargo run --release --bin coarse_segments config/coarse_segments.json
 ```
 
+LSD→VP coarse hypothesis demo (writes the coarsest-level image and a JSON report with
+segment families and the estimated projective basis):
+
+```sh
+cargo run --release --bin lsd_vp_demo config/lsd_vp_demo_sample.json
+```
+
+Visualize the demo output (requires `matplotlib`, `numpy`, `Pillow`):
+
+```sh
+python tools/plot_lsd_vp.py \
+    --image out/lsd_vp_coarsest.png \
+    --result out/lsd_vp_result.json \
+    --save out/lsd_vp_overlay.png
+```
+
 LSD options in `config/coarse_segments.json`:
 
 - `magnitude_threshold`, `angle_tolerance_deg`, `min_length`
@@ -81,7 +97,7 @@ cargo run --release --features parallel --bin grid_demo
 - `pyramid`: grayscale `ImageU8` → multi‑level `ImageF32` pyramid ([doc/pyramid.md](doc/pyramid.md))
 - `edges`: Sobel/Scharr gradients and NMS ([doc/edges.md](doc/edges.md))
 - `segments`: LSD‑like region growing and PCA line fitting ([doc/segments.md](doc/segments.md))
-- `lsd_vp`: coarse vanishing‑point hypothesis ([doc/lsd_vp.md](doc/lsd_vp.md))
+- `lsd_vp`: coarse vanishing-point hypothesis ([doc/lsd_vp.md](doc/lsd_vp.md))
 - `refine`: coarse‑to‑fine homography refinement ([doc/refine.md](doc/refine.md))
 - `detector`: end-to-end pipeline wrapper that builds the pyramid, runs the engine, and recovers pose
 - `types`: result and pose structs (`GridResult`, `Pose`)
@@ -95,7 +111,7 @@ cargo run --release --features parallel --bin grid_demo
 - LSD→VP: [doc/lsd_vp.md](doc/lsd_vp.md)
 - Refinement: [doc/refine.md](doc/refine.md)
 - Roadmap: [doc/roadmap.md](doc/roadmap.md)
-- Tools: `tools/plot_coarse_edges.py`, `tools/plot_coarse_segments.py`
+- Tools: `tools/plot_coarse_edges.py`, `tools/plot_coarse_segments.py`, `tools/plot_lsd_vp.py`
 
 ## Roadmap
 
