@@ -1,4 +1,5 @@
 use crate::segments::bundling::Bundle;
+use log::warn;
 use nalgebra::Vector3;
 
 use super::types::VpStats;
@@ -38,6 +39,7 @@ pub(crate) fn estimate_vp_huber(
         }
         let det = accum.determinant();
         if det.abs() <= EPS {
+            warn!("VP estimation: normal equations are singular, falling back to tangent average");
             return fallback_vp_from_bundles(bundles);
         }
         let (x, y) = accum.solve(det);
