@@ -4,31 +4,24 @@ Refines an initial projective basis `H0` (from LSD→VP) into a stable homograph
 
 ### Inputs
 
-- Pyramid levels (`ImageF32`), coarse‐to‐fine.
+- Bundled line constraints per level, expressed in the image coordinates of `H0`.
 - Initial homography `H0` already rescaled to the current image coordinates.
 
 ### Stages
 
-1. Segment Extraction
-   - Use the LSD‑like extractor at each level with level‑aware thresholds.
-
-2. Edge Bundling
-   - Merge collinear, nearby segments into bundles.
-   - Each bundle stores a normalized line `ax+by+c=0`, a representative center, and a weight `strength = len×avg_mag`.
-
-3. Family Assignment
+1. Family Assignment
    - From `H`, compute directions to the vanishing points relative to the translation anchor.
    - Assign bundles to `u` or `v` families based on angular proximity (with a tolerance), ensuring minimal family support.
 
-4. Huber‑Weighted VP Estimation (IRLS)
+2. Huber‑Weighted VP Estimation (IRLS)
    - For each family, solve normal equations on `ax+by+c≈0` with weights from bundle strength and Huber weights (`δ/|residual|` beyond the inlier region).
    - Update vanishing points; iterate a few times or until convergence.
 
-5. Anchor Update
+3. Anchor Update
    - Estimate a stable anchor as the intersection of the heaviest `u` and `v` bundles.
 
-6. Coarse‑to‑Fine Progression
-   - Apply steps 1–5 from coarse → fine, using the previous level’s `H` as initialization.
+4. Coarse‑to‑Fine Progression
+   - Apply steps 1–3 from coarse → fine, using the previous level’s `H` as initialization.
    - Early stop on small relative update; accumulate a confidence score and keep the last good `H` for fallback.
 
 ### Outputs
@@ -40,17 +33,15 @@ Refines an initial projective basis `H0` (from LSD→VP) into a stable homograph
 
 ### Parameters (`RefineParams`)
 
-- `base_mag_thresh`, `base_min_len`: scale with level size (coarse→smaller mag, fine→longer min_len).
-- `orientation_tol_deg`: bundle/assignment tolerance.
-- `merge_dist_px`: line proximity for bundling.
-- `huber_delta`: inlier threshold for Huber loss.
+- `orientation_tol_deg`: angular tolerance when assigning bundles to the two families.
+- `huber_delta`: inlier threshold for the Huber loss.
 - `max_iterations`: IRLS iterations per level.
-- `min_bundle_weight`, `min_bundles_per_family`: robustness gates.
+- `min_bundles_per_family`: robustness gate to avoid ill-conditioned updates.
 
 ### Notes
 
 - Assumes rectified input imagery (no lens distortion).
-- Confidence blending with the coarse hypothesis is handled in the detector (`combine_confidence`).
+- Bundling and ROI selection happen in the detector before refinement.
 - Metric constraints (equal spacing for square/rectangular grids) are not enforced here; they belong to a later refinement stage.
 
 ### Extensions
@@ -58,4 +49,3 @@ Refines an initial projective basis `H0` (from LSD→VP) into a stable homograph
 - Replace family assignment with VP RANSAC before IRLS for stronger outlier rejection.
 - Add grid‑spacing residuals to transition from projective to metric homography.
 - Introduce temporal smoothing across frames for video input.
-

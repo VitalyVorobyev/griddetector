@@ -222,18 +222,10 @@ struct FileGridConfig {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 struct FileRefineConfig {
-    base_mag_thresh: Option<f32>,
-    angle_tol_deg: Option<f32>,
-    base_min_len: Option<f32>,
     orientation_tol_deg: Option<f32>,
-    merge_dist_px: Option<f32>,
-    roi_band_px: Option<f32>,
-    roi_widen_factor: Option<f32>,
     huber_delta: Option<f32>,
     max_iterations: Option<usize>,
-    min_bundle_weight: Option<f32>,
     min_bundles_per_family: Option<usize>,
-    restrict_to_roi: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -281,26 +273,8 @@ fn apply_grid_file_config(params: &mut GridParams, cfg: &FileGridConfig) {
 }
 
 fn apply_refine_file_config(params: &mut RefineParams, cfg: &FileRefineConfig) {
-    if let Some(v) = cfg.base_mag_thresh {
-        params.base_mag_thresh = v;
-    }
-    if let Some(v) = cfg.angle_tol_deg {
-        params.angle_tol_deg = v;
-    }
-    if let Some(v) = cfg.base_min_len {
-        params.base_min_len = v;
-    }
     if let Some(v) = cfg.orientation_tol_deg {
         params.orientation_tol_deg = v;
-    }
-    if let Some(v) = cfg.merge_dist_px {
-        params.merge_dist_px = v;
-    }
-    if let Some(v) = cfg.roi_band_px {
-        params.roi_band_px = v;
-    }
-    if let Some(v) = cfg.roi_widen_factor {
-        params.roi_widen_factor = v;
     }
     if let Some(v) = cfg.huber_delta {
         params.huber_delta = v;
@@ -308,14 +282,8 @@ fn apply_refine_file_config(params: &mut RefineParams, cfg: &FileRefineConfig) {
     if let Some(v) = cfg.max_iterations {
         params.max_iterations = v;
     }
-    if let Some(v) = cfg.min_bundle_weight {
-        params.min_bundle_weight = v;
-    }
     if let Some(v) = cfg.min_bundles_per_family {
         params.min_bundles_per_family = v;
-    }
-    if let Some(v) = cfg.restrict_to_roi {
-        params.restrict_to_roi = v;
     }
 }
 

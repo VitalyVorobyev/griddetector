@@ -3,9 +3,10 @@ use crate::diagnostics::{
     RefinementDiagnostics,
 };
 use crate::image::{ImageU8, ImageView};
-use crate::lsd_vp::Engine as LsdVpEngine;
+use crate::lsd_vp::{DetailedInference, Engine as LsdVpEngine};
 use crate::pyramid::Pyramid;
-use crate::refine::{RefineParams, Refiner};
+use crate::refine::{RefineLevel, RefineParams, Refiner};
+use crate::segments::{bundle_segments, Bundle};
 use crate::types::{GridResult, Pose};
 use log::debug;
 use nalgebra::Matrix3;
@@ -56,6 +57,26 @@ fn rescale_lsd_segments(diag: &mut LsdDiagnostics, scale_x: f32, scale_y: f32) {
         }
         seg.len = new_len;
     }
+}
+
+const DEFAULT_BUNDLE_MERGE_DIST: f32 = 1.5;
+const DEFAULT_MIN_BUNDLE_WEIGHT: f32 = 3.0;
+
+fn rescale_bundle_to_full_res(mut bundle: Bundle, scale_x: f32, scale_y: f32) -> Bundle {
+    bundle.center[0] *= scale_x;
+    bundle.center[1] *= scale_y;
+
+    let mut a = bundle.line[0] / scale_x;
+    let mut b = bundle.line[1] / scale_y;
+    let mut c = bundle.line[2];
+    let norm = (a * a + b * b).sqrt().max(1e-6);
+    a /= norm;
+    b /= norm;
+    c /= norm;
+
+    bundle.line = [a, b, c];
+    bundle.weight *= 0.5 * (scale_x + scale_y);
+    bundle
 }
 
 pub struct GridDetector {
@@ -116,33 +137,68 @@ impl GridDetector {
         let mut confidence = 0.0f32;
         let mut h_candidate = None;
         let mut lsd_diag = None;
-        if let Some(mut hyp) = engine.infer(l) {
-            confidence = hyp.confidence;
-            let hmtx0 = hyp.hmtx0;
+        let mut refine_bundles: Option<(Vec<Bundle>, usize)> = None;
+        if let Some(detailed) = engine.infer_detailed(l) {
+            let DetailedInference {
+                mut hypothesis,
+                segments,
+                ..
+            } = detailed;
+            confidence = hypothesis.confidence;
+            let hmtx0 = hypothesis.hmtx0;
             if l.w > 0 && l.h > 0 {
                 let scale_x = width as f32 / l.w as f32;
                 let scale_y = height as f32 / l.h as f32;
-                rescale_lsd_segments(&mut hyp.diagnostics, scale_x, scale_y);
+                rescale_lsd_segments(&mut hypothesis.diagnostics, scale_x, scale_y);
                 let scale = Matrix3::new(scale_x, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 1.0);
                 let scaled = scale * hmtx0;
                 h_candidate = Some(scaled);
+                let orientation_tol = self.params.refine_params.orientation_tol_deg.to_radians();
+                let bundles = bundle_segments(
+                    &segments,
+                    orientation_tol,
+                    DEFAULT_BUNDLE_MERGE_DIST,
+                    DEFAULT_MIN_BUNDLE_WEIGHT,
+                );
+                let bundles_full = bundles
+                    .into_iter()
+                    .map(|b| rescale_bundle_to_full_res(b, scale_x, scale_y))
+                    .collect::<Vec<_>>();
+                refine_bundles = Some((bundles_full, segments.len()));
                 debug!(
-                    "GridDetector::process hypothesis confidence={:.3} scale=({:.3},{:.3})",
-                    confidence, scale_x, scale_y
+                    "GridDetector::process hypothesis confidence={:.3} scale=({:.3},{:.3}) bundles={}",
+                    confidence,
+                    scale_x,
+                    scale_y,
+                    refine_bundles.as_ref().map(|(b, _)| b.len()).unwrap_or(0)
                 );
             } else {
                 debug!("GridDetector::process coarsest level has zero dimension, skipping scale");
                 h_candidate = Some(hmtx0);
             }
-            lsd_diag = Some(hyp.diagnostics.clone());
+            lsd_diag = Some(hypothesis.diagnostics.clone());
         } else {
             debug!("GridDetector::process LSD→VP engine returned no hypothesis");
         }
         let mut hmtx = h_candidate.unwrap_or_else(Matrix3::identity);
 
         let mut refinement_diag = None;
-        if self.params.enable_refine && h_candidate.is_some() && hmtx != Matrix3::identity() {
-            match self.refiner.refine(&pyr, hmtx) {
+        if self.params.enable_refine
+            && h_candidate.is_some()
+            && hmtx != Matrix3::identity()
+            && refine_bundles.is_some()
+        {
+            let (bundles_full, segments_total) = refine_bundles.unwrap();
+            let level_index = pyr.levels.len().saturating_sub(1);
+            let level = RefineLevel {
+                level_index,
+                width,
+                height,
+                segments: segments_total,
+                bundles: bundles_full.as_slice(),
+            };
+            let levels = [level];
+            match self.refiner.refine(hmtx, &levels) {
                 Some(refine_res) => {
                     debug!(
                         "GridDetector::process refine confidence={:.3} inlier_ratio={:.3} levels_used={}",

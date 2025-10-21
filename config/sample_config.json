@@ -17,18 +17,10 @@
         "confidence_thresh": 0.4,
         "enable_refine": true,
         "refine": {
-            "base_mag_thresh": 0.03,
-            "angle_tol_deg": 20.0,
-            "base_min_len": 6.0,
             "orientation_tol_deg": 22.5,
-            "merge_dist_px": 1.5,
-            "roi_band_px": 3.5,
-            "roi_widen_factor": 1.75,
             "huber_delta": 1.0,
             "max_iterations": 6,
-            "min_bundle_weight": 3.0,
-            "min_bundles_per_family": 4,
-            "restrict_to_roi": false
+            "min_bundles_per_family": 4
         }
     }
 }
