@@ -10,6 +10,13 @@ pub(crate) struct FamilyBuckets<'a> {
     pub family_v: Vec<&'a Bundle>,
 }
 
+/// Partition bundled line constraints into two vanishing-point families whose
+/// tangents align with the current homography estimate.
+///
+/// The assignment is performed by comparing the angular distance between the
+/// bundle tangent and the directions implied by the current homography columns
+/// (vanishing points). Bundles outside the orientation tolerance are still
+/// assigned to the closest family to keep the optimisation well conditioned.
 pub(crate) fn split_bundles<'a>(
     h_current: &Matrix3<f32>,
     bundles: &'a [Bundle],

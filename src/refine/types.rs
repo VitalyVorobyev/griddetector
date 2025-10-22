@@ -3,6 +3,8 @@ use crate::segments::bundling::Bundle;
 use nalgebra::Matrix3;
 
 /// Parameters controlling homography refinement from bundled constraints.
+///
+/// The fields mirror the IRLS schedule used by [`homography::Refiner`](crate::refine::homography::Refiner).
 #[derive(Clone, Debug)]
 pub struct RefineParams {
     /// Orientation tolerance (degrees) for assigning bundles to the u/v families.
@@ -29,20 +31,30 @@ impl Default for RefineParams {
 /// Input bundles describing a single refinement level.
 #[derive(Clone, Debug)]
 pub struct RefineLevel<'a> {
+    /// Pyramid level index (0 = finest).
     pub level_index: usize,
+    /// Level width in pixels.
     pub width: usize,
+    /// Level height in pixels.
     pub height: usize,
+    /// Number of raw segments contributing to the bundles, used for diagnostics.
     pub segments: usize,
+    /// View of the bundles collected at this level.
     pub bundles: &'a [Bundle],
 }
 
 /// Result of the homography refinement.
 #[derive(Clone, Debug)]
 pub struct RefinementResult {
+    /// Refined homography expressed in pixel space of the finest level.
     pub h_refined: Matrix3<f32>,
+    /// Confidence score aggregated across levels.
     pub confidence: f32,
+    /// Ratio between inlier and total bundle weight in the last successful level.
     pub inlier_ratio: f32,
+    /// Number of pyramid levels that contributed a valid update.
     pub levels_used: usize,
+    /// Per-level diagnostics useful for visualisation and logging.
     pub level_reports: Vec<RefinementLevelDiagnostics>,
 }
 
@@ -55,7 +67,10 @@ pub(crate) struct LevelRefinement {
 }
 
 pub(crate) struct VpStats {
+    /// Confidence for the vanishing point update (0..1).
     pub confidence: f32,
+    /// Sum of IRLS weights processed.
     pub total_weight: f32,
+    /// Sum of inlier weights falling inside the Huber loss quadratic region.
     pub inlier_weight: f32,
 }

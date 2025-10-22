@@ -3,6 +3,12 @@ use nalgebra::Vector3;
 
 use super::EPS;
 
+/// Estimate the homography anchor column by intersecting the strongest bundle
+/// pair from the two vanishing-point families.
+///
+/// The anchor corresponds to the third column of the homography and acts as
+/// the translation term. Choosing the highest-weight pair stabilises the
+/// update against noisy or weakly supported bundles.
 pub(crate) fn estimate_anchor(fam_u: &[&Bundle], fam_v: &[&Bundle]) -> Option<Vector3<f32>> {
     let best_u = fam_u
         .iter()

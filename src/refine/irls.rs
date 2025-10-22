@@ -14,6 +14,11 @@ fn huber_weight(residual: f32, delta: f32) -> (f32, bool) {
     }
 }
 
+/// Estimate a vanishing point by solving the Huber-weighted normal equations
+/// over a bundle family using Iteratively Reweighted Least Squares (IRLS).
+///
+/// The solver monitors singular configurations and falls back to a simple
+/// average of bundle tangents if the covariance collapses.
 pub(crate) fn estimate_vp_huber(
     bundles: &[&Bundle],
     vp_init: &Vector3<f32>,
