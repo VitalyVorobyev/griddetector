@@ -4,33 +4,32 @@ Pyramid: Functional 5-tap Gaussian + 2× decimation, returns ImageF32 levels (sr
 Gradients: Sobel/Scharr with magnitude + orientation quantization; per-pixel Grad computed (src/edges.rs:11).
 LSD-like segments: Region growing on gradient orientation, PCA fit, simple significance test, returns normal-form lines (src/segments.rs:114). Includes basic unit tests.
 VP + coarse H0: Orientation histogram → two dominant line families → VP estimation → coarse projective basis H0 and confidence (src/lsd_vp.rs:35).
-Detector: Builds pyramid, runs low-res engine once, placeholder refinement, pose-from-H implemented; found always false, unused params (src/detector.rs:43,57,68).
+Detector: Multi-level pipeline (pyramid, LSD→VP, per-level segment refinement, bundling, homography IRLS, pose recovery) with confidence gating (src/detector.rs:1).
 Key Gaps
 
-No coarse-to-fine refinement of H0 to a metric homography honoring equal grid spacing.
-H0 is built at the last pyramid level and not rescaled to original coordinates.
 No grid indexing (u,v lattice), origin detection, or coverage/quality metrics.
-Outlier handling is minimal (no robust fit/RANSAC; no line bundling/merging).
+Metric upgrade absent: homography not constrained by equal spacing or non-planar grids.
+Outlier handling is minimal (no robust fit/RANSAC; bundle family assignment deterministic).
 Parallelism optional feature not used; frequent allocations in hot paths.
 Sparse tests; no integration/benchmarks and no example images.
 Roadmap
 
 Milestone 1: Solid Baseline
 
-Set found when H0 is valid with confidence >= τ (e.g., 0.5) and propagate confidence to result (src/detector.rs:52,68).
-Rescale H0 from lowest pyramid level to full-res coordinates by composing with scale matrices.
 Add simple integration test using a synthetic chessboard image generator.
-Expose a debug flag to return extracted segments and VPs for inspection.
-Milestone 2: Coarse-to-Fine Refinement
+Expose grid lattice quality metrics in `GridResult` (coverage, reprojection RMSE).
+Document new configuration knobs (LSD/segment refinement/bundling) with examples.
 
-Introduce refine.rs: robustly refine from H0 at low-res → mid → full. Energy: distance of detected edge bundles to projected grid lines with Huber loss.
-Bundle/merge collinear segments; weight by length and gradient magnitude.
-Add stopping criteria, confidence update, and failure fallback to last good H0.
-Milestone 3: Grid Lattice + Metric Homography
+Milestone 2: Metric Upgrade
 
-From refined projective basis, estimate metric homography by enforcing equal spacing along u and v.
-Infer integer lattice: project edges to u/v, detect 1D peaks (via 1D Hough/peak finding) → offsets + integer indexing → set origin_uv, visible_range, coverage.
-Flip found=true when both families have ≥ min inliers and spacing stability is good.
+Extend refinement with grid spacing constraints (affine/metric upgrade).
+Infer lattice indices (u,v), origin detection, and coverage estimation.
+Provide hooks for non-planar grids / local warps (beyond single homography).
+Milestone 3: Corner Extraction & Grid Lines
+
+Derive per-cell grid lines/corners from the metric upgrade, exposing precise grid coordinates.
+Track per-line confidence and residuals; surface optional smoothing for wavy boards/non-planar grids.
+Plumb lattice metadata through the CLI/debug outputs for downstream calibration tooling.
 Milestone 4: Robustness + Outliers
 
 RANSAC/IRLS for VP estimation (line intersections) before refinement.

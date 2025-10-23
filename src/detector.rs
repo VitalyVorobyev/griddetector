@@ -1,12 +1,19 @@
 use crate::diagnostics::{
-    DetailedResult, LsdDiagnostics, ProcessingDiagnostics, PyramidLevelDiagnostics,
-    RefinementDiagnostics,
+    BundleDiagnostics, BundleEntryDiagnostics, DetailedResult, LsdDiagnostics,
+    ProcessingDiagnostics, PyramidLevelDiagnostics, RefinementDiagnostics,
 };
+use crate::edges::grad::{sobel_gradients, Grad as EdgeGrad};
 use crate::image::{ImageU8, ImageView};
 use crate::lsd_vp::{DetailedInference, Engine as LsdVpEngine};
 use crate::pyramid::Pyramid;
-use crate::refine::{RefineLevel, RefineParams, Refiner};
-use crate::segments::{bundle_segments, Bundle};
+use crate::refine::segment::{
+    self, PyramidLevel as SegmentGradientLevel, ScaleMap, Segment as SegmentSeed,
+};
+use crate::refine::{
+    segment::RefineParams as SegmentRefineParams, RefineLevel,
+    RefineParams as HomographyRefineParams, Refiner,
+};
+use crate::segments::{bundle_segments, Bundle, Segment};
 use crate::types::{GridResult, Pose};
 use log::debug;
 use nalgebra::Matrix3;
@@ -20,7 +27,10 @@ pub struct GridParams {
     pub min_cells: i32,
     pub confidence_thresh: f32,
     pub enable_refine: bool,
-    pub refine_params: RefineParams,
+    pub refine_params: HomographyRefineParams,
+    pub segment_refine_params: SegmentRefineParams,
+    pub lsd_vp_params: LsdVpParams,
+    pub bundling_params: BundlingParams,
 }
 
 impl Default for GridParams {
@@ -32,9 +42,66 @@ impl Default for GridParams {
             min_cells: 6,
             confidence_thresh: 0.35,
             enable_refine: true,
-            refine_params: RefineParams::default(),
+            refine_params: HomographyRefineParams::default(),
+            segment_refine_params: SegmentRefineParams::default(),
+            lsd_vp_params: LsdVpParams::default(),
+            bundling_params: BundlingParams::default(),
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct LsdVpParams {
+    pub mag_thresh: f32,
+    pub angle_tol_deg: f32,
+    pub min_len: f32,
+}
+
+impl Default for LsdVpParams {
+    fn default() -> Self {
+        Self {
+            mag_thresh: 0.05,
+            angle_tol_deg: 22.5,
+            min_len: 4.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct BundlingParams {
+    pub orientation_tol_deg: f32,
+    pub merge_dist_px: f32,
+    pub min_weight: f32,
+}
+
+impl Default for BundlingParams {
+    fn default() -> Self {
+        Self {
+            orientation_tol_deg: 22.5,
+            merge_dist_px: 1.5,
+            min_weight: 3.0,
+        }
+    }
+}
+
+struct LevelScaleMap {
+    sx: f32,
+    sy: f32,
+}
+
+impl ScaleMap for LevelScaleMap {
+    fn up(&self, p_coarse: [f32; 2]) -> [f32; 2] {
+        [p_coarse[0] * self.sx, p_coarse[1] * self.sy]
+    }
+}
+
+#[derive(Debug)]
+struct RefineLevelData {
+    level_index: usize,
+    level_width: usize,
+    level_height: usize,
+    segments: usize,
+    bundles: Vec<Bundle>,
 }
 
 fn rescale_lsd_segments(diag: &mut LsdDiagnostics, scale_x: f32, scale_y: f32) {
@@ -59,9 +126,6 @@ fn rescale_lsd_segments(diag: &mut LsdDiagnostics, scale_x: f32, scale_y: f32) {
     }
 }
 
-const DEFAULT_BUNDLE_MERGE_DIST: f32 = 1.5;
-const DEFAULT_MIN_BUNDLE_WEIGHT: f32 = 3.0;
-
 fn rescale_bundle_to_full_res(mut bundle: Bundle, scale_x: f32, scale_y: f32) -> Bundle {
     bundle.center[0] *= scale_x;
     bundle.center[1] *= scale_y;
@@ -79,19 +143,69 @@ fn rescale_bundle_to_full_res(mut bundle: Bundle, scale_x: f32, scale_y: f32) ->
     bundle
 }
 
+fn convert_refine_result(prev: &Segment, result: segment::RefineResult) -> Segment {
+    let seg = result.seg;
+    let mut p0 = seg.p0;
+    let mut p1 = seg.p1;
+    if !p0[0].is_finite() || !p0[1].is_finite() || !p1[0].is_finite() || !p1[1].is_finite() {
+        p0 = prev.p0;
+        p1 = prev.p1;
+    }
+    let dx = p1[0] - p0[0];
+    let dy = p1[1] - p0[1];
+    let mut len = (dx * dx + dy * dy).sqrt();
+    if !len.is_finite() {
+        len = prev.len;
+    }
+    let dir = if len > f32::EPSILON {
+        [dx / len, dy / len]
+    } else {
+        prev.dir
+    };
+
+    let mut normal = [-dir[1], dir[0]];
+    let norm = (normal[0] * normal[0] + normal[1] * normal[1])
+        .sqrt()
+        .max(1e-6);
+    normal[0] /= norm;
+    normal[1] /= norm;
+    let c = -(normal[0] * p0[0] + normal[1] * p0[1]);
+
+    let avg_mag = if result.ok && result.score.is_finite() && result.score > 0.0 {
+        result.score
+    } else {
+        prev.avg_mag
+    }
+    .max(0.0);
+    let strength = len.max(1e-3) * avg_mag;
+
+    Segment {
+        p0,
+        p1,
+        dir,
+        len,
+        line: [normal[0], normal[1], c],
+        avg_mag,
+        strength,
+    }
+}
+
 pub struct GridDetector {
     params: GridParams,
     last_hmtx: Option<Matrix3<f32>>,
     refiner: Refiner,
+    lsd_engine: LsdVpEngine,
 }
 
 impl GridDetector {
     pub fn new(params: GridParams) -> Self {
         let refiner = Refiner::new(params.refine_params.clone());
+        let lsd_engine = Self::make_lsd_engine(&params.lsd_vp_params);
         Self {
             params,
             last_hmtx: None,
             refiner,
+            lsd_engine,
         }
     }
 
@@ -132,53 +246,43 @@ impl GridDetector {
             })
             .collect::<Vec<_>>();
 
-        let l = pyr.levels.last().unwrap();
-        let engine = LsdVpEngine::default();
         let mut confidence = 0.0f32;
         let mut h_candidate = None;
         let mut lsd_diag = None;
-        let mut refine_bundles: Option<(Vec<Bundle>, usize)> = None;
-        if let Some(detailed) = engine.infer_detailed(l) {
-            let DetailedInference {
-                mut hypothesis,
-                segments,
-                ..
-            } = detailed;
-            confidence = hypothesis.confidence;
-            let hmtx0 = hypothesis.hmtx0;
-            if l.w > 0 && l.h > 0 {
-                let scale_x = width as f32 / l.w as f32;
-                let scale_y = height as f32 / l.h as f32;
-                rescale_lsd_segments(&mut hypothesis.diagnostics, scale_x, scale_y);
-                let scale = Matrix3::new(scale_x, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 1.0);
-                let scaled = scale * hmtx0;
-                h_candidate = Some(scaled);
-                let orientation_tol = self.params.refine_params.orientation_tol_deg.to_radians();
-                let bundles = bundle_segments(
-                    &segments,
-                    orientation_tol,
-                    DEFAULT_BUNDLE_MERGE_DIST,
-                    DEFAULT_MIN_BUNDLE_WEIGHT,
-                );
-                let bundles_full = bundles
-                    .into_iter()
-                    .map(|b| rescale_bundle_to_full_res(b, scale_x, scale_y))
-                    .collect::<Vec<_>>();
-                refine_bundles = Some((bundles_full, segments.len()));
+        let mut refine_levels_data: Vec<RefineLevelData> = Vec::new();
+
+        if let Some(coarse_level) = pyr.levels.last() {
+            if let Some(detailed) = self.lsd_engine.infer_detailed(coarse_level) {
+                let DetailedInference {
+                    mut hypothesis,
+                    segments,
+                    ..
+                } = detailed;
+                confidence = hypothesis.confidence;
+                let hmtx0 = hypothesis.hmtx0;
+                if coarse_level.w > 0 && coarse_level.h > 0 {
+                    let scale_x = width as f32 / coarse_level.w as f32;
+                    let scale_y = height as f32 / coarse_level.h as f32;
+                    rescale_lsd_segments(&mut hypothesis.diagnostics, scale_x, scale_y);
+                    let scale = Matrix3::new(scale_x, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 1.0);
+                    h_candidate = Some(scale * hmtx0);
+                } else {
+                    debug!(
+                        "GridDetector::process coarsest level has zero dimension, skipping scale"
+                    );
+                    h_candidate = Some(hmtx0);
+                }
+                lsd_diag = Some(hypothesis.diagnostics.clone());
+                refine_levels_data = self.prepare_refine_levels(&pyr, segments, width, height);
                 debug!(
-                    "GridDetector::process hypothesis confidence={:.3} scale=({:.3},{:.3}) bundles={}",
-                    confidence,
-                    scale_x,
-                    scale_y,
-                    refine_bundles.as_ref().map(|(b, _)| b.len()).unwrap_or(0)
+                    "GridDetector::process prepared {} refinement levels",
+                    refine_levels_data.len()
                 );
             } else {
-                debug!("GridDetector::process coarsest level has zero dimension, skipping scale");
-                h_candidate = Some(hmtx0);
+                debug!("GridDetector::process LSD→VP engine returned no hypothesis");
             }
-            lsd_diag = Some(hypothesis.diagnostics.clone());
         } else {
-            debug!("GridDetector::process LSD→VP engine returned no hypothesis");
+            debug!("GridDetector::process pyramid has no levels");
         }
         let mut hmtx = h_candidate.unwrap_or_else(Matrix3::identity);
 
@@ -186,19 +290,20 @@ impl GridDetector {
         if self.params.enable_refine
             && h_candidate.is_some()
             && hmtx != Matrix3::identity()
-            && refine_bundles.is_some()
+            && !refine_levels_data.is_empty()
         {
-            let (bundles_full, segments_total) = refine_bundles.unwrap();
-            let level_index = pyr.levels.len().saturating_sub(1);
-            let level = RefineLevel {
-                level_index,
-                width,
-                height,
-                segments: segments_total,
-                bundles: bundles_full.as_slice(),
-            };
-            let levels = [level];
-            match self.refiner.refine(hmtx, &levels) {
+            let mut refine_levels: Vec<RefineLevel<'_>> =
+                Vec::with_capacity(refine_levels_data.len());
+            for data in refine_levels_data.iter().rev() {
+                refine_levels.push(RefineLevel {
+                    level_index: data.level_index,
+                    width: data.level_width,
+                    height: data.level_height,
+                    segments: data.segments,
+                    bundles: data.bundles.as_slice(),
+                });
+            }
+            match self.refiner.refine(hmtx, &refine_levels) {
                 Some(refine_res) => {
                     debug!(
                         "GridDetector::process refine confidence={:.3} inlier_ratio={:.3} levels_used={}",
@@ -228,6 +333,28 @@ impl GridDetector {
                 }
             }
         }
+
+        let bundling_diag = if !refine_levels_data.is_empty() {
+            Some(
+                refine_levels_data
+                    .iter()
+                    .map(|data| BundleDiagnostics {
+                        level_index: data.level_index,
+                        bundles: data
+                            .bundles
+                            .iter()
+                            .map(|b| BundleEntryDiagnostics {
+                                center: b.center,
+                                line: b.line,
+                                weight: b.weight,
+                            })
+                            .collect(),
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            None
+        };
 
         if hmtx != Matrix3::identity() {
             self.last_hmtx = Some(hmtx);
@@ -262,6 +389,7 @@ impl GridDetector {
             pyramid_build_ms: pyr_ms,
             lsd: lsd_diag,
             refinement: refinement_diag,
+            bundling: bundling_diag,
             homography: hmtx,
             total_latency_ms: latency,
         };
@@ -277,9 +405,160 @@ impl GridDetector {
     pub fn set_spacing(&mut self, s_mm: f32) {
         self.params.spacing_mm = s_mm;
     }
-    pub fn set_refine_params(&mut self, params: RefineParams) {
+    pub fn set_refine_params(&mut self, params: HomographyRefineParams) {
         self.params.refine_params = params.clone();
         self.refiner = Refiner::new(params);
+    }
+
+    pub fn set_segment_refine_params(&mut self, params: SegmentRefineParams) {
+        self.params.segment_refine_params = params;
+    }
+
+    pub fn set_lsd_vp_params(&mut self, params: LsdVpParams) {
+        self.params.lsd_vp_params = params.clone();
+        self.lsd_engine = Self::make_lsd_engine(&params);
+    }
+
+    pub fn set_bundling_params(&mut self, params: BundlingParams) {
+        self.params.bundling_params = params;
+    }
+
+    fn make_lsd_engine(params: &LsdVpParams) -> LsdVpEngine {
+        LsdVpEngine {
+            mag_thresh: params.mag_thresh,
+            angle_tol_deg: params.angle_tol_deg,
+            min_len: params.min_len,
+        }
+    }
+
+    fn prepare_refine_levels(
+        &self,
+        pyramid: &Pyramid,
+        initial_segments: Vec<Segment>,
+        full_width: usize,
+        full_height: usize,
+    ) -> Vec<RefineLevelData> {
+        if pyramid.levels.is_empty() {
+            return Vec::new();
+        }
+
+        let mut levels_data = Vec::new();
+        let mut current_segments = initial_segments;
+        let mut grad_cache: Vec<Option<EdgeGrad>> = vec![None; pyramid.levels.len()];
+        let bundling_params = &self.params.bundling_params;
+        let orientation_tol = bundling_params.orientation_tol_deg.to_radians();
+        let coarse_idx = pyramid.levels.len() - 1;
+
+        for level_idx in (0..=coarse_idx).rev() {
+            let lvl = &pyramid.levels[level_idx];
+            let scale_x_full = if lvl.w > 0 {
+                full_width as f32 / lvl.w as f32
+            } else {
+                1.0
+            };
+            let scale_y_full = if lvl.h > 0 {
+                full_height as f32 / lvl.h as f32
+            } else {
+                1.0
+            };
+
+            let bundles_raw = bundle_segments(
+                &current_segments,
+                orientation_tol,
+                bundling_params.merge_dist_px,
+                bundling_params.min_weight,
+            );
+            let bundles_full: Vec<Bundle> = bundles_raw
+                .into_iter()
+                .map(|b| rescale_bundle_to_full_res(b, scale_x_full, scale_y_full))
+                .collect();
+
+            debug!(
+                "GridDetector::level L{}: segments={} bundles={}",
+                level_idx,
+                current_segments.len(),
+                bundles_full.len()
+            );
+
+            levels_data.push(RefineLevelData {
+                level_index: level_idx,
+                level_width: lvl.w,
+                level_height: lvl.h,
+                segments: current_segments.len(),
+                bundles: bundles_full,
+            });
+
+            if current_segments.is_empty() {
+                break;
+            }
+
+            if level_idx == 0 {
+                break;
+            }
+
+            let finer_idx = level_idx - 1;
+            let finer_lvl = &pyramid.levels[finer_idx];
+            let sx = if lvl.w > 0 {
+                finer_lvl.w as f32 / lvl.w as f32
+            } else {
+                2.0
+            };
+            let sy = if lvl.h > 0 {
+                finer_lvl.h as f32 / lvl.h as f32
+            } else {
+                2.0
+            };
+            let scale_map = LevelScaleMap { sx, sy };
+
+            let grad = grad_cache
+                .get_mut(finer_idx)
+                .expect("gradient cache entry")
+                .get_or_insert_with(|| sobel_gradients(finer_lvl));
+            let gx = grad
+                .gx
+                .as_slice()
+                .unwrap_or_else(|| grad.gx.data.as_slice());
+            let gy = grad
+                .gy
+                .as_slice()
+                .unwrap_or_else(|| grad.gy.data.as_slice());
+            let grad_level = SegmentGradientLevel {
+                width: finer_lvl.w,
+                height: finer_lvl.h,
+                gx,
+                gy,
+            };
+
+            let mut refined_segments = Vec::with_capacity(current_segments.len());
+            let mut accepted = 0usize;
+            for seg in &current_segments {
+                let seed = SegmentSeed {
+                    p0: seg.p0,
+                    p1: seg.p1,
+                };
+                let result = segment::refine_segment(
+                    &grad_level,
+                    seed,
+                    &scale_map,
+                    &self.params.segment_refine_params,
+                );
+                if result.ok {
+                    accepted += 1;
+                }
+                let updated = convert_refine_result(seg, result);
+                refined_segments.push(updated);
+            }
+            debug!(
+                "GridDetector::refine L{}→L{} accepted={}/{}",
+                level_idx,
+                finer_idx,
+                accepted,
+                current_segments.len()
+            );
+            current_segments = refined_segments;
+        }
+
+        levels_data
     }
 }
 

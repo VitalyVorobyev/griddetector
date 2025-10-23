@@ -58,6 +58,15 @@ vanishing points across the pyramid.
 - **Parameters** (`homography::RefineParams`): orientation tolerance, Huber
   delta, maximum IRLS iterations, and minimum bundles per family.
 
+### Detector Integration
+
+`GridDetector::process_with_diagnostics` now drives both refinement stages across
+all pyramid levels: the LSD output at the coarsest level is bundled, segments
+are refined level-by-level toward full resolution, and the resulting bundles are
+fed to the homography IRLS cascade (fine → coarse). The CLI accepts
+`--save-debug <dir>` to dump the generated pyramid levels, per-level bundles, and
+refinement diagnostics for inspection.
+
 ### Module Layout
 
 - `src/refine/segment.rs` – gradient-driven line refinement.
