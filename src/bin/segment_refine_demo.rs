@@ -47,12 +47,14 @@ fn run() -> Result<(), String> {
     let load_ms = load_start.elapsed().as_secs_f32() * 1000.0;
 
     let levels = config.pyramid.levels.max(1);
+    let pyr_start = Instant::now();
     let pyramid = if let Some(blur_levels_cfg) = config.pyramid.blur_levels {
         let blur_levels = blur_levels_cfg.min(levels.saturating_sub(1));
         Pyramid::build_u8_with_blur_levels(gray.as_view(), levels, blur_levels)
     } else {
         Pyramid::build_u8(gray.as_view(), levels)
     };
+    let pyramid_ms = pyr_start.elapsed().as_secs_f32() * 1000.0;
     save_pyramid_images(&pyramid, &config.output.dir)?;
 
     let gradients = build_gradients(&pyramid);
@@ -203,6 +205,7 @@ fn run() -> Result<(), String> {
         final_segments: current_segments.len(),
         timings_ms: TimingSummary {
             load: load_ms,
+            pyramid: pyramid_ms,
             lsd: lsd_ms,
             refine_total: refine_total_ms,
             total: total_ms,
@@ -362,6 +365,7 @@ struct LevelReport {
 #[derive(Serialize)]
 struct TimingSummary {
     load: f32,
+    pyramid: f32,
     lsd: f32,
     refine_total: f32,
     total: f32,
