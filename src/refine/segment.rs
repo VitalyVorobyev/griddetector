@@ -142,6 +142,8 @@ struct SupportPoint {
     grad: [f32; 2],
 }
 
+type LineFitResult = ([f32; 2], [f32; 2], f32, [f32; 2]);
+
 /// Refine a coarse-level segment using gradient support on the finer level.
 ///
 /// # Arguments
@@ -373,9 +375,7 @@ fn search_along_normal(
         t += params.delta_t;
     }
 
-    let Some((t_best, mut peak, _, _)) = best else {
-        return None;
-    };
+    let (t_best, mut peak, _, _) = best?;
 
     let refined_t = quadratic_refine(lvl, roi, center, normal, params.delta_t, t_best, peak);
     let pos = [
@@ -474,10 +474,7 @@ fn quadratic_refine(
     (t_best + shift * delta_t).clamp(t_best - delta_t, t_best + delta_t)
 }
 
-fn weighted_line_fit(
-    supports: &[SupportPoint],
-    params: &RefineParams,
-) -> Option<([f32; 2], [f32; 2], f32, [f32; 2])> {
+fn weighted_line_fit(supports: &[SupportPoint], params: &RefineParams) -> Option<LineFitResult> {
     let mut sum_w = 0.0;
     let mut mu = [0.0f32, 0.0];
     for s in supports {
@@ -609,6 +606,12 @@ struct RunResult {
     score: f32,
 }
 
+struct RunContext {
+    tau_mag: f32,
+    delta_r: f32,
+    seg_bounds: (f32, f32),
+}
+
 fn refine_endpoints(
     snapshot: &IterationSnapshot,
     lvl: &PyramidLevel<'_>,
@@ -633,6 +636,11 @@ fn refine_endpoints(
         return (p0, p1, 0, 0.0);
     };
     let delta_r = 0.5f32;
+    let run_params = RunContext {
+        tau_mag,
+        delta_r,
+        seg_bounds: (seg_min, seg_max),
+    };
     let mut samples = Vec::new();
     let mut r = rmin;
     while r <= rmax + 1e-3 {
@@ -685,23 +693,12 @@ fn refine_endpoints(
                 current_start = Some(idx);
             }
         } else if let Some(start) = current_start.take() {
-            update_best_run(
-                start,
-                idx - 1,
-                &samples,
-                tau_mag,
-                &mut best,
-                delta_r,
-                seg_min,
-                seg_max,
-            );
+            update_best_run(start, idx - 1, &samples, &run_params, &mut best);
         }
     }
     if let Some(start) = current_start {
         let end = samples.len() - 1;
-        update_best_run(
-            start, end, &samples, tau_mag, &mut best, delta_r, seg_min, seg_max,
-        );
+        update_best_run(start, end, &samples, &run_params, &mut best);
     }
 
     if best.count >= 2 {
@@ -719,30 +716,29 @@ fn update_best_run(
     start: usize,
     end: usize,
     samples: &[(f32, f32, f32, f32)],
-    tau_mag: f32,
+    params: &RunContext,
     best: &mut RunResult,
-    delta_r: f32,
-    seg_min: f32,
-    seg_max: f32,
 ) {
     if end < start {
         return;
     }
     let count = end - start + 1;
     let mut score_sum = 0.0f32;
-    for i in start..=end {
-        score_sum += samples[i].1.abs();
+
+    for item in samples.iter().skip(start).take(count) {
+        score_sum += item.1.abs();
     }
     if count < best.count || (count == best.count && score_sum <= best.score) {
         return;
     }
-    let refined_start = refine_endpoint(samples, start, 1, tau_mag, delta_r);
-    let refined_end = refine_endpoint(samples, end, -1, tau_mag, delta_r);
+    let refined_start = refine_endpoint(samples, start, 1, params.tau_mag, params.delta_r);
+    let refined_end = refine_endpoint(samples, end, -1, params.tau_mag, params.delta_r);
     let mut r0 = refined_start;
     let mut r1 = refined_end;
     if r0 > r1 {
         std::mem::swap(&mut r0, &mut r1);
     }
+    let (seg_min, seg_max) = params.seg_bounds;
     let overlap = (r1.min(seg_max) - r0.max(seg_min)).max(0.0);
     if overlap <= 0.0 {
         return;
@@ -825,13 +821,6 @@ fn line_rect_intersection(mu: &[f32; 2], d: &[f32; 2], roi: &Roi) -> Option<(f32
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct Dyadic;
-    impl ScaleMap for Dyadic {
-        fn up(&self, p: [f32; 2]) -> [f32; 2] {
-            [p[0] * 2.0, p[1] * 2.0]
-        }
-    }
 
     #[test]
     fn bilinear_grad_returns_none_outside() {

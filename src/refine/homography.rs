@@ -150,8 +150,8 @@ impl Refiner {
             delta,
             self.params.max_iterations,
         )?;
-        let anchor_new = anchor::estimate_anchor(&buckets.family_u, &buckets.family_v)
-            .unwrap_or_else(|| buckets.anchor.clone());
+        let anchor_new =
+            anchor::estimate_anchor(&buckets.family_u, &buckets.family_v).unwrap_or(buckets.anchor);
 
         let h_new = Matrix3::from_columns(&[vpu_new, vpv_new, anchor_new]);
         let combined_inlier = (stats_u.inlier_weight + stats_v.inlier_weight)

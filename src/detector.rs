@@ -514,14 +514,8 @@ impl GridDetector {
                 .get_mut(finer_idx)
                 .expect("gradient cache entry")
                 .get_or_insert_with(|| sobel_gradients(finer_lvl));
-            let gx = grad
-                .gx
-                .as_slice()
-                .unwrap_or_else(|| grad.gx.data.as_slice());
-            let gy = grad
-                .gy
-                .as_slice()
-                .unwrap_or_else(|| grad.gy.data.as_slice());
+            let gx = grad.gx.as_slice().unwrap_or(grad.gx.data.as_slice());
+            let gy = grad.gy.as_slice().unwrap_or(grad.gy.data.as_slice());
             let grad_level = SegmentGradientLevel {
                 width: finer_lvl.w,
                 height: finer_lvl.h,
