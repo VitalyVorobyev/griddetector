@@ -1,61 +1,84 @@
-## Coarse‑to‑Fine Homography Refinement
+## Refinement Overview
 
-Refines an initial projective basis `H0` (from LSD→VP) into a stable homography by bundling edges and re‑estimating vanishing points with Huber‑weighted IRLS across an image pyramid.
+The `refine` module exposes two cooperating passes that tighten the detector’s
+coarse hypotheses:
 
-### Inputs
+1. `segment::refine_segment` upsamples coarse line segments to the next finer
+   pyramid level and re-centres them on strong gradient support. The result is a
+   set of clean, polarity-consistent edge measurements with accurate extent.
+2. `homography::Refiner` runs a Huber-weighted IRLS update on the bundled
+   segments, refining the coarse projective basis delivered by the LSD→VP stage.
 
-- Pyramid levels (`ImageF32`), coarse‐to‐fine.
-- Initial homography `H0` already rescaled to the current image coordinates.
+The detector typically alternates between these passes per level: refine the
+segments, rebuild bundles, then update the homography.
 
-### Stages
+### Segment Refinement (`segment`)
 
-1. Segment Extraction
-   - Use the LSD‑like extractor at each level with level‑aware thresholds.
+- **Inputs**: gradient buffers for level `l`, a coarse segment from level
+  `l+1`, a `ScaleMap` that lifts coordinates, and `segment::RefineParams`.
+- **Stages**:
+  1. Upscale endpoints and build a padded ROI.
+  2. Sample gradients along the segment normal, keeping peaks above the
+     magnitude threshold; weight them with a Huber loss.
+  3. Fit a weighted line via orthogonal regression; iterate a few times until
+     the carrier stabilises.
+  4. Scan along the refined line to locate the longest contiguous run of
+     inlier pixels whose gradient polarity/orientation matches the line normal.
+  5. Promote those endpoints as the refined segment and compute an alignment
+     score. Reject if support is too weak.
+- **Outputs**: refined segment, average normal-projected gradient score,
+  inlier counts, and an `ok` flag.
+- **Parameters**: sampling spacing (`delta_s`), normal search half-width
+  (`w_perp`), gradient magnitude/orientation thresholds, Huber delta, maximum
+  iterations, and minimum inlier fraction.
 
-2. Edge Bundling
-   - Merge collinear, nearby segments into bundles.
-   - Each bundle stores a normalized line `ax+by+c=0`, a representative center, and a weight `strength = len×avg_mag`.
+### Homography Refinement (`homography`)
 
-3. Family Assignment
-   - From `H`, compute directions to the vanishing points relative to the translation anchor.
-   - Assign bundles to `u` or `v` families based on angular proximity (with a tolerance), ensuring minimal family support.
+Refines an initial projective basis `H0` into a stable homography by bundling
+the gradient-aligned segments from the previous step and re-estimating
+vanishing points across the pyramid.
 
-4. Huber‑Weighted VP Estimation (IRLS)
-   - For each family, solve normal equations on `ax+by+c≈0` with weights from bundle strength and Huber weights (`δ/|residual|` beyond the inlier region).
-   - Update vanishing points; iterate a few times or until convergence.
+- **Inputs**: bundled line constraints per level (in the current image
+  coordinates) and an initial homography `H0`.
+- **Stages**:
+  1. **Family Assignment** – Compute the vanishing directions implied by the
+     current homography and assign bundles to the `u`/`v` families based on
+     angular proximity (within `orientation_tol_deg`).
+  2. **Huber-Weighted VP Estimation** – For each family, solve the normal
+     equations on `ax + by + c ≈ 0`, weighting by bundle strength and the Huber
+     schedule (`δ / |residual|` beyond the inlier region). Iterate until
+     convergence or the iteration cap.
+  3. **Anchor Update** – Intersect the strongest `u` and `v` bundles to obtain
+     a stable translation anchor column.
+  4. **Coarse-to-Fine Progression** – Repeat from coarse → fine, measuring
+     Frobenius improvement; stop early on negligible change. The last good
+     homography and confidence accumulate across levels.
+- **Outputs**: refined homography `h_refined`, aggregated `confidence`,
+  last-level `inlier_ratio`, number of `levels_used`, and per-level diagnostics.
+- **Parameters** (`homography::RefineParams`): orientation tolerance, Huber
+  delta, maximum IRLS iterations, and minimum bundles per family.
 
-5. Anchor Update
-   - Estimate a stable anchor as the intersection of the heaviest `u` and `v` bundles.
+### Detector Integration
 
-6. Coarse‑to‑Fine Progression
-   - Apply steps 1–5 from coarse → fine, using the previous level’s `H` as initialization.
-   - Early stop on small relative update; accumulate a confidence score and keep the last good `H` for fallback.
+`GridDetector::process_with_diagnostics` now drives both refinement stages across
+all pyramid levels: the LSD output at the coarsest level is bundled, segments
+are refined level-by-level toward full resolution, and the resulting bundles are
+fed to the homography IRLS cascade (fine → coarse). The CLI accepts
+`--save-debug <dir>` to dump the generated pyramid levels, per-level bundles, and
+refinement diagnostics for inspection.
 
-### Outputs
+### Module Layout
 
-- `h_refined`: refined homography.
-- `confidence`: accumulated across levels based on inlier support.
-- `inlier_ratio`: last‑level inlier ratio.
-- `levels_used`: how many levels contributed.
+- `src/refine/segment.rs` – gradient-driven line refinement.
+- `src/refine/homography.rs` – bundle-to-homography IRLS refiner.
+- `src/refine/{anchor,families,irls,types}.rs` – helpers shared by the
+  homography pass.
+- `src/refine/mod.rs` – façade re-exporting both refinement entry points.
 
-### Parameters (`RefineParams`)
+### Notes & Extensions
 
-- `base_mag_thresh`, `base_min_len`: scale with level size (coarse→smaller mag, fine→longer min_len).
-- `orientation_tol_deg`: bundle/assignment tolerance.
-- `merge_dist_px`: line proximity for bundling.
-- `huber_delta`: inlier threshold for Huber loss.
-- `max_iterations`: IRLS iterations per level.
-- `min_bundle_weight`, `min_bundles_per_family`: robustness gates.
-
-### Notes
-
-- Assumes rectified input imagery (no lens distortion).
-- Confidence blending with the coarse hypothesis is handled in the detector (`combine_confidence`).
-- Metric constraints (equal spacing for square/rectangular grids) are not enforced here; they belong to a later refinement stage.
-
-### Extensions
-
-- Replace family assignment with VP RANSAC before IRLS for stronger outlier rejection.
-- Add grid‑spacing residuals to transition from projective to metric homography.
-- Introduce temporal smoothing across frames for video input.
-
+- Assumes lens distortion is compensated before refinement.
+- Bundling/ROI selection happens upstream in the detector.
+- To extend: consider RANSAC-based family assignment, add metric constraints
+  (grid spacing) for affine/metric upgrade, or introduce temporal smoothing for
+  video sequences.

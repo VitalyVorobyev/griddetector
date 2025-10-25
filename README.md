@@ -43,6 +43,12 @@ segment families and the estimated projective basis):
 cargo run --release --bin lsd_vp_demo config/lsd_vp_demo_sample.json
 ```
 
+Dump intermediate artifacts (pyramid levels, diagnostics, bundles) for debugging:
+
+```sh
+cargo run --release --bin grid_demo -- data/sample.png --save-debug out/debug_run
+```
+
 Visualize the demo output (requires `matplotlib`, `numpy`, `Pillow`):
 
 ```sh
@@ -99,7 +105,7 @@ cargo run --release --features parallel --bin grid_demo
 - `segments`: LSD‑like region growing and PCA line fitting ([doc/segments.md](doc/segments.md))
 - `lsd_vp`: coarse vanishing-point hypothesis ([doc/lsd_vp.md](doc/lsd_vp.md))
 - `refine`: coarse‑to‑fine homography refinement ([doc/refine.md](doc/refine.md))
-- `detector`: end-to-end pipeline wrapper that builds the pyramid, runs the engine, and recovers pose
+- `detector`: end-to-end pipeline wrapper with multi-level segment refinement, bundling, and pose recovery
 - `types`: result and pose structs (`GridResult`, `Pose`)
 
 ## Documentation

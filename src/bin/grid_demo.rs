@@ -1,8 +1,12 @@
 use grid_detector::config::grid::{self, OutputFormat};
 use grid_detector::diagnostics::DetailedResult;
-use grid_detector::image::io::{load_grayscale_image, write_json_file};
+use grid_detector::image::io::{
+    load_grayscale_image, save_grayscale_f32, write_json_file, GrayImageU8,
+};
+use grid_detector::pyramid::Pyramid;
 use grid_detector::GridDetector;
 use std::env;
+use std::path::Path;
 
 fn main() {
     if let Err(err) = run() {
@@ -43,6 +47,15 @@ fn run() -> Result<(), String> {
             } else {
                 println!("{json}");
             }
+        }
+    }
+
+    if let Some(dir) = &config.output.debug_dir {
+        save_debug_artifacts(dir, &gray, &detailed, &config.grid_params)?;
+        if config.output.format.includes_text() {
+            println!("Debug artifacts written to {}", dir.display());
+        } else {
+            eprintln!("Debug artifacts written to {}", dir.display());
         }
     }
 
@@ -135,4 +148,34 @@ fn print_text_summary(detailed: &DetailedResult) {
 fn format_opt(val: Option<f32>) -> String {
     val.map(|v| format!("{:.3}", v))
         .unwrap_or_else(|| "-".to_string())
+}
+
+fn save_debug_artifacts(
+    dir: &Path,
+    gray: &GrayImageU8,
+    detailed: &DetailedResult,
+    grid_params: &grid_detector::GridParams,
+) -> Result<(), String> {
+    std::fs::create_dir_all(dir)
+        .map_err(|e| format!("Failed to create debug dir {}: {e}", dir.display()))?;
+
+    write_json_file(&dir.join("detailed_result.json"), detailed)?;
+
+    if let Some(lsd) = &detailed.diagnostics.lsd {
+        write_json_file(&dir.join("lsd_diagnostics.json"), lsd)?;
+    }
+    if let Some(refine) = &detailed.diagnostics.refinement {
+        write_json_file(&dir.join("refinement_diagnostics.json"), refine)?;
+    }
+    if let Some(bundles) = &detailed.diagnostics.bundling {
+        write_json_file(&dir.join("bundles.json"), bundles)?;
+    }
+
+    let pyramid = Pyramid::build_u8(gray.as_view(), grid_params.pyramid_levels);
+    for (level_idx, level) in pyramid.levels.iter().enumerate() {
+        let path = dir.join(format!("pyramid_L{}.png", level_idx));
+        save_grayscale_f32(level, &path)?;
+    }
+
+    Ok(())
 }

@@ -1,4 +1,5 @@
 //! Angle utilities used across the detector pipeline.
+use log::warn;
 use nalgebra::Vector3;
 
 /// Normalizes an angle into the range [0, π).
@@ -51,6 +52,7 @@ pub fn vp_direction(vp: &Vector3<f32>, anchor: &Vector3<f32>) -> Option<[f32; 2]
     if vp[2].abs() <= 1e-3 {
         let norm = (vp[0] * vp[0] + vp[1] * vp[1]).sqrt();
         if norm <= 1e-6 {
+            warn!("Degenerate vanishing point at infinity encountered");
             return None;
         }
         Some([vp[0] / norm, vp[1] / norm])

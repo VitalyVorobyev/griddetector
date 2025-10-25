@@ -3,6 +3,19 @@ use nalgebra::Matrix3;
 use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize)]
+pub struct BundleEntryDiagnostics {
+    pub center: [f32; 2],
+    pub line: [f32; 3],
+    pub weight: f32,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BundleDiagnostics {
+    pub level_index: usize,
+    pub bundles: Vec<BundleEntryDiagnostics>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct PyramidLevelDiagnostics {
     pub level: usize,
     pub width: usize,
@@ -60,6 +73,7 @@ pub struct ProcessingDiagnostics {
     pub pyramid_build_ms: f64,
     pub lsd: Option<LsdDiagnostics>,
     pub refinement: Option<RefinementDiagnostics>,
+    pub bundling: Option<Vec<BundleDiagnostics>>,
     pub homography: Matrix3<f32>,
     pub total_latency_ms: f64,
 }

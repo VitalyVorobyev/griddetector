@@ -1,3 +1,5 @@
+use crate::detector::{BundlingParams, LsdVpParams};
+use crate::refine::segment::RefineParams as SegmentRefineParams;
 use crate::refine::RefineParams;
 use crate::GridParams;
 use nalgebra::Matrix3;
@@ -52,6 +54,7 @@ impl<'de> Deserialize<'de> for OutputFormat {
 pub struct OutputConfig {
     pub format: OutputFormat,
     pub json_out: Option<PathBuf>,
+    pub debug_dir: Option<PathBuf>,
 }
 
 impl Default for OutputConfig {
@@ -59,6 +62,7 @@ impl Default for OutputConfig {
         Self {
             format: OutputFormat::Json,
             json_out: None,
+            debug_dir: None,
         }
     }
 }
@@ -76,7 +80,7 @@ pub fn parse_cli(program: &str) -> Result<RuntimeConfig, String> {
 
 pub fn usage(program: &str) -> String {
     format!(
-        "Usage: {program} <image.png> [--config config.json] [--format text|json|both] [--json-out report.json] \\\n         [--spacing-mm mm] [--intrinsics fx,fy,cx,cy]\n\n\
+        "Usage: {program} <image.png> [--config config.json] [--format text|json|both] [--json-out report.json] \\\n         [--save-debug dir] [--spacing-mm mm] [--intrinsics fx,fy,cx,cy]\n\n\
 Runs the grid detector on a grayscale PNG image and emits diagnostics.\n\
 Examples:\n  {program} data/sample.png --format both --json-out sample_report.json\n  {program} board.png --config cfg.json --format text\n"
     )
@@ -87,6 +91,7 @@ fn parse_args(program: &str) -> Result<RuntimeConfig, String> {
     let mut input_override: Option<PathBuf> = None;
     let mut format_override: Option<OutputFormat> = None;
     let mut json_out_override: Option<PathBuf> = None;
+    let mut debug_dir_override: Option<PathBuf> = None;
     let mut spacing_override: Option<f32> = None;
     let mut intrinsics_override: Option<Matrix3<f32>> = None;
     let mut config_path: Option<PathBuf> = None;
@@ -114,6 +119,12 @@ fn parse_args(program: &str) -> Result<RuntimeConfig, String> {
                     .next()
                     .ok_or_else(|| format!("--json-out expects a path\n{}", usage(program)))?;
                 json_out_override = Some(PathBuf::from(value));
+            }
+            "--save-debug" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| format!("--save-debug expects a path\n{}", usage(program)))?;
+                debug_dir_override = Some(PathBuf::from(value));
             }
             "--spacing-mm" => {
                 let value = args
@@ -166,12 +177,18 @@ fn parse_args(program: &str) -> Result<RuntimeConfig, String> {
         if let Some(ref path) = file_output.json_out {
             output.json_out = Some(path.clone());
         }
+        if let Some(ref dir) = file_output.debug_dir {
+            output.debug_dir = Some(dir.clone());
+        }
     }
     if let Some(format) = format_override {
         output.format = format;
     }
     if let Some(path) = json_out_override {
         output.json_out = Some(path);
+    }
+    if let Some(dir) = debug_dir_override {
+        output.debug_dir = Some(dir);
     }
 
     let mut grid_params = GridParams::default();
@@ -205,6 +222,8 @@ struct FileConfig {
 struct FileOutputConfig {
     format: Option<OutputFormat>,
     json_out: Option<PathBuf>,
+    #[serde(rename = "debug_dir")]
+    debug_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -217,23 +236,48 @@ struct FileGridConfig {
     confidence_thresh: Option<f32>,
     enable_refine: Option<bool>,
     refine: Option<FileRefineConfig>,
+    segment_refine: Option<FileSegmentRefineConfig>,
+    lsd_vp: Option<FileLsdVpConfig>,
+    bundling: Option<FileBundlingConfig>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 struct FileRefineConfig {
-    base_mag_thresh: Option<f32>,
-    angle_tol_deg: Option<f32>,
-    base_min_len: Option<f32>,
     orientation_tol_deg: Option<f32>,
-    merge_dist_px: Option<f32>,
-    roi_band_px: Option<f32>,
-    roi_widen_factor: Option<f32>,
     huber_delta: Option<f32>,
     max_iterations: Option<usize>,
-    min_bundle_weight: Option<f32>,
     min_bundles_per_family: Option<usize>,
-    restrict_to_roi: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+struct FileSegmentRefineConfig {
+    delta_s: Option<f32>,
+    w_perp: Option<f32>,
+    delta_t: Option<f32>,
+    pad: Option<f32>,
+    tau_mag: Option<f32>,
+    tau_ori_deg: Option<f32>,
+    huber_delta: Option<f32>,
+    max_iters: Option<usize>,
+    min_inlier_frac: Option<f32>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+struct FileLsdVpConfig {
+    mag_thresh: Option<f32>,
+    angle_tol_deg: Option<f32>,
+    min_len: Option<f32>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+struct FileBundlingConfig {
+    orientation_tol_deg: Option<f32>,
+    merge_dist_px: Option<f32>,
+    min_weight: Option<f32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -278,29 +322,20 @@ fn apply_grid_file_config(params: &mut GridParams, cfg: &FileGridConfig) {
     if let Some(ref refine_cfg) = cfg.refine {
         apply_refine_file_config(&mut params.refine_params, refine_cfg);
     }
+    if let Some(ref seg_cfg) = cfg.segment_refine {
+        apply_segment_refine_file_config(&mut params.segment_refine_params, seg_cfg);
+    }
+    if let Some(ref lsd_cfg) = cfg.lsd_vp {
+        apply_lsd_vp_file_config(&mut params.lsd_vp_params, lsd_cfg);
+    }
+    if let Some(ref bundling_cfg) = cfg.bundling {
+        apply_bundling_file_config(&mut params.bundling_params, bundling_cfg);
+    }
 }
 
 fn apply_refine_file_config(params: &mut RefineParams, cfg: &FileRefineConfig) {
-    if let Some(v) = cfg.base_mag_thresh {
-        params.base_mag_thresh = v;
-    }
-    if let Some(v) = cfg.angle_tol_deg {
-        params.angle_tol_deg = v;
-    }
-    if let Some(v) = cfg.base_min_len {
-        params.base_min_len = v;
-    }
     if let Some(v) = cfg.orientation_tol_deg {
         params.orientation_tol_deg = v;
-    }
-    if let Some(v) = cfg.merge_dist_px {
-        params.merge_dist_px = v;
-    }
-    if let Some(v) = cfg.roi_band_px {
-        params.roi_band_px = v;
-    }
-    if let Some(v) = cfg.roi_widen_factor {
-        params.roi_widen_factor = v;
     }
     if let Some(v) = cfg.huber_delta {
         params.huber_delta = v;
@@ -308,14 +343,65 @@ fn apply_refine_file_config(params: &mut RefineParams, cfg: &FileRefineConfig) {
     if let Some(v) = cfg.max_iterations {
         params.max_iterations = v;
     }
-    if let Some(v) = cfg.min_bundle_weight {
-        params.min_bundle_weight = v;
-    }
     if let Some(v) = cfg.min_bundles_per_family {
         params.min_bundles_per_family = v;
     }
-    if let Some(v) = cfg.restrict_to_roi {
-        params.restrict_to_roi = v;
+}
+
+fn apply_segment_refine_file_config(
+    params: &mut SegmentRefineParams,
+    cfg: &FileSegmentRefineConfig,
+) {
+    if let Some(v) = cfg.delta_s {
+        params.delta_s = v;
+    }
+    if let Some(v) = cfg.w_perp {
+        params.w_perp = v;
+    }
+    if let Some(v) = cfg.delta_t {
+        params.delta_t = v;
+    }
+    if let Some(v) = cfg.pad {
+        params.pad = v;
+    }
+    if let Some(v) = cfg.tau_mag {
+        params.tau_mag = v;
+    }
+    if let Some(v) = cfg.tau_ori_deg {
+        params.tau_ori_deg = v;
+    }
+    if let Some(v) = cfg.huber_delta {
+        params.huber_delta = v;
+    }
+    if let Some(v) = cfg.max_iters {
+        params.max_iters = v;
+    }
+    if let Some(v) = cfg.min_inlier_frac {
+        params.min_inlier_frac = v;
+    }
+}
+
+fn apply_lsd_vp_file_config(params: &mut LsdVpParams, cfg: &FileLsdVpConfig) {
+    if let Some(v) = cfg.mag_thresh {
+        params.mag_thresh = v;
+    }
+    if let Some(v) = cfg.angle_tol_deg {
+        params.angle_tol_deg = v;
+    }
+    if let Some(v) = cfg.min_len {
+        params.min_len = v;
+    }
+}
+
+fn apply_bundling_file_config(params: &mut BundlingParams, cfg: &FileBundlingConfig) {
+    if let Some(v) = cfg.orientation_tol_deg {
+        params.orientation_tol_deg = v;
+    }
+    if let Some(v) = cfg.merge_dist_px {
+        params.merge_dist_px = v;
+    }
+    if let Some(v) = cfg.min_weight {
+        params.min_weight = v;
     }
 }
 
