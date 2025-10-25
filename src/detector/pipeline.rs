@@ -1,3 +1,24 @@
+//! Detector pipeline driving the grid detection end-to-end.
+//!
+//! The [`GridDetector`] exposes a simple API: feed a grayscale image and get a
+//! coarse-to-fine homography estimate with detailed diagnostics. Internally it
+//! coordinates the LSD→VP coarse hypothesis, outlier filtering, segment
+//! refinement across the pyramid, bundling, and a Huber-weighted IRLS update
+//! of the vanishing-point columns.
+//!
+//! Typical usage:
+//! ```no_run
+//! use grid_detector::{GridDetector, GridParams};
+//! use grid_detector::image::ImageU8;
+//!
+//! # fn example(gray: ImageU8) {
+//! let mut detector = GridDetector::new(GridParams::default());
+//! let detailed = detector.process_with_diagnostics(gray);
+//! if detailed.result.found {
+//!     println!("confidence: {:.3}", detailed.result.confidence);
+//! }
+//! # }
+//! ```
 use super::outliers::{filter_segments, OutlierFilterDiagnostics};
 use super::params::{
     BundlingParams, BundlingScaleMode, GridParams, LsdVpParams, OutlierFilterParams,
@@ -28,6 +49,8 @@ use std::time::Instant;
 
 const EPS: f32 = 1e-6;
 
+/// Grid detector orchestrating pyramid construction, LSD→VP, outlier
+/// filtering, coarse-to-fine segment refinement and homography IRLS.
 pub struct GridDetector {
     params: GridParams,
     last_hmtx: Option<Matrix3<f32>>,
@@ -51,6 +74,7 @@ struct PreparedLevels {
 }
 
 impl GridDetector {
+    /// Create a detector with the supplied parameters.
     pub fn new(params: GridParams) -> Self {
         let refiner = Refiner::new(params.refine_params.clone());
         let lsd_engine = Self::make_lsd_engine(&params.lsd_vp_params);
@@ -63,10 +87,12 @@ impl GridDetector {
         }
     }
 
+    /// Run the detector on a grayscale image, returning a compact result.
     pub fn process(&mut self, gray: ImageU8) -> GridResult {
         self.process_with_diagnostics(gray).result
     }
 
+    /// Run the detector and return both the result and rich diagnostics.
     pub fn process_with_diagnostics(&mut self, gray: ImageU8) -> DetailedResult {
         let (width, height) = (gray.w, gray.h);
         debug!(
@@ -303,36 +329,44 @@ impl GridDetector {
         }
     }
 
+    /// Update the camera intrinsics used for pose recovery.
     pub fn set_intrinsics(&mut self, k: Matrix3<f32>) {
         self.params.kmtx = k;
     }
 
+    /// Update the assumed grid spacing (millimetres).
     pub fn set_spacing(&mut self, s_mm: f32) {
         self.params.spacing_mm = s_mm;
     }
 
+    /// Update IRLS parameters for the homography refinement.
     pub fn set_refine_params(&mut self, params: HomographyRefineParams) {
         self.params.refine_params = params.clone();
         self.refiner = Refiner::new(params);
     }
 
+    /// Update gradient-driven segment refinement parameters.
     pub fn set_segment_refine_params(&mut self, params: SegmentRefineParams) {
         self.params.segment_refine_params = params;
     }
 
+    /// Update LSD→VP coarse stage parameters.
     pub fn set_lsd_vp_params(&mut self, params: LsdVpParams) {
         self.params.lsd_vp_params = params.clone();
         self.lsd_engine = Self::make_lsd_engine(&params);
     }
 
+    /// Update bundling parameters (orientation/distance/scale mode).
     pub fn set_bundling_params(&mut self, params: BundlingParams) {
         self.params.bundling_params = params;
     }
 
+    /// Update coarse segment outlier filter thresholds.
     pub fn set_outlier_filter(&mut self, params: OutlierFilterParams) {
         self.params.outlier_filter = params;
     }
 
+    /// Update the refinement schedule (number of passes and threshold).
     pub fn set_refinement_schedule(&mut self, schedule: RefinementSchedule) {
         self.params.refinement_schedule = schedule;
     }

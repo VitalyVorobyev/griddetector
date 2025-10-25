@@ -4,18 +4,33 @@
 [![Release](https://github.com/VitalyVorobyev/griddetector/actions/workflows/release.yml/badge.svg)](https://github.com/VitalyVorobyev/griddetector/actions/workflows/release.yml)
 [![Security Audit](https://github.com/VitalyVorobyev/griddetector/actions/workflows/audit.yml/badge.svg)](https://github.com/VitalyVorobyev/griddetector/actions/workflows/audit.yml)
 
-Edge-based grid/chessboard detector written in Rust. It builds an image pyramid, extracts line segments (LSD‑like), groups them into two dominant line families to estimate vanishing points, composes a coarse homography, and recovers camera pose.
+Edge-based grid/chessboard detector written in Rust. It builds an image pyramid, extracts line segments (LSD‑like), groups them into two dominant line families to estimate vanishing points, composes a coarse homography, filters outliers, refines across the pyramid, and recovers camera pose.
 
 This repo contains both a library crate (`grid_detector`) and a tiny demo binary (`grid_demo`). The public API is intentionally small and focused.
 
-## Features
+## Pipeline Overview
 
-- Image pyramid with separable 5‑tap Gaussian and 2× decimation
-- Fast gradients: Sobel (default) and Scharr kernels
-- Lightweight LSD‑like region growing with PCA fitting and significance tests
-- Vanishing‑point based coarse homography hypothesis (H₀)
-- Pose recovery from homography and intrinsics (R,t)
-- Pure Rust, `nalgebra` for linear algebra; optional `rayon` feature for parallelism
+1. Pyramid
+   - Convert 8‑bit grayscale to float and build a multi‑level pyramid with 2× decimation per level.
+   - Optional blur limiting: apply the 5‑tap Gaussian only to the first `N` downscale steps.
+
+2. LSD→VP (coarsest level)
+   - Detect long, coherent line segments with an LSD‑like extractor (orientation growth → PCA fit → significance tests).
+   - Build an orientation histogram in [0, π); pick two dominant peaks and estimate the family vanishing points.
+   - Compose a coarse projective basis `H0 = [vpu | vpv | x0]` (anchor `x0` at image centre).
+
+3. Segment Outlier Filtering
+   - Reject coarse segments outside an angular margin beyond the LSD tolerance.
+   - Gate segments whose lines pass far from the family vanishing point (homography residual).
+
+4. Coarse‑to‑Fine Refinement
+   - For each level from coarse → fine:
+     - Refine segments at the next finer level using gradient support (normal probing, orthogonal fit, endpoint search).
+     - Bundle near‑collinear constraints; thresholds can be level‑invariant or full‑resolution‑invariant.
+   - Run a Huber‑weighted IRLS update for the vanishing points and anchor; stop early on negligible Frobenius improvement.
+
+5. Reporting
+   - Return the refined homography and confidence; surface detailed diagnostics (pyramid, LSD, filtering, bundling, refinement).
 
 ## Status
 
@@ -105,8 +120,37 @@ cargo run --release --features parallel --bin grid_demo
 - `segments`: LSD‑like region growing and PCA line fitting ([doc/segments.md](doc/segments.md))
 - `lsd_vp`: coarse vanishing-point hypothesis ([doc/lsd_vp.md](doc/lsd_vp.md))
 - `refine`: coarse‑to‑fine homography refinement ([doc/refine.md](doc/refine.md))
-- `detector`: end-to-end pipeline wrapper with multi-level segment refinement, bundling, and pose recovery
+- `detector`: end‑to‑end pipeline wrapper with outlier filtering, multi‑level segment refinement, bundling, IRLS, and pose recovery
 - `types`: result and pose structs (`GridResult`, `Pose`)
+
+## Configuration
+
+The `grid_demo` accepts a JSON config (see `config/sample_config.json`). Relevant `grid` entries:
+
+```json
+{
+  "grid": {
+    "pyramid_levels": 4,
+    "pyramid_blur_levels": null,
+    "confidence_thresh": 0.35,
+    "enable_refine": true,
+    "refinement_schedule": { "passes": 1, "improvement_thresh": 0.0005 },
+    "lsd_vp": { "mag_thresh": 0.05, "angle_tol_deg": 22.5, "min_len": 4.0 },
+    "outlier_filter": { "angle_margin_deg": 8.0, "line_residual_thresh_px": 1.5 },
+    "bundling": {
+      "orientation_tol_deg": 22.5,
+      "merge_dist_px": 1.5,
+      "min_weight": 3.0,
+      "scale_mode": "full_res"
+    }
+  }
+}
+```
+
+Tips:
+- Start by tuning `lsd_vp.mag_thresh` and `lsd_vp.min_len` for your scale.
+- Use `bundling.scale_mode = "full_res"` to keep thresholds consistent across levels.
+- Allow `refinement_schedule.passes = 2` when the coarse hypothesis is weak.
 
 ## Documentation
 

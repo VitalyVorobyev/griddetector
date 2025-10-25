@@ -1,3 +1,8 @@
+//! Cross-level scaling helpers used by the detector pipeline.
+//!
+//! - Rescales the LSD stage diagnostics to full resolution for logging.
+//! - Adapts bundling thresholds to the current level when operating in a
+//!   full-resolution invariant mode.
 use crate::diagnostics::LsdDiagnostics;
 use crate::refine::segment::ScaleMap;
 use crate::segments::bundling::Bundle;

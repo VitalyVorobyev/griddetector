@@ -199,7 +199,15 @@ fn save_debug_artifacts(
         write_json_file(&dir.join("bundles.json"), bundles)?;
     }
 
-    let pyramid = Pyramid::build_u8(gray.as_view(), grid_params.pyramid_levels);
+    // Rebuild the pyramid for debugging using the same blur schedule as the detector
+    let pyramid = match grid_params.pyramid_blur_levels {
+        Some(blur_levels) => Pyramid::build_u8_with_blur_levels(
+            gray.as_view(),
+            grid_params.pyramid_levels,
+            blur_levels,
+        ),
+        None => Pyramid::build_u8(gray.as_view(), grid_params.pyramid_levels),
+    };
     for (level_idx, level) in pyramid.levels.iter().enumerate() {
         let path = dir.join(format!("pyramid_L{}.png", level_idx));
         save_grayscale_f32(level, &path)?;

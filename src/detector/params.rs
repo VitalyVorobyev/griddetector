@@ -1,3 +1,11 @@
+//! Parameter types configuring the detector stages.
+//!
+//! This module groups knobs for the LSD→VP coarse hypothesis, segment
+//! filtering, bundling, and the IRLS-based homography refinement.
+//!
+//! Defaults aim for robust, real-time behaviour at common resolutions. For
+//! tuning, start with the LSD thresholds and the refinement schedule.
+
 use crate::refine::segment::RefineParams as SegmentRefineParams;
 use crate::refine::RefineParams as HomographyRefineParams;
 use nalgebra::Matrix3;
@@ -82,6 +90,12 @@ pub enum BundlingScaleMode {
 }
 
 /// Bundling parameters shared by the detector and refiner.
+///
+/// - `orientation_tol_deg`: angular proximity used when aggregating lines.
+/// - `merge_dist_px`: maximum |c| offset difference in the normal form
+///   `ax + by + c = 0` to consider two constraints co-located.
+/// - `min_weight`: minimum segment strength required to contribute.
+/// - `scale_mode`: whether thresholds are interpreted at full-resolution.
 #[derive(Clone, Debug)]
 pub struct BundlingParams {
     pub orientation_tol_deg: f32,
@@ -102,6 +116,10 @@ impl Default for BundlingParams {
 }
 
 /// Configuration for segment outlier rejection against the coarse homography.
+///
+/// Filters coarse segments prior to refinement by combining an angular
+/// check (relative to the H-implied vanishing directions) and a residual
+/// check that evaluates how well the segment line intersects the family VP.
 #[derive(Clone, Debug)]
 pub struct OutlierFilterParams {
     /// Additional angular margin (degrees) beyond the LSD tolerance.
@@ -120,6 +138,9 @@ impl Default for OutlierFilterParams {
 }
 
 /// Controls multiple refinement passes.
+///
+/// A value of `passes = 1` preserves legacy behaviour. Use `passes = 2`
+/// to allow one more update when the homography significantly improves.
 #[derive(Clone, Debug)]
 pub struct RefinementSchedule {
     /// Maximum number of passes (>=1). `1` preserves legacy single pass.

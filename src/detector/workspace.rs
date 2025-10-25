@@ -1,3 +1,7 @@
+//! Per-level detector workspace used to cache gradients.
+//!
+//! The detector reuses gradient buffers across frames to avoid repeated
+//! allocations in hot paths. Cache entries are computed on demand.
 use crate::edges::grad::{sobel_gradients, Grad};
 use crate::image::ImageF32;
 

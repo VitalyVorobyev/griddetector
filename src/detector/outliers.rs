@@ -1,3 +1,12 @@
+//! Segment outlier rejection against a coarse homography.
+//!
+//! The filter removes coarse-level segments that are unlikely to contribute to a
+//! stable refinement. A segment is kept when its tangent aligns with one of the
+//! two homography-implied vanishing directions (within an angular margin) and
+//! the corresponding line passes sufficiently close to the vanishing point.
+//!
+//! The filter surfaces useful diagnostics (per-family counts, thresholds), and
+//! is lightweight enough to be applied on every frame before refinement.
 use crate::angle::angle_between;
 use crate::angle::vp_direction;
 use crate::detector::params::{LsdVpParams, OutlierFilterParams};
@@ -147,7 +156,8 @@ mod tests {
             0.0, 0.0, 1.0,
         );
         let seg_ok = make_segment([1.0, 0.0], [0.0, 1.0, 0.0]); // horizontal line y=0
-        let seg_bad = make_segment([0.7071, 0.7071], [0.7071, -0.7071, 0.0]);
+        let r2 = std::f32::consts::FRAC_1_SQRT_2;
+        let seg_bad = make_segment([r2, r2], [r2, -r2, 0.0]);
         let filter_params = OutlierFilterParams {
             angle_margin_deg: 0.0,
             line_residual_thresh_px: 10.0,
