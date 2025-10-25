@@ -72,7 +72,7 @@ def plot_segments(
     if not lines:
         print("No valid segments after filtering; nothing to draw.")
 
-    cmap = matplotlib.colormaps["plasma"]
+    cmap = matplotlib.colormaps["plasma_r"]
     fig, ax = plt.subplots(figsize=(8, 6), dpi=120)
     ax.imshow(image, cmap="gray", origin="upper")
     ax.set_xlim(0, width)
