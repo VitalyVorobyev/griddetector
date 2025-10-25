@@ -78,4 +78,3 @@ pub fn load_config(path: &Path) -> Result<SegmentRefineDemoConfig, String> {
     serde_json::from_str(&data)
         .map_err(|e| format!("Failed to parse config {}: {e}", path.display()))
 }
-
