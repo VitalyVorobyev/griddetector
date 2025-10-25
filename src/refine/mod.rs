@@ -1,6 +1,6 @@
 //! Gradient-guided refinement utilities.
 //!
-//! The [`refine`] module bundles two complementary refinement routines used by
+//! The `refine` module bundles two complementary refinement routines used by
 //! the grid detector:
 //!
 //! - [`homography`] refines coarse homography hypotheses by re-weighting
