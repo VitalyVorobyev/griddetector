@@ -1,4 +1,6 @@
-use crate::detector::{BundlingParams, LsdVpParams};
+use crate::detector::{
+    BundlingParams, BundlingScaleMode, LsdVpParams, OutlierFilterParams, RefinementSchedule,
+};
 use crate::refine::segment::RefineParams as SegmentRefineParams;
 use crate::refine::RefineParams;
 use crate::GridParams;
@@ -230,15 +232,18 @@ struct FileOutputConfig {
 #[serde(default)]
 struct FileGridConfig {
     pyramid_levels: Option<usize>,
+    pyramid_blur_levels: Option<Option<usize>>,
     spacing_mm: Option<f32>,
     intrinsics: Option<IntrinsicsConfig>,
     min_cells: Option<i32>,
     confidence_thresh: Option<f32>,
     enable_refine: Option<bool>,
     refine: Option<FileRefineConfig>,
+    refinement_schedule: Option<FileRefinementScheduleConfig>,
     segment_refine: Option<FileSegmentRefineConfig>,
     lsd_vp: Option<FileLsdVpConfig>,
     bundling: Option<FileBundlingConfig>,
+    outlier_filter: Option<FileOutlierFilterConfig>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -278,6 +283,21 @@ struct FileBundlingConfig {
     orientation_tol_deg: Option<f32>,
     merge_dist_px: Option<f32>,
     min_weight: Option<f32>,
+    scale_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+struct FileRefinementScheduleConfig {
+    passes: Option<usize>,
+    improvement_thresh: Option<f32>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+struct FileOutlierFilterConfig {
+    angle_margin_deg: Option<f32>,
+    line_residual_thresh_px: Option<f32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -304,6 +324,9 @@ fn apply_grid_file_config(params: &mut GridParams, cfg: &FileGridConfig) {
     if let Some(levels) = cfg.pyramid_levels {
         params.pyramid_levels = levels;
     }
+    if let Some(blur) = cfg.pyramid_blur_levels {
+        params.pyramid_blur_levels = blur;
+    }
     if let Some(spacing) = cfg.spacing_mm {
         params.spacing_mm = spacing;
     }
@@ -322,6 +345,9 @@ fn apply_grid_file_config(params: &mut GridParams, cfg: &FileGridConfig) {
     if let Some(ref refine_cfg) = cfg.refine {
         apply_refine_file_config(&mut params.refine_params, refine_cfg);
     }
+    if let Some(ref schedule_cfg) = cfg.refinement_schedule {
+        apply_refinement_schedule_config(&mut params.refinement_schedule, schedule_cfg);
+    }
     if let Some(ref seg_cfg) = cfg.segment_refine {
         apply_segment_refine_file_config(&mut params.segment_refine_params, seg_cfg);
     }
@@ -330,6 +356,9 @@ fn apply_grid_file_config(params: &mut GridParams, cfg: &FileGridConfig) {
     }
     if let Some(ref bundling_cfg) = cfg.bundling {
         apply_bundling_file_config(&mut params.bundling_params, bundling_cfg);
+    }
+    if let Some(ref outlier_cfg) = cfg.outlier_filter {
+        apply_outlier_filter_config(&mut params.outlier_filter, outlier_cfg);
     }
 }
 
@@ -402,6 +431,42 @@ fn apply_bundling_file_config(params: &mut BundlingParams, cfg: &FileBundlingCon
     }
     if let Some(v) = cfg.min_weight {
         params.min_weight = v;
+    }
+    if let Some(ref mode) = cfg.scale_mode {
+        if let Some(parsed) = parse_bundling_scale_mode(mode) {
+            params.scale_mode = parsed;
+        }
+    }
+}
+
+fn apply_refinement_schedule_config(
+    params: &mut RefinementSchedule,
+    cfg: &FileRefinementScheduleConfig,
+) {
+    if let Some(v) = cfg.passes {
+        params.passes = v.max(1);
+    }
+    if let Some(v) = cfg.improvement_thresh {
+        params.improvement_thresh = v.max(0.0);
+    }
+}
+
+fn apply_outlier_filter_config(params: &mut OutlierFilterParams, cfg: &FileOutlierFilterConfig) {
+    if let Some(v) = cfg.angle_margin_deg {
+        params.angle_margin_deg = v;
+    }
+    if let Some(v) = cfg.line_residual_thresh_px {
+        params.line_residual_thresh_px = v.max(0.0);
+    }
+}
+
+fn parse_bundling_scale_mode(value: &str) -> Option<BundlingScaleMode> {
+    match value.to_ascii_lowercase().as_str() {
+        "fixed" | "fixed_pixel" | "fixed_px" => Some(BundlingScaleMode::FixedPixel),
+        "full_res" | "full" | "fullres" | "full_resolution" => {
+            Some(BundlingScaleMode::FullResInvariant)
+        }
+        _ => None,
     }
 }
 

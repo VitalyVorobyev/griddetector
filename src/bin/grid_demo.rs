@@ -99,6 +99,31 @@ fn print_text_summary(detailed: &DetailedResult) {
         );
     }
 
+    println!(
+        "\nTimings (ms): pyramid={:.3} lsd={:.3} filter={:.3} bundling={:.3} seg_refine={:.3} refine={:.3} total={:.3}",
+        diag.pyramid_build_ms,
+        diag.lsd_ms,
+        diag.outlier_filter_ms,
+        diag.bundling_ms,
+        diag.segment_refine_ms,
+        diag.refine_ms,
+        diag.total_latency_ms
+    );
+
+    if let Some(filter) = &diag.segment_filter {
+        println!(
+            "Segment filter: kept={}/{} (fam_u={} fam_v={} skipped_degenerate={}) angle_thresh={:.1} residual_thresh={:.2}px elapsed_ms={:.3}",
+            filter.kept,
+            filter.total,
+            filter.kept_u,
+            filter.kept_v,
+            filter.skipped_degenerate,
+            filter.angle_threshold_deg,
+            filter.residual_threshold_px,
+            filter.elapsed_ms,
+        );
+    }
+
     match &diag.lsd {
         Some(lsd) => {
             println!(
@@ -122,8 +147,11 @@ fn print_text_summary(detailed: &DetailedResult) {
     match &diag.refinement {
         Some(refine) => {
             println!(
-                "\nRefinement: levels={} aggregated_confidence={:.3} inlier_ratio={:.3}",
-                refine.levels_used, refine.aggregated_confidence, refine.final_inlier_ratio
+                "\nRefinement: passes={} levels={} aggregated_confidence={:.3} inlier_ratio={:.3}",
+                diag.refinement_passes,
+                refine.levels_used,
+                refine.aggregated_confidence,
+                refine.final_inlier_ratio
             );
             for lvl in &refine.levels {
                 println!(

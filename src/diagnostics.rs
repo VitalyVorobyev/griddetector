@@ -16,6 +16,19 @@ pub struct BundleDiagnostics {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct SegmentFilterDiagnostics {
+    pub total: usize,
+    pub kept: usize,
+    pub rejected: usize,
+    pub kept_u: usize,
+    pub kept_v: usize,
+    pub skipped_degenerate: usize,
+    pub angle_threshold_deg: f32,
+    pub residual_threshold_px: f32,
+    pub elapsed_ms: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct PyramidLevelDiagnostics {
     pub level: usize,
     pub width: usize,
@@ -71,6 +84,13 @@ pub struct ProcessingDiagnostics {
     pub input_height: usize,
     pub pyramid_levels: Vec<PyramidLevelDiagnostics>,
     pub pyramid_build_ms: f64,
+    pub lsd_ms: f64,
+    pub segment_filter: Option<SegmentFilterDiagnostics>,
+    pub outlier_filter_ms: f64,
+    pub bundling_ms: f64,
+    pub segment_refine_ms: f64,
+    pub refine_ms: f64,
+    pub refinement_passes: usize,
     pub lsd: Option<LsdDiagnostics>,
     pub refinement: Option<RefinementDiagnostics>,
     pub bundling: Option<Vec<BundleDiagnostics>>,
