@@ -557,6 +557,9 @@ impl GridDetector {
 }
 
 fn combine_confidence(base: f32, refine_conf: f32, inlier_ratio: f32) -> f32 {
+    if inlier_ratio <= 1e-6 {
+        return base.clamp(0.0, 1.0);
+    }
     let blended = 0.5 * base + 0.5 * refine_conf;
     (blended * inlier_ratio.clamp(0.0, 1.0)).clamp(0.0, 1.0)
 }
