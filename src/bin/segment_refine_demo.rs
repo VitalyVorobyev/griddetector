@@ -230,11 +230,7 @@ fn usage() -> String {
 // Legacy CLI helpers removed: config is now provided via JSON file.
 
 fn build_gradients(pyramid: &Pyramid) -> Vec<Grad> {
-    pyramid
-        .levels
-        .iter()
-        .map(|level| sobel_gradients(level))
-        .collect()
+    pyramid.levels.iter().map(sobel_gradients).collect()
 }
 
 fn detect_coarse_segments(
