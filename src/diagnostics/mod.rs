@@ -12,6 +12,7 @@ pub mod outliers;
 pub mod pipeline;
 pub mod pyramid;
 pub mod refine;
+pub mod segment_refine;
 pub mod segments;
 pub mod timing;
 
@@ -21,5 +22,6 @@ pub use outliers::{OutlierFilterStage, OutlierThresholds};
 pub use pipeline::{DetectionReport, InputDescriptor, PipelineTrace, PoseStage};
 pub use pyramid::{PyramidLevelReport, PyramidStage};
 pub use refine::{RefinementIteration, RefinementOutcome, RefinementStage};
+pub use segment_refine::{SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage};
 pub use segments::{SegmentClass, SegmentDescriptor, SegmentId, SegmentSample};
 pub use timing::{StageTiming, TimingBreakdown};

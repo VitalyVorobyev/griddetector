@@ -42,11 +42,26 @@ impl DetectionReport {
             println!("  pose: unavailable (insufficient confidence)");
         }
 
+        if let Some(coarse) = &self.trace.coarse_homography {
+            println!(
+                "\nCoarse homography (pre-refine):\n    [{:.4} {:.4} {:.4}]\n    [{:.4} {:.4} {:.4}]\n    [{:.4} {:.4} {:.4}]",
+                coarse[0][0],
+                coarse[0][1],
+                coarse[0][2],
+                coarse[1][0],
+                coarse[1][1],
+                coarse[1][2],
+                coarse[2][0],
+                coarse[2][1],
+                coarse[2][2]
+            );
+        }
+
         if let Some(pyramid) = &self.trace.pyramid {
             println!("\nPyramid (built in {:.3} ms)", pyramid.elapsed_ms);
             for lvl in &pyramid.levels {
                 println!(
-                    "  L{}: {}x{} mean={:.4}",
+                    "  L{}: {:>4}x{:>4} mean={:.4}",
                     lvl.level_index, lvl.width, lvl.height, lvl.mean_intensity
                 );
             }
@@ -55,7 +70,7 @@ impl DetectionReport {
         if !self.trace.timings.stages.is_empty() {
             print!("\nTimings (ms): total={:.3}", self.trace.timings.total_ms);
             for stage in &self.trace.timings.stages {
-                print!(" {}={:.3}", stage.label, stage.elapsed_ms);
+                print!("\n{:>19}={:8.3}", stage.label, stage.elapsed_ms);
             }
             println!();
         }
@@ -151,6 +166,8 @@ pub struct PipelineTrace {
     pub bundling: Option<BundlingStage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refinement: Option<RefinementStage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coarse_homography: Option<[[f32; 3]; 3]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pose: Option<PoseStage>,
 }

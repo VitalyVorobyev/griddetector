@@ -29,10 +29,15 @@ def load_result(path: Path) -> dict:
         return json.load(fh)
 
 
-def gather_lines(segments: Iterable[dict], limit: int | None) -> Dict[str, List[np.ndarray]]:
+def gather_lines(
+    segments: Iterable[dict],
+    families: Iterable | None,
+    limit: int | None,
+) -> Dict[str, List[np.ndarray]]:
     grouped = {"u": [], "v": [], "none": []}
     count = 0
-    for seg in segments:
+    families = list(families) if families is not None else []
+    for idx, seg in enumerate(segments):
         if limit is not None and count >= limit:
             break
         p0 = seg.get("p0")
@@ -40,7 +45,13 @@ def gather_lines(segments: Iterable[dict], limit: int | None) -> Dict[str, List[
         if not (is_two_vector(p0) and is_two_vector(p1)):
             continue
         line = np.array([[float(p0[0]), float(p0[1])], [float(p1[0]), float(p1[1])]], dtype=float)
-        family = seg.get("family")
+        family = None
+        if idx < len(families):
+            fam_val = families[idx]
+            if isinstance(fam_val, str):
+                family = fam_val.lower()
+        if family is None:
+            family = seg.get("family")
         key = family if family in ("u", "v") else "none"
         grouped[key].append(line)
         count += 1
@@ -125,8 +136,10 @@ def plot_lsd_vp(
     width, height = image.size
     data = load_result(result_path)
     segments = data.get("segments", [])
+    lsd_stage = data.get("lsd", {}) if isinstance(data.get("lsd"), dict) else {}
+    families = lsd_stage.get("segmentFamilies", []) if isinstance(lsd_stage.get("segmentFamilies"), list) else []
 
-    grouped = gather_lines(segments, limit)
+    grouped = gather_lines(segments, families, limit)
 
     fig, ax = plt.subplots(figsize=figure_size(width, height), dpi=120)
     ax.imshow(image, cmap="gray", origin="upper")
@@ -140,9 +153,9 @@ def plot_lsd_vp(
         lc = LineCollection(lines, colors=FAMILY_COLORS[key], linewidths=1.5, alpha=alpha)
         ax.add_collection(lc)
 
-    hypothesis = data.get("hypothesis")
-    if isinstance(hypothesis, dict):
-        hmtx = np.array(hypothesis.get("hmtx0", []), dtype=float)
+    coarse_h = data.get("coarseH")
+    if coarse_h is not None:
+        hmtx = np.array(coarse_h, dtype=float)
         if hmtx.shape == (3, 3):
             anchor_h = hmtx[:, 2]
             vpu = hmtx[:, 0]
@@ -156,12 +169,12 @@ def plot_lsd_vp(
             if arrow_v is not None:
                 ax.plot(arrow_v[:, 0], arrow_v[:, 1], color=FAMILY_COLORS["v"], linewidth=2.0)
 
-    title = [f"LSD→VP Demo", f"segments={len(segments)}"]
-    if data.get("dominantAnglesDeg"):
-        angles = data["dominantAnglesDeg"]
-        title.append(
-            f"θ_u={angles[0]:.1f}° θ_v={angles[1]:.1f}°"
-        )
+    title = ["LSD→VP Demo", f"segments={len(segments)}"]
+    if isinstance(lsd_stage.get("dominantAnglesDeg"), list):
+        angles = lsd_stage["dominantAnglesDeg"]
+        title.append(f"θ_u={angles[0]:.1f}° θ_v={angles[1]:.1f}°")
+    if isinstance(lsd_stage.get("confidence"), (int, float)):
+        title.append(f"conf={lsd_stage['confidence']:.3f}")
     ax.set_title(" | ".join(title))
 
     fig.tight_layout()

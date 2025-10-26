@@ -1,10 +1,8 @@
 use grid_detector::config::vp_outlier_demo as cfg;
 use grid_detector::config::vp_outlier_demo::VpOutlierDemoConfig;
-use grid_detector::diagnostics::DetectionReport;
 use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
 use grid_detector::{GridDetector, GridParams};
-use serde::Serialize;
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -35,8 +33,7 @@ fn run() -> Result<(), String> {
     let report = detector.process_with_diagnostics(gray.as_view());
     report.print_text_summary();
 
-    let output = DemoOutput { report };
-    write_json_file(&config.output.result_path(), &output)?;
+    write_json_file(&config.output.result_path(), &report)?;
 
     println!(
         "Wrote diagnostics JSON to {}",
@@ -85,10 +82,4 @@ fn grid_params_from_config(config: &VpOutlierDemoConfig, levels: usize) -> GridP
     params.bundling_params = config.bundling.resolve();
     params.refine_params = config.refine.resolve();
     params
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DemoOutput {
-    report: DetectionReport,
 }

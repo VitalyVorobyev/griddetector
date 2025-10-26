@@ -57,6 +57,11 @@ def plot_segments(
     if not segments:
         print("No segments to visualize.")
 
+    settings = data.get("settings", {}) if isinstance(data.get("settings"), dict) else {}
+    threshold = settings.get("magnitudeThreshold")
+    if threshold is None:
+        threshold = data.get("magnitudeThreshold")
+
     lines = []
     values: list[float] = []
     for seg in segments:
@@ -77,9 +82,9 @@ def plot_segments(
     ax.imshow(image, cmap="gray", origin="upper")
     ax.set_xlim(0, width)
     ax.set_ylim(height, 0)
+    thresh_text = f"{threshold}" if isinstance(threshold, (int, float)) else "n/a"
     ax.set_title(
-        f"Coarsest Level Segments\n{len(lines)} segments, "
-        f"metric={metric}, threshold={data.get('magnitudeThreshold', 'n/a')}"
+        f"Coarsest Level Segments\n{len(lines)} segments, metric={metric}, threshold={thresh_text}"
     )
 
     if lines:

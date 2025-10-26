@@ -17,12 +17,11 @@ INLIER_COLOR = "#2ca02c"
 OUTLIER_COLOR = "#d62728"
 
 MODEL_COLORS: Dict[str, Dict[str, str]] = {
-    "initial": {"u": "#1f77b4", "v": "#ff7f0e", "anchor": "#ffffff"},
-    "inlier": {"u": "#17becf", "v": "#bcbd22", "anchor": "#ffdf5d"},
+    "coarse": {"u": "#1f77b4", "v": "#ff7f0e", "anchor": "#ffffff"},
     "refined": {"u": "#9467bd", "v": "#8c564b", "anchor": "#e377c2"},
 }
 
-MODEL_STYLES: Dict[str, str] = {"initial": "-", "inlier": "--", "refined": ":"}
+MODEL_STYLES: Dict[str, str] = {"coarse": "--", "refined": "-"}
 
 
 def figure_size(width: int, height: int, scale: float = 1.5) -> Tuple[float, float]:
@@ -35,26 +34,52 @@ def load_result(path: Path) -> dict:
         return json.load(fh)
 
 
+def extract_detection_report(data: dict) -> tuple[dict, dict]:
+    if isinstance(data.get("report"), dict):
+        data = data["report"]
+    trace = data.get("trace", {}) if isinstance(data.get("trace"), dict) else {}
+    return data, trace
+
+
 def gather_segments(
-    segments: Iterable[dict],
+    descriptors: Dict[int, dict],
+    classifications: Iterable[dict],
     limit: int | None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray]]:
     inliers: List[np.ndarray] = []
     outliers: List[np.ndarray] = []
     count = 0
-    for seg in segments:
+    for entry in classifications:
         if limit is not None and count >= limit:
             break
+        seg_id = entry.get("segment")
+        if seg_id is None:
+            continue
+        seg = descriptors.get(int(seg_id))
+        if not seg:
+            continue
         p0 = seg.get("p0")
         p1 = seg.get("p1")
         if not is_two_vector(p0) or not is_two_vector(p1):
             continue
         line = np.array([[float(p0[0]), float(p0[1])], [float(p1[0]), float(p1[1])]], dtype=float)
-        if bool(seg.get("inlier", False)):
+        if entry.get("class") == "kept":
             inliers.append(line)
         else:
             outliers.append(line)
         count += 1
+    # Fallback: if no classification data, treat every segment as an inlier for plotting.
+    if not inliers and not outliers:
+        for seg in descriptors.values():
+            if limit is not None and count >= limit:
+                break
+            p0 = seg.get("p0")
+            p1 = seg.get("p1")
+            if not is_two_vector(p0) or not is_two_vector(p1):
+                continue
+            line = np.array([[float(p0[0]), float(p0[1])], [float(p1[0]), float(p1[1])]], dtype=float)
+            inliers.append(line)
+            count += 1
     return inliers, outliers
 
 
@@ -126,19 +151,19 @@ def compute_vp_ray(
 
 def draw_model(
     ax,
-    model: dict | None,
+    matrix: list | tuple | None,
     width: int,
     height: int,
     colors: Dict[str, str],
     linestyle: str,
 ) -> None:
-    if not isinstance(model, dict):
+    if matrix is None:
         return
-    matrix = np.array(model.get("coarseH", []), dtype=float)
-    if matrix.shape != (3, 3):
+    mat = np.array(matrix, dtype=float)
+    if mat.shape != (3, 3):
         return
 
-    anchor_h = matrix[:, 2]
+    anchor_h = mat[:, 2]
     anchor_point, anchor_infinite = homogeneous_to_point(anchor_h)
     if not anchor_infinite:
         ax.scatter(
@@ -152,7 +177,7 @@ def draw_model(
         )
 
     for key, column in (("u", 0), ("v", 1)):
-        vp = matrix[:, column]
+        vp = mat[:, column]
         ray = compute_vp_ray(anchor_point, vp, width, height)
         if ray is None:
             continue
@@ -174,12 +199,21 @@ def plot_vp_outlier_demo(
 ) -> None:
     image = Image.open(image_path).convert("L")
     width, height = image.size
-    data = load_result(result_path)
-    segments = data.get("segments", [])
-    stats = data.get("classification", {})
-    perf = data.get("performanceMs", {})
+    raw = load_result(result_path)
+    report, trace = extract_detection_report(raw)
+    grid = report.get("grid", {}) if isinstance(report.get("grid"), dict) else {}
+    segments = trace.get("segments", []) if isinstance(trace.get("segments"), list) else []
+    descriptors = {
+        int(seg["id"]): seg
+        for seg in segments
+        if isinstance(seg, dict) and "id" in seg
+    }
+    outlier_stage = trace.get("outlierFilter", {}) if isinstance(trace.get("outlierFilter"), dict) else {}
+    classifications = outlier_stage.get("classifications", [])
+    if not isinstance(classifications, list):
+        classifications = []
 
-    inlier_lines, outlier_lines = gather_segments(segments, limit)
+    inlier_lines, outlier_lines = gather_segments(descriptors, classifications, limit)
 
     fig, ax = plt.subplots(figsize=figure_size(width, height), dpi=120)
     ax.imshow(image, cmap="gray", origin="upper")
@@ -194,44 +228,79 @@ def plot_vp_outlier_demo(
         lc_out = LineCollection(outlier_lines, colors=OUTLIER_COLOR, linewidths=1.4, alpha=alpha)
         ax.add_collection(lc_out)
 
-    if True:
-        draw_model(ax, data.get("initialModel"), width, height, MODEL_COLORS["initial"], MODEL_STYLES["initial"])
-        draw_model(ax, data.get("inlierModel"), width, height, MODEL_COLORS["inlier"], MODEL_STYLES["inlier"])
-    draw_model(ax, data.get("refinedModel"), width, height, MODEL_COLORS["refined"], MODEL_STYLES["refined"])
+    draw_model(
+        ax,
+        trace.get("coarseHomography"),
+        width,
+        height,
+        MODEL_COLORS["coarse"],
+        MODEL_STYLES["coarse"],
+    )
+    draw_model(
+        ax,
+        grid.get("hmtx"),
+        width,
+        height,
+        MODEL_COLORS["refined"],
+        MODEL_STYLES["refined"],
+    )
 
     handles: List[Line2D] = [
         Line2D([0], [0], color=INLIER_COLOR, linewidth=2.0, label="Inliers"),
         Line2D([0], [0], color=OUTLIER_COLOR, linewidth=2.0, label="Outliers"),
     ]
-    if data.get("initialModel"):
-        handles.extend([
-            Line2D([0], [0], color=MODEL_COLORS["initial"]["u"], linestyle=MODEL_STYLES["initial"], linewidth=2.0, label="Initial VP\u2093"),
-            Line2D([0], [0], color=MODEL_COLORS["initial"]["v"], linestyle=MODEL_STYLES["initial"], linewidth=2.0, label="Initial VP\u2094"),
-        ])
-    if data.get("inlierModel"):
-        handles.extend([
-            Line2D([0], [0], color=MODEL_COLORS["inlier"]["u"], linestyle=MODEL_STYLES["inlier"], linewidth=2.0, label="Inlier VP\u2093"),
-            Line2D([0], [0], color=MODEL_COLORS["inlier"]["v"], linestyle=MODEL_STYLES["inlier"], linewidth=2.0, label="Inlier VP\u2094"),
-        ])
-    if data.get("refinedModel"):
-        handles.extend([
-            Line2D([0], [0], color=MODEL_COLORS["refined"]["u"], linestyle=MODEL_STYLES["refined"], linewidth=2.2, label="Refined VP\u2093"),
-            Line2D([0], [0], color=MODEL_COLORS["refined"]["v"], linestyle=MODEL_STYLES["refined"], linewidth=2.2, label="Refined VP\u2094"),
-        ])
+    handles.extend(
+        [
+            Line2D(
+                [0],
+                [0],
+                color=MODEL_COLORS["coarse"]["u"],
+                linestyle=MODEL_STYLES["coarse"],
+                linewidth=2.0,
+                label="Coarse VP\u2093",
+            ),
+            Line2D(
+                [0],
+                [0],
+                color=MODEL_COLORS["coarse"]["v"],
+                linestyle=MODEL_STYLES["coarse"],
+                linewidth=2.0,
+                label="Coarse VP\u2094",
+            ),
+            Line2D(
+                [0],
+                [0],
+                color=MODEL_COLORS["refined"]["u"],
+                linestyle=MODEL_STYLES["refined"],
+                linewidth=2.2,
+                label="Refined VP\u2093",
+            ),
+            Line2D(
+                [0],
+                [0],
+                color=MODEL_COLORS["refined"]["v"],
+                linestyle=MODEL_STYLES["refined"],
+                linewidth=2.2,
+                label="Refined VP\u2094",
+            ),
+        ]
+    )
 
     ax.legend(handles=handles, loc="upper right", frameon=True, facecolor="#ffffffdd")
 
-    total = stats.get("total")
-    inliers = stats.get("inliers")
-    outliers = stats.get("outliers")
-    total_ms = perf.get("totalMs")
+    total = outlier_stage.get("total")
+    kept = outlier_stage.get("kept")
+    rejected = outlier_stage.get("rejected")
+    timings = trace.get("timings", {}) if isinstance(trace.get("timings"), dict) else {}
+    total_ms = timings.get("totalMs")
+    lsd_stage = trace.get("lsd", {}) if isinstance(trace.get("lsd"), dict) else {}
     title_parts = ["VP Outlier Demo"]
-    if total is not None and inliers is not None and outliers is not None:
-        title_parts.append(f"segments={total} (inliers={inliers}, outliers={outliers})")
-    if (initial := data.get("initialModel")) and isinstance(initial, dict):
-        title_parts.append(f"H0 conf={initial.get('confidence', 0.0):.3f}")
-    if (refined := data.get("refinedModel")) and isinstance(refined, dict):
-        title_parts.append(f"refined conf={refined.get('confidence', 0.0):.3f}")
+    if total is not None and kept is not None and rejected is not None:
+        title_parts.append(f"segments={total} (kept={kept}, rejected={rejected})")
+    if (conf := lsd_stage.get("confidence")) is not None:
+        title_parts.append(f"LSD conf={conf:.3f}")
+    if isinstance(grid.get("confidence"), (int, float)):
+        title_parts.append(f"refined conf={grid['confidence']:.3f}")
     if isinstance(total_ms, (int, float)):
         title_parts.append(f"total={total_ms:.1f} ms")
     ax.set_title(" | ".join(title_parts))

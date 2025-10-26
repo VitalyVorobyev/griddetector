@@ -9,6 +9,7 @@ use crate::diagnostics::{
 };
 use crate::image::ImageF32;
 use crate::lsd_vp::{DetailedInference, Engine as LsdVpEngine, FamilyLabel};
+use crate::refine::segment::RefineResult;
 use crate::segments::Segment;
 use nalgebra::Matrix3;
 
@@ -155,4 +156,53 @@ fn compute_family_counts(families: &[Option<FamilyLabel>]) -> FamilyCounts {
         }
     }
     counts
+}
+
+/// Convert a refinement result into a fully described segment, guarding against
+/// degenerate outputs produced by the gradient descent.
+pub fn convert_refined_segment(prev: &Segment, result: RefineResult) -> Segment {
+    let seg = result.seg;
+    let mut p0 = seg.p0;
+    let mut p1 = seg.p1;
+    if !p0[0].is_finite() || !p0[1].is_finite() || !p1[0].is_finite() || !p1[1].is_finite() {
+        p0 = prev.p0;
+        p1 = prev.p1;
+    }
+    let dx = p1[0] - p0[0];
+    let dy = p1[1] - p0[1];
+    let mut len = (dx * dx + dy * dy).sqrt();
+    if !len.is_finite() {
+        len = prev.len;
+    }
+    let dir = if len > f32::EPSILON {
+        [dx / len, dy / len]
+    } else {
+        prev.dir
+    };
+
+    let mut normal = [-dir[1], dir[0]];
+    let norm = (normal[0] * normal[0] + normal[1] * normal[1])
+        .sqrt()
+        .max(1e-6);
+    normal[0] /= norm;
+    normal[1] /= norm;
+    let c = -(normal[0] * p0[0] + normal[1] * p0[1]);
+
+    let avg_mag = if result.ok && result.score.is_finite() && result.score > 0.0 {
+        result.score
+    } else {
+        prev.avg_mag
+    }
+    .max(0.0);
+    let strength = len.max(1e-3) * avg_mag;
+
+    Segment {
+        p0,
+        p1,
+        dir,
+        len,
+        line: [normal[0], normal[1], c],
+        avg_mag,
+        strength,
+    }
 }

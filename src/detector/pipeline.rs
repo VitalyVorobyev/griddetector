@@ -26,6 +26,7 @@ use super::params::{
 };
 use super::scaling::{rescale_bundle_to_full_res, LevelScaleMap, LevelScaling};
 use super::workspace::DetectorWorkspace;
+use crate::diagnostics::builders::convert_refined_segment;
 use crate::diagnostics::{
     BundleDescriptor, BundlingLevel, BundlingStage, DetectionReport, FamilyCounts, InputDescriptor,
     LsdStage, OutlierFilterStage, OutlierThresholds, PipelineTrace, PoseStage, PyramidStage,
@@ -128,6 +129,7 @@ impl GridDetector {
 
         let mut confidence = 0.0f32;
         let mut h_full: Option<Matrix3<f32>> = None;
+        let mut coarse_h_matrix: Option<Matrix3<f32>> = None;
         let mut hmtx = Matrix3::identity();
 
         let mut filtered_segments: Vec<Segment> = Vec::new();
@@ -166,6 +168,7 @@ impl GridDetector {
                     hmtx0
                 });
                 hmtx = h_full.unwrap_or_else(Matrix3::identity);
+                coarse_h_matrix = h_full.clone();
 
                 let dominant_angles_deg = [
                     dominant_angles_rad[0].to_degrees(),
@@ -401,6 +404,7 @@ impl GridDetector {
             outlier_filter: outlier_stage,
             bundling: bundling_stage,
             refinement: refinement_stage,
+            coarse_homography: coarse_h_matrix.map(|m| matrix_to_array(&m)),
             pose: pose.as_ref().map(PoseStage::from_pose),
         };
 
@@ -566,7 +570,7 @@ impl GridDetector {
                 if result.ok {
                     accepted += 1;
                 }
-                let updated = convert_refine_result(seg, result);
+                let updated = convert_refined_segment(seg, result);
                 refined_segments.push(updated);
             }
             segment_refine_ms += refine_start.elapsed().as_secs_f64() * 1000.0;
@@ -610,53 +614,6 @@ fn adapt_bundling_thresholds(params: &BundlingParams, scaling: &LevelScaling) ->
             let weight = params.min_weight * scaling.mean_scale_from_full;
             (dist.max(EPS), weight.max(EPS))
         }
-    }
-}
-
-fn convert_refine_result(prev: &Segment, result: segment::RefineResult) -> Segment {
-    let seg = result.seg;
-    let mut p0 = seg.p0;
-    let mut p1 = seg.p1;
-    if !p0[0].is_finite() || !p0[1].is_finite() || !p1[0].is_finite() || !p1[1].is_finite() {
-        p0 = prev.p0;
-        p1 = prev.p1;
-    }
-    let dx = p1[0] - p0[0];
-    let dy = p1[1] - p0[1];
-    let mut len = (dx * dx + dy * dy).sqrt();
-    if !len.is_finite() {
-        len = prev.len;
-    }
-    let dir = if len > f32::EPSILON {
-        [dx / len, dy / len]
-    } else {
-        prev.dir
-    };
-
-    let mut normal = [-dir[1], dir[0]];
-    let norm = (normal[0] * normal[0] + normal[1] * normal[1])
-        .sqrt()
-        .max(EPS);
-    normal[0] /= norm;
-    normal[1] /= norm;
-    let c = -(normal[0] * p0[0] + normal[1] * p0[1]);
-
-    let avg_mag = if result.ok && result.score.is_finite() && result.score > 0.0 {
-        result.score
-    } else {
-        prev.avg_mag
-    }
-    .max(0.0);
-    let strength = len.max(1e-3) * avg_mag;
-
-    Segment {
-        p0,
-        p1,
-        dir,
-        len,
-        line: [normal[0], normal[1], c],
-        avg_mag,
-        strength,
     }
 }
 
@@ -739,6 +696,14 @@ fn pose_from_h(k: Matrix3<f32>, h: Matrix3<f32>) -> Pose {
 
     let t = t_raw * inv_scale;
     Pose { r: rot, t }
+}
+
+fn matrix_to_array(m: &Matrix3<f32>) -> [[f32; 3]; 3] {
+    [
+        [m[(0, 0)], m[(0, 1)], m[(0, 2)]],
+        [m[(1, 0)], m[(1, 1)], m[(1, 2)]],
+        [m[(2, 0)], m[(2, 1)], m[(2, 2)]],
+    ]
 }
 
 #[cfg(test)]
