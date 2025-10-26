@@ -1,6 +1,8 @@
 use grid_detector::config::vp_outlier_demo as cfg;
 use grid_detector::config::vp_outlier_demo::VpOutlierDemoConfig;
-use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
+use grid_detector::image::io::{
+    load_grayscale_image, save_grayscale_f32, write_json_file, GrayImageU8,
+};
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
 use grid_detector::{GridDetector, GridParams};
 use std::env;
@@ -14,6 +16,16 @@ fn main() {
     }
 }
 
+fn build_pyramid_save_coarsest_image(
+    img: &GrayImageU8,
+    config: &VpOutlierDemoConfig,
+    levels: usize,
+) -> Result<(), String> {
+    let pyramid_opts = build_pyramid_options(config, levels);
+    let pyramid = Pyramid::build_u8(img.as_view(), pyramid_opts);
+    save_coarsest_level(config, &pyramid)
+}
+
 fn run() -> Result<(), String> {
     let config_path = env::args().nth(1).ok_or_else(usage)?;
     let config = cfg::load_config(Path::new(&config_path))?;
@@ -22,10 +34,8 @@ fn run() -> Result<(), String> {
         .map_err(|e| format!("Failed to create {}: {e}", config.output.dir.display()))?;
 
     let gray = load_grayscale_image(&config.input)?;
-    let levels = config.pyramid.levels.max(1);
-    let pyramid_opts = build_pyramid_options(&config, levels);
-    let pyramid = Pyramid::build_u8(gray.as_view(), pyramid_opts);
-    save_coarsest_level(&config, &pyramid)?;
+    let levels = config.pyramid.levels;
+    build_pyramid_save_coarsest_image(&gray, &config, levels)?;
 
     let params = grid_params_from_config(&config, levels);
     let mut detector = GridDetector::new(params);
