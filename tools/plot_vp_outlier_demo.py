@@ -40,6 +40,26 @@ def extract_detection_report(data: dict) -> tuple[dict, dict]:
     trace = data.get("trace", {}) if isinstance(data.get("trace"), dict) else {}
     return data, trace
 
+def to_matrix3x3(matrix) -> np.ndarray | None:
+    try:
+        arr = np.array(matrix, dtype=float)
+    except Exception:
+        return None
+    if arr.shape == (3, 3):
+        return arr
+    if arr.ndim == 1 and arr.size == 9:
+        # nalgebra Matrix3 serde flattens in column-major order
+        return arr.reshape((3, 3), order="F")
+    return None
+
+def rescale_homography(mat: np.ndarray, src_w: int, src_h: int, dst_w: int, dst_h: int) -> np.ndarray:
+    if not (src_w and src_h and dst_w and dst_h):
+        return mat
+    sx = float(dst_w) / float(src_w)
+    sy = float(dst_h) / float(src_h)
+    S = np.array([[sx, 0.0, 0.0], [0.0, sy, 0.0], [0.0, 0.0, 1.0]], dtype=float)
+    return S @ mat
+
 
 def gather_segments(
     descriptors: Dict[int, dict],
@@ -156,25 +176,18 @@ def draw_model(
     height: int,
     colors: Dict[str, str],
     linestyle: str,
+    transpose: bool = False
 ) -> None:
     if matrix is None:
         return
     mat = np.array(matrix, dtype=float)
     if mat.shape != (3, 3):
         return
+    if transpose:
+        mat = mat.T
 
-    anchor_h = mat[:, 2]
-    anchor_point, anchor_infinite = homogeneous_to_point(anchor_h)
-    if not anchor_infinite:
-        ax.scatter(
-            anchor_point[0],
-            anchor_point[1],
-            c=colors.get("anchor", "#ffffff"),
-            s=40,
-            edgecolors="#000000",
-            linewidths=0.75,
-            zorder=5,
-        )
+    # Always use image center as the anchor, ignore matrix-provided anchor.
+    anchor_point = np.array([width / 2.0, height / 2.0], dtype=float)
 
     for key, column in (("u", 0), ("v", 1)):
         vp = mat[:, column]
@@ -228,22 +241,33 @@ def plot_vp_outlier_demo(
         lc_out = LineCollection(outlier_lines, colors=OUTLIER_COLOR, linewidths=1.4, alpha=alpha)
         ax.add_collection(lc_out)
 
-    draw_model(
-        ax,
-        trace.get("coarseHomography"),
-        width,
-        height,
-        MODEL_COLORS["coarse"],
-        MODEL_STYLES["coarse"],
-    )
-    draw_model(
-        ax,
-        grid.get("hmtx"),
-        width,
-        height,
-        MODEL_COLORS["refined"],
-        MODEL_STYLES["refined"],
-    )
+    src = trace.get("input", {}) if isinstance(trace.get("input"), dict) else {}
+    src_w = int(src.get("width", width))
+    src_h = int(src.get("height", height))
+
+    m_coarse = to_matrix3x3(trace.get("coarseHomography"))
+    if m_coarse is not None:
+        m_coarse = rescale_homography(m_coarse, src_w, src_h, width, height)
+        draw_model(
+            ax,
+            m_coarse,
+            width,
+            height,
+            MODEL_COLORS["coarse"],
+            MODEL_STYLES["coarse"],
+        )
+
+    m_refined = to_matrix3x3(grid.get("hmtx"))
+    if m_refined is not None:
+        m_refined = rescale_homography(m_refined, src_w, src_h, width, height)
+        draw_model(
+            ax,
+            m_refined,
+            width,
+            height,
+            MODEL_COLORS["refined"],
+            MODEL_STYLES["refined"],
+        )
 
     handles: List[Line2D] = [
         Line2D([0], [0], color=INLIER_COLOR, linewidth=2.0, label="Inliers"),

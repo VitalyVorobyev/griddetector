@@ -18,9 +18,8 @@ pub use crate::diagnostics::builders::{
 };
 pub use crate::diagnostics::{
     BundlingLevel, BundlingStage, DetectionReport, InputDescriptor, LsdStage, OutlierFilterStage,
-    PipelineTrace, PoseStage, PyramidLevelReport, PyramidStage, RefinementIteration,
-    RefinementOutcome, RefinementStage, SegmentClass, SegmentDescriptor, SegmentId,
-    SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage, SegmentSample, StageTiming,
-    TimingBreakdown,
+    PipelineTrace, PyramidLevelReport, PyramidStage, RefinementIteration, RefinementOutcome,
+    RefinementStage, SegmentClass, SegmentDescriptor, SegmentId, SegmentRefineLevel,
+    SegmentRefineSample, SegmentRefineStage, SegmentSample, StageTiming, TimingBreakdown,
 };
 pub use crate::types::{GridResult, Pose};

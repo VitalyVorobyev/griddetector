@@ -21,7 +21,7 @@ pub use bundles::{BundleDescriptor, BundlingLevel, BundlingStage};
 pub use grid_indexing::{FamilyIndexing, GridIndexingStage, GridLineIndex};
 pub use lsd::{FamilyCounts, LsdStage};
 pub use outliers::{OutlierFilterStage, OutlierThresholds};
-pub use pipeline::{DetectionReport, InputDescriptor, PipelineTrace, PoseStage};
+pub use pipeline::{DetectionReport, InputDescriptor, PipelineTrace};
 pub use pyramid::{PyramidLevelReport, PyramidStage};
 pub use refine::{RefinementIteration, RefinementOutcome, RefinementStage};
 pub use segment_refine::{SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage};

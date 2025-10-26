@@ -30,7 +30,7 @@ use crate::diagnostics::builders::convert_refined_segment;
 use crate::diagnostics::{
     BundleDescriptor, BundlingLevel, BundlingStage, DetectionReport, FamilyCounts, FamilyIndexing,
     GridIndexingStage, GridLineIndex, InputDescriptor, LsdStage, OutlierFilterStage,
-    OutlierThresholds, PipelineTrace, PoseStage, PyramidStage, RefinementOutcome, RefinementStage,
+    OutlierThresholds, PipelineTrace, PyramidStage, RefinementOutcome, RefinementStage,
     SegmentDescriptor, SegmentId, SegmentSample, TimingBreakdown,
 };
 use crate::image::{ImageU8, ImageView};
@@ -274,8 +274,8 @@ impl GridDetector {
             bundling: bundling_stage,
             grid_indexing: grid_indexing_stage,
             refinement: refinement_stage,
-            coarse_homography: coarse_h_matrix.map(|m| matrix_to_array(&m)),
-            pose: pose.as_ref().map(PoseStage::from_pose),
+            coarse_homography: coarse_h_matrix,
+            pose: pose.clone(),
         };
 
         DetectionReport {
@@ -713,8 +713,8 @@ impl GridDetector {
             bundling: bundling_stage,
             grid_indexing: grid_indexing_stage,
             refinement: None,
-            coarse_homography: coarse_h_matrix.map(|m| matrix_to_array(&m)),
-            pose: pose.as_ref().map(PoseStage::from_pose),
+            coarse_homography: coarse_h_matrix,
+            pose: pose.clone(),
         };
 
         DetectionReport {
@@ -1265,13 +1265,7 @@ fn pose_from_h(k: Matrix3<f32>, h: Matrix3<f32>) -> Pose {
     Pose { r: rot, t }
 }
 
-fn matrix_to_array(m: &Matrix3<f32>) -> [[f32; 3]; 3] {
-    [
-        [m[(0, 0)], m[(0, 1)], m[(0, 2)]],
-        [m[(1, 0)], m[(1, 1)], m[(1, 2)]],
-        [m[(2, 0)], m[(2, 1)], m[(2, 2)]],
-    ]
-}
+// matrix_to_array removed: all matrices now use nalgebra serde directly.
 
 #[cfg(test)]
 mod tests {
