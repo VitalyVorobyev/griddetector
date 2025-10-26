@@ -1,6 +1,6 @@
 use crate::diagnostics::{
-    BundlingStage, LsdStage, OutlierFilterStage, PyramidStage, RefinementStage, SegmentDescriptor,
-    TimingBreakdown,
+    BundlingStage, GridIndexingStage, LsdStage, OutlierFilterStage, PyramidStage, RefinementStage,
+    SegmentDescriptor, TimingBreakdown,
 };
 use crate::types::{GridResult, Pose};
 use serde::Serialize;
@@ -110,6 +110,59 @@ impl DetectionReport {
             println!("\nSegment filter: skipped");
         }
 
+        if let Some(bundling) = &self.trace.bundling {
+            println!(
+                "\nBundling: levels={} src_segments={} min_weight={:.2} merge_dist_px={:.2} elapsed_ms={:.3} segment_refine_ms={:.3}",
+                bundling.levels.len(),
+                bundling.source_segments,
+                bundling.min_weight,
+                bundling.merge_distance_px,
+                bundling.elapsed_ms,
+                bundling.segment_refine_ms
+            );
+            for lvl in &bundling.levels {
+                println!(
+                    "  L{}: {}x{} bundles={}",
+                    lvl.level_index,
+                    lvl.width,
+                    lvl.height,
+                    lvl.bundles.len()
+                );
+            }
+        } else {
+            println!("\nBundling: skipped");
+        }
+
+        if let Some(indexing) = &self.trace.grid_indexing {
+            let (umin, umax, vmin, vmax) = indexing.visible_range;
+            println!(
+                "\nGrid indexing: origin=({}, {}) u_range=[{}, {}] v_range=[{}, {}] elapsed_ms={:.3}",
+                indexing.origin_uv.0,
+                indexing.origin_uv.1,
+                umin,
+                umax,
+                vmin,
+                vmax,
+                indexing.elapsed_ms
+            );
+            println!(
+                "  family_u: spacing={} base_offset={} lines={} conf={:.3}",
+                format_optional(indexing.family_u.spacing),
+                format_optional(indexing.family_u.base_offset),
+                indexing.family_u.lines.len(),
+                indexing.family_u.confidence
+            );
+            println!(
+                "  family_v: spacing={} base_offset={} lines={} conf={:.3}",
+                format_optional(indexing.family_v.spacing),
+                format_optional(indexing.family_v.base_offset),
+                indexing.family_v.lines.len(),
+                indexing.family_v.confidence
+            );
+        } else {
+            println!("\nGrid indexing: skipped");
+        }
+
         if let Some(refine) = &self.trace.refinement {
             if let Some(outcome) = &refine.outcome {
                 println!(
@@ -164,6 +217,8 @@ pub struct PipelineTrace {
     pub outlier_filter: Option<OutlierFilterStage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bundling: Option<BundlingStage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grid_indexing: Option<GridIndexingStage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refinement: Option<RefinementStage>,
     #[serde(skip_serializing_if = "Option::is_none")]

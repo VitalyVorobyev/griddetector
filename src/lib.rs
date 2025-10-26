@@ -12,7 +12,7 @@ pub mod refine;
 pub mod segments;
 pub mod types;
 
-pub use crate::detector::{GridDetector, GridParams};
+pub use crate::detector::{rescale_bundle_to_full_res, GridDetector, GridParams, LevelScaling};
 pub use crate::diagnostics::builders::{
     run_lsd_stage, run_outlier_stage, LsdStageOutput, OutlierStageOutput,
 };

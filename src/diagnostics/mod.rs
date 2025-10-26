@@ -7,6 +7,7 @@
 
 pub mod builders;
 pub mod bundles;
+pub mod grid_indexing;
 pub mod lsd;
 pub mod outliers;
 pub mod pipeline;
@@ -17,6 +18,7 @@ pub mod segments;
 pub mod timing;
 
 pub use bundles::{BundleDescriptor, BundlingLevel, BundlingStage};
+pub use grid_indexing::{FamilyIndexing, GridIndexingStage, GridLineIndex};
 pub use lsd::{FamilyCounts, LsdStage};
 pub use outliers::{OutlierFilterStage, OutlierThresholds};
 pub use pipeline::{DetectionReport, InputDescriptor, PipelineTrace, PoseStage};
