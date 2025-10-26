@@ -1,4 +1,6 @@
 use super::edge::PyramidConfig;
+use crate::detector::params::LsdVpParams;
+use crate::segments::LsdOptions;
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -42,6 +44,33 @@ impl Default for LsdConfig {
             enforce_polarity: false,
             limit_normal_span: false,
             normal_span_limit_px: 2.0,
+        }
+    }
+}
+
+impl LsdConfig {
+    pub fn to_lsd_options(&self) -> LsdOptions {
+        LsdOptions {
+            enforce_polarity: self.enforce_polarity,
+            normal_span_limit: if self.limit_normal_span {
+                Some(self.normal_span_limit_px)
+            } else {
+                None
+            },
+        }
+    }
+
+    pub fn to_lsd_vp_params(&self) -> LsdVpParams {
+        LsdVpParams {
+            mag_thresh: self.magnitude_threshold,
+            angle_tol_deg: self.angle_tolerance_deg,
+            min_len: self.min_length,
+            enforce_polarity: self.enforce_polarity,
+            normal_span_limit: if self.limit_normal_span {
+                Some(self.normal_span_limit_px)
+            } else {
+                None
+            },
         }
     }
 }

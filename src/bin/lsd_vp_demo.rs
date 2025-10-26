@@ -1,5 +1,6 @@
-use grid_detector::config::lsd_vp::{self, EngineParameters};
+use grid_detector::config::lsd_vp;
 use grid_detector::config::segments::LsdConfig;
+use grid_detector::detector::params::LsdVpParams;
 use grid_detector::diagnostics::builders::run_lsd_stage;
 use grid_detector::diagnostics::{LsdStage, PyramidStage, SegmentDescriptor, SegmentId};
 use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
@@ -41,14 +42,7 @@ fn run() -> Result<(), String> {
 
     save_grayscale_f32(coarsest, &config.output.coarsest_image)?;
 
-    let lsd_options = LsdOptions {
-        enforce_polarity: config.lsd.enforce_polarity,
-        normal_span_limit: if config.lsd.limit_normal_span {
-            Some(config.lsd.normal_span_limit_px)
-        } else {
-            None
-        },
-    };
+    let lsd_options: LsdOptions = config.lsd.to_lsd_options();
     let angle_tol_rad = config.lsd.angle_tolerance_deg.to_radians();
     let segments = lsd_extract_segments_with_options(
         coarsest,
@@ -58,11 +52,12 @@ fn run() -> Result<(), String> {
         lsd_options,
     );
 
-    let engine_params = config.engine.resolve(&config.lsd);
+    let engine_params = config.lsd.to_lsd_vp_params();
     let engine = Engine {
-        mag_thresh: engine_params.magnitude_threshold,
-        angle_tol_deg: engine_params.angle_tolerance_deg,
-        min_len: engine_params.min_length,
+        mag_thresh: engine_params.mag_thresh,
+        angle_tol_deg: engine_params.angle_tol_deg,
+        min_len: engine_params.min_len,
+        options: lsd_options,
     };
     let pyramid_stage = PyramidStage::from_pyramid(&pyramid, 0.0);
 
@@ -104,7 +99,7 @@ fn run() -> Result<(), String> {
         pyramid: pyramid_stage,
         lsd: lsd_stage,
         lsd_config: LsdParamsOut::from(&config.lsd),
-        engine_config: EngineParamsOut::from(engine_params),
+        engine_config: EngineParamsOut::from(&engine_params),
         coarse_h: coarse_h.map(matrix_to_array),
         full_h: full_h.map(matrix_to_array),
         segments: descriptors,
@@ -181,14 +176,19 @@ struct EngineParamsOut {
     magnitude_threshold: f32,
     angle_tolerance_deg: f32,
     min_length: f32,
+    enforce_polarity: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    normal_span_limit_px: Option<f32>,
 }
 
-impl From<EngineParameters> for EngineParamsOut {
-    fn from(params: EngineParameters) -> Self {
+impl From<&LsdVpParams> for EngineParamsOut {
+    fn from(params: &LsdVpParams) -> Self {
         Self {
-            magnitude_threshold: params.magnitude_threshold,
-            angle_tolerance_deg: params.angle_tolerance_deg,
-            min_length: params.min_length,
+            magnitude_threshold: params.mag_thresh,
+            angle_tolerance_deg: params.angle_tol_deg,
+            min_length: params.min_len,
+            enforce_polarity: params.enforce_polarity,
+            normal_span_limit_px: params.normal_span_limit,
         }
     }
 }

@@ -1,5 +1,4 @@
 use super::edge::PyramidConfig;
-use super::lsd_vp::{EngineParameters, VpEngineConfig};
 use super::segments::LsdConfig;
 use crate::detector::params::{
     BundlingParams, BundlingScaleMode, LsdVpParams, OutlierFilterParams,
@@ -18,8 +17,6 @@ pub struct VpOutlierDemoConfig {
     #[serde(default)]
     pub lsd: LsdConfig,
     #[serde(default)]
-    pub engine: VpEngineConfig,
-    #[serde(default)]
     pub outlier: OutlierConfig,
     #[serde(default)]
     pub bundling: BundlingConfig,
@@ -29,19 +26,9 @@ pub struct VpOutlierDemoConfig {
 }
 
 impl VpOutlierDemoConfig {
-    /// Resolve the LSD→VP engine parameters, inheriting defaults from the LSD config.
-    pub fn resolve_engine(&self) -> EngineParameters {
-        self.engine.resolve(&self.lsd)
-    }
-
     /// Convert resolved engine parameters into the detector's `LsdVpParams`.
     pub fn resolve_lsd_vp_params(&self) -> LsdVpParams {
-        let params = self.resolve_engine();
-        LsdVpParams {
-            mag_thresh: params.magnitude_threshold,
-            angle_tol_deg: params.angle_tolerance_deg,
-            min_len: params.min_length,
-        }
+        self.lsd.to_lsd_vp_params()
     }
 }
 

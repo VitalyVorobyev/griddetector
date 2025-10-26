@@ -12,11 +12,6 @@
     "limit_normal_span": false,
     "normal_span_limit_px": 2.0
   },
-  "engine": {
-    "magnitude_threshold": 0.08,
-    "angle_tolerance_deg": 18.0,
-    "min_length": 6.0
-  },
   "outlier": {
     "angle_margin_deg": 8.0,
     "residual_thresh_px": 1.5

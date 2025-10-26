@@ -12,34 +12,7 @@ pub struct LsdVpDemoConfig {
     pub pyramid: PyramidConfig,
     #[serde(default)]
     pub lsd: LsdConfig,
-    #[serde(default)]
-    pub engine: VpEngineConfig,
     pub output: LsdVpOutputConfig,
-}
-
-#[derive(Debug, Deserialize, Default)]
-#[serde(default)]
-pub struct VpEngineConfig {
-    pub magnitude_threshold: Option<f32>,
-    pub angle_tolerance_deg: Option<f32>,
-    pub min_length: Option<f32>,
-}
-
-impl VpEngineConfig {
-    pub fn resolve(&self, lsd: &LsdConfig) -> EngineParameters {
-        EngineParameters {
-            magnitude_threshold: self.magnitude_threshold.unwrap_or(lsd.magnitude_threshold),
-            angle_tolerance_deg: self.angle_tolerance_deg.unwrap_or(lsd.angle_tolerance_deg),
-            min_length: self.min_length.unwrap_or(lsd.min_length),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct EngineParameters {
-    pub magnitude_threshold: f32,
-    pub angle_tolerance_deg: f32,
-    pub min_length: f32,
 }
 
 #[derive(Debug, Deserialize)]
