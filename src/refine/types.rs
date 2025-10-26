@@ -1,4 +1,4 @@
-use crate::diagnostics::RefinementLevelDiagnostics;
+use crate::diagnostics::RefinementIteration;
 use crate::segments::bundling::Bundle;
 use nalgebra::Matrix3;
 
@@ -55,7 +55,7 @@ pub struct RefinementResult {
     /// Number of pyramid levels that contributed a valid update.
     pub levels_used: usize,
     /// Per-level diagnostics useful for visualisation and logging.
-    pub level_reports: Vec<RefinementLevelDiagnostics>,
+    pub level_reports: Vec<RefinementIteration>,
 }
 
 pub(crate) struct LevelRefinement {

@@ -30,12 +30,16 @@ def main() -> None:
         img = img[..., :3].mean(axis=2)
 
     detailed = data
-    diagnostics = detailed.get("diagnostics", {})
-    lsd = diagnostics.get("lsd", {})
-    refinement = diagnostics.get("refinement", {})
-    result = detailed.get("result", {})
+    diagnostics = detailed.get("diagnostics") or {}
+    lsd = diagnostics.get("lsd") or {}
+    refinement = diagnostics.get("refinement") or {}
+    result = detailed.get("result") or {}
 
-    fig, (ax_img, ax_plot) = plt.subplots(1, 2, figsize=(14, 6))
+    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
+    ax_img = axes[0, 0]
+    ax_metrics = axes[0, 1]
+    ax_timings = axes[1, 0]
+    ax_info = axes[1, 1]
 
     ax_img.imshow(img, cmap="gray", origin="upper")
     ax_img.set_title("LSD segments overlay")
@@ -84,16 +88,16 @@ def main() -> None:
             for level in levels
         ]
 
-        ax_plot.plot(idx, improvements, marker="o", label="relative update")
-        ax_plot.plot(idx, confidences, marker="s", label="confidence")
-        ax_plot.plot(idx, inliers, marker="^", label="inlier ratio")
-        ax_plot.set_xlabel("Pyramid level (coarse → fine index)")
-        ax_plot.set_ylabel("Metric value")
-        ax_plot.set_title("Refinement metrics per level")
-        ax_plot.grid(True, linestyle="--", alpha=0.3)
-        ax_plot.legend(loc="best")
+        ax_metrics.plot(idx, improvements, marker="o", label="relative update")
+        ax_metrics.plot(idx, confidences, marker="s", label="confidence")
+        ax_metrics.plot(idx, inliers, marker="^", label="inlier ratio")
+        ax_metrics.set_xlabel("Pyramid level (coarse → fine index)")
+        ax_metrics.set_ylabel("Metric value")
+        ax_metrics.set_title("Refinement metrics per level")
+        ax_metrics.grid(True, linestyle="--", alpha=0.3)
+        ax_metrics.legend(loc="best")
     else:
-        ax_plot.text(
+        ax_metrics.text(
             0.5,
             0.5,
             "No refinement metrics",
@@ -101,30 +105,116 @@ def main() -> None:
             va="center",
             fontsize=12,
         )
-        ax_plot.axis("off")
+        ax_metrics.axis("off")
 
+    # Timings bar chart.
+    timing_entries = [
+        ("pyramid", diagnostics.get("pyramid_build_ms")),
+        ("lsd", diagnostics.get("lsd_ms")),
+        ("filter", diagnostics.get("outlier_filter_ms")),
+        ("bundling", diagnostics.get("bundling_ms")),
+        ("seg_refine", diagnostics.get("segment_refine_ms")),
+        ("refine", diagnostics.get("refine_ms")),
+    ]
+    timing_entries = [(name, value) for name, value in timing_entries if value is not None]
+    if timing_entries:
+        labels, values = zip(*timing_entries)
+        ax_timings.bar(labels, values, color="tab:blue", alpha=0.7)
+        ax_timings.set_ylabel("milliseconds")
+        total_latency = diagnostics.get("total_latency_ms", 0.0)
+        ax_timings.set_title(f"Stage timings (total {total_latency:.1f} ms)")
+        ax_timings.tick_params(axis="x", rotation=30)
+        for idx_bar, value in enumerate(values):
+            ax_timings.text(
+                idx_bar,
+                value,
+                f"{value:.1f}",
+                ha="center",
+                va="bottom",
+                fontsize=9,
+            )
+    else:
+        ax_timings.text(
+            0.5,
+            0.5,
+            "No timing diagnostics",
+            ha="center",
+            va="center",
+            fontsize=12,
+        )
+    ax_timings.grid(True, axis="y", linestyle="--", alpha=0.3)
+
+    # Textual summary and counts.
+    ax_info.axis("off")
+    refine_conf = refinement.get("aggregated_confidence")
     summary_lines = [
         f"found: {result.get('found')}",
         f"confidence: {result.get('confidence', 0.0):.3f}",
+        (f"refine_conf: {refine_conf:.3f}" if refine_conf is not None else "refine_conf: n/a"),
         f"latency_ms: {result.get('latency_ms', 0.0):.3f}",
+        f"refinement_levels_used: {refinement.get('levels_used', 0)}",
+        f"refinement_passes: {diagnostics.get('refinement_passes', 0)}",
         f"segments_total: {lsd.get('segments_total', 0)}",
-        f"refinement_levels: {refinement.get('levels_used', 0)}",
+        "lsd families u/v: {}/{}".format(
+            lsd.get("family_u_count", 0), lsd.get("family_v_count", 0)
+        ),
     ]
-    diag_conf = refinement.get("aggregated_confidence")
-    if diag_conf is not None:
-        summary_lines.append(f"refine_conf: {diag_conf:.3f}")
-    ax_plot.text(
-        0.02,
-        0.98,
+
+    filter_diag = diagnostics.get("segment_filter") or {}
+    if filter_diag:
+        summary_lines.append(
+            "filter kept/rejected: {}/{}".format(
+                filter_diag.get("kept", 0), filter_diag.get("total", 0)
+            )
+        )
+        summary_lines.append(
+            "filter families u/v: {}/{}".format(
+                filter_diag.get("kept_u", 0), filter_diag.get("kept_v", 0)
+            )
+        )
+        summary_lines.append(
+            "filter thresholds: angle ≤ {:.1f}°, residual ≤ {:.2f}px".format(
+                filter_diag.get("angle_threshold_deg", 0.0),
+                filter_diag.get("residual_threshold_px", 0.0),
+            )
+        )
+
+    angles = lsd.get("dominant_angles_deg")
+    if angles:
+        summary_lines.append(
+            "dominant_angles_deg: [{:.1f}, {:.1f}]".format(angles[0], angles[1])
+        )
+
+    bundling_diag = diagnostics.get("bundling") or []
+    if bundling_diag:
+        counts = [
+            "L{}:{}".format(entry.get("level_index", i), len(entry.get("bundles", [])))
+            for i, entry in enumerate(bundling_diag)
+        ]
+        summary_lines.append("bundles per level: " + ", ".join(counts))
+
+    pyramid_levels = diagnostics.get("pyramid_levels") or []
+    if pyramid_levels:
+        dims = [
+            "L{}={}x{}".format(
+                level.get("level", i), level.get("width", 0), level.get("height", 0)
+            )
+            for i, level in enumerate(pyramid_levels)
+        ]
+        summary_lines.append("pyramid levels: " + ", ".join(dims))
+
+    ax_info.text(
+        0.0,
+        1.0,
         "\n".join(summary_lines),
-        transform=ax_plot.transAxes,
+        ha="left",
         va="top",
         fontsize=10,
-        bbox=dict(facecolor="white", alpha=0.8, edgecolor="none"),
+        bbox=dict(facecolor="white", alpha=0.85, edgecolor="none"),
     )
 
-    fig.suptitle("Grid Detector Diagnostics", fontsize=14)
-    fig.tight_layout()
+    fig.suptitle("Grid Detector Diagnostics", fontsize=16)
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
 
     if args.save:
         fig.savefig(args.save, dpi=200, bbox_inches="tight")

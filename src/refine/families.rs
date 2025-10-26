@@ -1,4 +1,4 @@
-use crate::angle::{angle_between, vp_direction};
+use crate::angle::{angle_between_dirless, vp_direction};
 use crate::segments::bundling::Bundle;
 use nalgebra::{Matrix3, Vector3};
 
@@ -32,8 +32,8 @@ pub(crate) fn split_bundles<'a>(
     let mut fam_v: Vec<&Bundle> = Vec::new();
     for bundle in bundles {
         let tangent = bundle.tangent();
-        let du = angle_between(&tangent, &dir_u);
-        let dv = angle_between(&tangent, &dir_v);
+        let du = angle_between_dirless(&tangent, &dir_u);
+        let dv = angle_between_dirless(&tangent, &dir_v);
         if du <= orientation_tol && du < dv {
             fam_u.push(bundle);
         } else if dv <= orientation_tol && dv < du {

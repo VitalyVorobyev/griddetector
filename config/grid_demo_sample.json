@@ -1,0 +1,58 @@
+{
+    "input": "data/sample_board.png",
+    "output": {
+        "format": "both",
+        "json_out": "out/grid_demo_report.json",
+        "debug_dir": "out/grid_demo_debug"
+    },
+    "grid": {
+        "pyramid_levels": 4,
+        "pyramid_blur_levels": 2,
+        "spacing_mm": 5.0,
+        "intrinsics": {
+            "fx": 1200.0,
+            "fy": 1200.0,
+            "cx": 640.0,
+            "cy": 360.0
+        },
+        "min_cells": 6,
+        "confidence_thresh": 0.35,
+        "enable_refine": true,
+        "refinement_schedule": {
+            "passes": 2,
+            "improvement_thresh": 0.0005
+        },
+        "refine": {
+            "orientation_tol_deg": 22.5,
+            "huber_delta": 1.0,
+            "max_iterations": 6,
+            "min_bundles_per_family": 4
+        },
+        "segment_refine": {
+            "delta_s": 0.75,
+            "w_perp": 3.0,
+            "delta_t": 0.5,
+            "pad": 8.0,
+            "tau_mag": 0.1,
+            "tau_ori_deg": 25.0,
+            "huber_delta": 0.25,
+            "max_iters": 3,
+            "min_inlier_frac": 0.4
+        },
+        "lsd_vp": {
+            "mag_thresh": 0.05,
+            "angle_tol_deg": 22.5,
+            "min_len": 4.0
+        },
+        "outlier_filter": {
+            "angle_margin_deg": 8.0,
+            "line_residual_thresh_px": 1.5
+        },
+        "bundling": {
+            "orientation_tol_deg": 22.5,
+            "merge_dist_px": 1.5,
+            "min_weight": 3.0,
+            "scale_mode": "full_res"
+        }
+    }
+}

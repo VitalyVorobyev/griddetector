@@ -27,11 +27,12 @@ Builds a grayscale image pyramid using a separable 5‑tap Gaussian followed by 
 ## Usage
 
 ```rust
-use grid_detector::pyramid::Pyramid;
+use grid_detector::pyramid::{Pyramid, PyramidOptions};
 use grid_detector::image::ImageU8;
 
 let gray = ImageU8 { w, h, stride: w, data: &buffer };
-let pyr = Pyramid::build_u8(gray, 4);
+let options = PyramidOptions::new(4);
+let pyr = Pyramid::build_u8(gray, options);
 // use pyr.levels.last() for coarse processing
 ```
 
@@ -43,6 +44,6 @@ let pyr = Pyramid::build_u8(gray, 4);
 
 ## Blur control
 
-- By default, blur is applied before every 2× downscale step.
-- You can limit blurring to only the first N downscale steps via configuration used by the CLI tools (`coarse_edges`, `coarse_segments`).
-- Programmatically, call `Pyramid::build_u8_with_blur_levels(gray, levels, blur_levels)` where `blur_levels` is the number of downscale steps that use blur (0 = never, `levels-1` = all).
+- By default, blur is applied before every 2× downscale step (`PyramidOptions::blur_levels = None`).
+- Limit blurring to only the first N downscale steps by setting `PyramidOptions::new(levels).with_blur_levels(Some(n))`. Use `Some(0)` to skip blur entirely.
+- CLI tools (`coarse_edges`, `coarse_segments`, `lsd_vp_demo`, `grid_demo`) expose this via their `pyramid.blur_levels` configuration entry.

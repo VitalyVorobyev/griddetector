@@ -58,9 +58,13 @@ def plot_edges(
     ax.imshow(image, cmap="gray", origin="upper")
     ax.set_xlim(0, width)
     ax.set_ylim(height, 0)
+    settings = data.get("settings", {}) if isinstance(data.get("settings"), dict) else {}
+    threshold = settings.get("magnitudeThreshold")
+    if threshold is None:
+        threshold = data.get("magnitudeThreshold")
+    thresh_text = f"{threshold}" if isinstance(threshold, (int, float)) else "n/a"
     ax.set_title(
-        f"Coarsest Level Edges\n{len(edges)} elements, "
-        f"threshold={data.get('magnitudeThreshold', 'n/a')}"
+        f"Coarsest Level Edges\n{len(edges)} elements, threshold={thresh_text}"
     )
     if len(edges) > 0:
         # ax.quiver(

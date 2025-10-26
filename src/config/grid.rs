@@ -1,70 +1,18 @@
-use crate::detector::{BundlingParams, LsdVpParams};
+use crate::detector::{
+    BundlingParams, BundlingScaleMode, LsdVpParams, OutlierFilterParams, RefinementSchedule,
+};
 use crate::refine::segment::RefineParams as SegmentRefineParams;
 use crate::refine::RefineParams;
 use crate::GridParams;
 use nalgebra::Matrix3;
-use serde::de::Error as DeError;
-use serde::{Deserialize, Deserializer};
-use std::env;
+use serde::Deserialize;
 use std::fs;
-use std::path::PathBuf;
-use std::str::FromStr;
+use std::path::{Path, PathBuf};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum OutputFormat {
-    Text,
-    Json,
-    Both,
-}
-
-impl OutputFormat {
-    pub fn includes_text(&self) -> bool {
-        matches!(self, Self::Text | Self::Both)
-    }
-
-    pub fn includes_json(&self) -> bool {
-        matches!(self, Self::Json | Self::Both)
-    }
-}
-
-impl FromStr for OutputFormat {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "text" => Ok(Self::Text),
-            "json" => Ok(Self::Json),
-            "both" => Ok(Self::Both),
-            other => Err(format!("Unknown format '{other}'. Use text|json|both.")),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for OutputFormat {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        s.parse().map_err(DeError::custom)
-    }
-}
-
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct OutputConfig {
-    pub format: OutputFormat,
     pub json_out: Option<PathBuf>,
     pub debug_dir: Option<PathBuf>,
-}
-
-impl Default for OutputConfig {
-    fn default() -> Self {
-        Self {
-            format: OutputFormat::Json,
-            json_out: None,
-            debug_dir: None,
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -74,132 +22,30 @@ pub struct RuntimeConfig {
     pub grid_params: GridParams,
 }
 
-pub fn parse_cli(program: &str) -> Result<RuntimeConfig, String> {
-    parse_args(program)
-}
+pub fn load_config(path: &Path) -> Result<RuntimeConfig, String> {
+    let contents = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read config {}: {e}", path.display()))?;
+    let file_config: FileConfig = serde_json::from_str(&contents)
+        .map_err(|e| format!("Failed to parse config {}: {e}", path.display()))?;
 
-pub fn usage(program: &str) -> String {
-    format!(
-        "Usage: {program} <image.png> [--config config.json] [--format text|json|both] [--json-out report.json] \\\n         [--save-debug dir] [--spacing-mm mm] [--intrinsics fx,fy,cx,cy]\n\n\
-Runs the grid detector on a grayscale PNG image and emits diagnostics.\n\
-Examples:\n  {program} data/sample.png --format both --json-out sample_report.json\n  {program} board.png --config cfg.json --format text\n"
-    )
-}
-
-fn parse_args(program: &str) -> Result<RuntimeConfig, String> {
-    let mut args = env::args().skip(1).peekable();
-    let mut input_override: Option<PathBuf> = None;
-    let mut format_override: Option<OutputFormat> = None;
-    let mut json_out_override: Option<PathBuf> = None;
-    let mut debug_dir_override: Option<PathBuf> = None;
-    let mut spacing_override: Option<f32> = None;
-    let mut intrinsics_override: Option<Matrix3<f32>> = None;
-    let mut config_path: Option<PathBuf> = None;
-
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--help" | "-h" => {
-                println!("{}", usage(program));
-                std::process::exit(0);
-            }
-            "--config" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| format!("--config expects a path\n{}", usage(program)))?;
-                config_path = Some(PathBuf::from(value));
-            }
-            "--format" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| format!("--format expects a value\n{}", usage(program)))?;
-                format_override = Some(value.parse()?);
-            }
-            "--json-out" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| format!("--json-out expects a path\n{}", usage(program)))?;
-                json_out_override = Some(PathBuf::from(value));
-            }
-            "--save-debug" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| format!("--save-debug expects a path\n{}", usage(program)))?;
-                debug_dir_override = Some(PathBuf::from(value));
-            }
-            "--spacing-mm" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| format!("--spacing-mm expects a value\n{}", usage(program)))?;
-                let parsed: f32 = value
-                    .parse()
-                    .map_err(|_| format!("Invalid spacing '{value}'"))?;
-                spacing_override = Some(parsed);
-            }
-            "--intrinsics" => {
-                let value = args.next().ok_or_else(|| {
-                    format!("--intrinsics expects fx,fy,cx,cy\n{}", usage(program))
-                })?;
-                intrinsics_override = Some(parse_intrinsics(&value)?);
-            }
-            _ if arg.starts_with('-') => {
-                return Err(format!("Unknown option '{arg}'\n{}", usage(program)));
-            }
-            _ => {
-                if input_override.is_some() {
-                    return Err(format!(
-                        "Unexpected positional argument '{arg}'\n{}",
-                        usage(program)
-                    ));
-                }
-                input_override = Some(PathBuf::from(arg));
-            }
-        }
-    }
-
-    let file_config = if let Some(path) = config_path {
-        let contents = fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read config {}: {e}", path.display()))?;
-        serde_json::from_str::<FileConfig>(&contents)
-            .map_err(|e| format!("Failed to parse config {}: {e}", path.display()))?
-    } else {
-        FileConfig::default()
-    };
-
-    let input_path = input_override
-        .or_else(|| file_config.input.clone())
-        .ok_or_else(|| usage(program))?;
+    let input_path = file_config
+        .input
+        .clone()
+        .ok_or_else(|| format!("Config {} missing 'input' field", path.display()))?;
 
     let mut output = OutputConfig::default();
     if let Some(ref file_output) = file_config.output {
-        if let Some(format) = file_output.format {
-            output.format = format;
-        }
-        if let Some(ref path) = file_output.json_out {
-            output.json_out = Some(path.clone());
+        if let Some(ref json) = file_output.json_out {
+            output.json_out = Some(json.clone());
         }
         if let Some(ref dir) = file_output.debug_dir {
             output.debug_dir = Some(dir.clone());
         }
     }
-    if let Some(format) = format_override {
-        output.format = format;
-    }
-    if let Some(path) = json_out_override {
-        output.json_out = Some(path);
-    }
-    if let Some(dir) = debug_dir_override {
-        output.debug_dir = Some(dir);
-    }
 
     let mut grid_params = GridParams::default();
     if let Some(ref grid_cfg) = file_config.grid {
         apply_grid_file_config(&mut grid_params, grid_cfg);
-    }
-    if let Some(spacing) = spacing_override {
-        grid_params.spacing_mm = spacing;
-    }
-    if let Some(intrinsics) = intrinsics_override {
-        grid_params.kmtx = intrinsics;
     }
 
     Ok(RuntimeConfig {
@@ -220,7 +66,6 @@ struct FileConfig {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 struct FileOutputConfig {
-    format: Option<OutputFormat>,
     json_out: Option<PathBuf>,
     #[serde(rename = "debug_dir")]
     debug_dir: Option<PathBuf>,
@@ -230,15 +75,18 @@ struct FileOutputConfig {
 #[serde(default)]
 struct FileGridConfig {
     pyramid_levels: Option<usize>,
+    pyramid_blur_levels: Option<Option<usize>>,
     spacing_mm: Option<f32>,
     intrinsics: Option<IntrinsicsConfig>,
     min_cells: Option<i32>,
     confidence_thresh: Option<f32>,
     enable_refine: Option<bool>,
     refine: Option<FileRefineConfig>,
+    refinement_schedule: Option<FileRefinementScheduleConfig>,
     segment_refine: Option<FileSegmentRefineConfig>,
     lsd_vp: Option<FileLsdVpConfig>,
     bundling: Option<FileBundlingConfig>,
+    outlier_filter: Option<FileOutlierFilterConfig>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -248,6 +96,13 @@ struct FileRefineConfig {
     huber_delta: Option<f32>,
     max_iterations: Option<usize>,
     min_bundles_per_family: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+struct FileRefinementScheduleConfig {
+    passes: Option<usize>,
+    improvement_thresh: Option<f32>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -278,6 +133,14 @@ struct FileBundlingConfig {
     orientation_tol_deg: Option<f32>,
     merge_dist_px: Option<f32>,
     min_weight: Option<f32>,
+    scale_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+struct FileOutlierFilterConfig {
+    angle_margin_deg: Option<f32>,
+    line_residual_thresh_px: Option<f32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -304,6 +167,9 @@ fn apply_grid_file_config(params: &mut GridParams, cfg: &FileGridConfig) {
     if let Some(levels) = cfg.pyramid_levels {
         params.pyramid_levels = levels;
     }
+    if let Some(blur) = cfg.pyramid_blur_levels {
+        params.pyramid_blur_levels = blur;
+    }
     if let Some(spacing) = cfg.spacing_mm {
         params.spacing_mm = spacing;
     }
@@ -322,6 +188,9 @@ fn apply_grid_file_config(params: &mut GridParams, cfg: &FileGridConfig) {
     if let Some(ref refine_cfg) = cfg.refine {
         apply_refine_file_config(&mut params.refine_params, refine_cfg);
     }
+    if let Some(ref schedule_cfg) = cfg.refinement_schedule {
+        apply_refinement_schedule_config(&mut params.refinement_schedule, schedule_cfg);
+    }
     if let Some(ref seg_cfg) = cfg.segment_refine {
         apply_segment_refine_file_config(&mut params.segment_refine_params, seg_cfg);
     }
@@ -330,6 +199,9 @@ fn apply_grid_file_config(params: &mut GridParams, cfg: &FileGridConfig) {
     }
     if let Some(ref bundling_cfg) = cfg.bundling {
         apply_bundling_file_config(&mut params.bundling_params, bundling_cfg);
+    }
+    if let Some(ref outlier_cfg) = cfg.outlier_filter {
+        apply_outlier_filter_config(&mut params.outlier_filter, outlier_cfg);
     }
 }
 
@@ -345,6 +217,18 @@ fn apply_refine_file_config(params: &mut RefineParams, cfg: &FileRefineConfig) {
     }
     if let Some(v) = cfg.min_bundles_per_family {
         params.min_bundles_per_family = v;
+    }
+}
+
+fn apply_refinement_schedule_config(
+    params: &mut RefinementSchedule,
+    cfg: &FileRefinementScheduleConfig,
+) {
+    if let Some(v) = cfg.passes {
+        params.passes = v.max(1);
+    }
+    if let Some(v) = cfg.improvement_thresh {
+        params.improvement_thresh = v.max(0.0);
     }
 }
 
@@ -403,28 +287,28 @@ fn apply_bundling_file_config(params: &mut BundlingParams, cfg: &FileBundlingCon
     if let Some(v) = cfg.min_weight {
         params.min_weight = v;
     }
+    if let Some(ref mode) = cfg.scale_mode {
+        if let Some(parsed) = parse_bundling_scale_mode(mode) {
+            params.scale_mode = parsed;
+        }
+    }
 }
 
-fn parse_intrinsics(value: &str) -> Result<Matrix3<f32>, String> {
-    let parts: Vec<&str> = value.split(',').collect();
-    if parts.len() != 4 {
-        return Err(format!("Expected fx,fy,cx,cy but got '{value}'"));
+fn apply_outlier_filter_config(params: &mut OutlierFilterParams, cfg: &FileOutlierFilterConfig) {
+    if let Some(v) = cfg.angle_margin_deg {
+        params.angle_margin_deg = v;
     }
-    let fx: f32 = parts[0]
-        .trim()
-        .parse()
-        .map_err(|_| format!("Invalid fx '{}'", parts[0]))?;
-    let fy: f32 = parts[1]
-        .trim()
-        .parse()
-        .map_err(|_| format!("Invalid fy '{}'", parts[1]))?;
-    let cx: f32 = parts[2]
-        .trim()
-        .parse()
-        .map_err(|_| format!("Invalid cx '{}'", parts[2]))?;
-    let cy: f32 = parts[3]
-        .trim()
-        .parse()
-        .map_err(|_| format!("Invalid cy '{}'", parts[3]))?;
-    Ok(Matrix3::new(fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0))
+    if let Some(v) = cfg.line_residual_thresh_px {
+        params.line_residual_thresh_px = v.max(0.0);
+    }
+}
+
+fn parse_bundling_scale_mode(value: &str) -> Option<BundlingScaleMode> {
+    match value.to_ascii_lowercase().as_str() {
+        "fixed" | "fixed_pixel" | "fixed_px" => Some(BundlingScaleMode::FixedPixel),
+        "full_res" | "full" | "fullres" | "full_resolution" => {
+            Some(BundlingScaleMode::FullResInvariant)
+        }
+        _ => None,
+    }
 }

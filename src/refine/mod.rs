@@ -22,4 +22,5 @@ mod irls;
 pub mod segment;
 mod types;
 
+pub(crate) use families::split_bundles;
 pub use homography::{RefineLevel, RefineParams, RefinementResult, Refiner};

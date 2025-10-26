@@ -12,6 +12,16 @@ coarse hypotheses:
 The detector typically alternates between these passes per level: refine the
 segments, rebuild bundles, then update the homography.
 
+- **Segment filtering** – Before entering refinement, the detector rejects
+  coarse segments whose orientation deviates too far from the initial
+  vanishing-point directions or whose lines miss the corresponding vanishing
+  points by more than a configurable residual. This keeps the IRLS stage
+  better conditioned and surfaces useful diagnostics.
+- **Refinement schedule** – Multiple IRLS passes can be attempted when the
+  Frobenius improvement exceeds a configurable threshold. Each pass reuses the
+  previously bundled constraints, enabling a light-weight consistency check
+  without rebuilding the entire pyramid.
+
 ### Segment Refinement (`segment`)
 
 - **Inputs**: gradient buffers for level `l`, a coarse segment from level

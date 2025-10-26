@@ -2,7 +2,7 @@ mod common;
 
 use common::synthetic_image::checkerboard_u8;
 use grid_detector::lsd_vp::Engine as LsdVpEngine;
-use grid_detector::pyramid::Pyramid;
+use grid_detector::pyramid::{Pyramid, PyramidOptions};
 use grid_detector::refine::{RefineLevel, RefineParams, Refiner};
 use grid_detector::segments::{bundle_segments, Bundle};
 use nalgebra::Matrix3;
@@ -42,7 +42,7 @@ fn refiner_improves_checkerboard_hypothesis() {
         data: &buffer,
     };
 
-    let pyramid = Pyramid::build_u8(image, 3);
+    let pyramid = Pyramid::build_u8(image, PyramidOptions::new(3));
     let coarsest = pyramid
         .levels
         .last()

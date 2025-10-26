@@ -10,7 +10,7 @@ use super::families::{self, FamilyBuckets};
 use super::irls;
 use super::types::LevelRefinement;
 use super::EPS;
-use crate::diagnostics::RefinementLevelDiagnostics;
+use crate::diagnostics::RefinementIteration;
 use nalgebra::Matrix3;
 
 pub use super::types::{RefineLevel, RefineParams, RefinementResult};
@@ -58,12 +58,12 @@ impl Refiner {
         let mut accumulated_conf = 0.0f32;
         let mut accumulated_weight = 0.0f32;
         let mut total_levels = 0usize;
-        let mut level_reports: Vec<RefinementLevelDiagnostics> = Vec::new();
+        let mut level_reports: Vec<RefinementIteration> = Vec::new();
 
         let orientation_tol = self.params.orientation_tol_deg.to_radians();
         for level in levels.iter().rev() {
             total_levels += 1;
-            let mut level_diag = RefinementLevelDiagnostics {
+            let mut level_diag = RefinementIteration {
                 level_index: level.level_index,
                 width: level.width,
                 height: level.height,
