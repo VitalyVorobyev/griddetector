@@ -58,6 +58,13 @@ segment families and the estimated projective basis):
 cargo run --release --bin lsd_vp_demo config/lsd_vp_demo_sample.json
 ```
 
+VP outlier classification and single-level refinement demo (produces per-segment labels,
+coarse/refined models, and timing metrics):
+
+```sh
+cargo run --release --bin vp_outlier_demo config/vp_outlier_demo_sample.json
+```
+
 Dump intermediate artifacts (pyramid levels, diagnostics, bundles) for debugging:
 
 ```sh
@@ -71,6 +78,15 @@ python tools/plot_lsd_vp.py \
     --image out/lsd_vp_coarsest.png \
     --result out/lsd_vp_result.json \
     --save out/lsd_vp_overlay.png
+```
+
+Visualize VP outlier demo output (requires `matplotlib`, `numpy`, `Pillow`):
+
+```sh
+python tools/plot_vp_outlier_demo.py \
+    --image out/vp_outlier_demo/coarsest.png \
+    --result out/vp_outlier_demo/result.json \
+    --save out/vp_outlier_demo/overlay.png
 ```
 
 LSD options in `config/coarse_segments.json`:
@@ -161,7 +177,7 @@ Tips:
 - LSD→VP: [doc/lsd_vp.md](doc/lsd_vp.md)
 - Refinement: [doc/refine.md](doc/refine.md)
 - Roadmap: [doc/roadmap.md](doc/roadmap.md)
-- Tools: `tools/plot_coarse_edges.py`, `tools/plot_coarse_segments.py`, `tools/plot_lsd_vp.py`
+- Tools: `tools/plot_coarse_edges.py`, `tools/plot_coarse_segments.py`, `tools/plot_lsd_vp.py`, `tools/plot_vp_outlier_demo.py`
 
 ## Roadmap
 

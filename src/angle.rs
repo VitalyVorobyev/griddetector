@@ -2,6 +2,9 @@
 use log::warn;
 use nalgebra::Vector3;
 
+/// Small epsilon used to detect vanishing points at infinity (homogeneous z≈0).
+pub const VP_EPS: f32 = 1e-3;
+
 /// Normalizes an angle into the range [0, π).
 #[inline]
 pub fn normalize_half_pi(angle: f32) -> f32 {
@@ -42,6 +45,20 @@ pub fn angle_between(a: &[f32; 2], b: &[f32; 2]) -> f32 {
     (dot / (na * nb)).clamp(-1.0, 1.0).acos()
 }
 
+/// Computes the orientation difference between two 2D vectors while treating
+/// antipodal directions as equivalent. Returns a value in [0, π/2].
+///
+/// This is appropriate when comparing line tangents or vanishing directions
+/// where the sign of the direction is not meaningful.
+#[inline]
+pub fn angle_between_dirless(a: &[f32; 2], b: &[f32; 2]) -> f32 {
+    let dot = a[0] * b[0] + a[1] * b[1];
+    let na = (a[0] * a[0] + a[1] * a[1]).sqrt().max(1e-6);
+    let nb = (b[0] * b[0] + b[1] * b[1]).sqrt().max(1e-6);
+    let cos = (dot / (na * nb)).abs().clamp(-1.0, 1.0);
+    cos.acos()
+}
+
 /// Computes a unit direction in image space from the translation anchor
 /// towards the vanishing point. For VPs at infinity (vp.z≈0), returns the
 /// normalized direction encoded by `(vp.x, vp.y, 0)`.
@@ -49,7 +66,7 @@ pub fn angle_between(a: &[f32; 2], b: &[f32; 2]) -> f32 {
 /// Returns `None` if the direction cannot be determined (degenerate inputs).
 #[inline]
 pub fn vp_direction(vp: &Vector3<f32>, anchor: &Vector3<f32>) -> Option<[f32; 2]> {
-    if vp[2].abs() <= 1e-3 {
+    if vp[2].abs() <= VP_EPS {
         let norm = (vp[0] * vp[0] + vp[1] * vp[1]).sqrt();
         if norm <= 1e-6 {
             warn!("Degenerate vanishing point at infinity encountered");

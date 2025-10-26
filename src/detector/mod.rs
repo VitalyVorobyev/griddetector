@@ -31,7 +31,7 @@
 //!
 //! See `README.md` for a gentle overview and `doc/*.md` for deep dives.
 
-mod outliers;
+pub mod outliers;
 pub mod params;
 mod pipeline;
 mod scaling;

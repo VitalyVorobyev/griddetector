@@ -26,3 +26,4 @@ config/coarse_segments.json
 config/lsd_vp_demo.json
 config/segment_refine_demo.json
 config/grid_demo.json
+config/vp_outlier_demo.json

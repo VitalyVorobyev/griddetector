@@ -1,0 +1,41 @@
+{
+  "input": "data/sample.png",
+  "pyramid": {
+    "levels": 4,
+    "blur_levels": null
+  },
+  "lsd": {
+    "magnitude_threshold": 0.1,
+    "angle_tolerance_deg": 12.0,
+    "min_length": 8.0,
+    "enforce_polarity": false,
+    "limit_normal_span": false,
+    "normal_span_limit_px": 2.0
+  },
+  "engine": {
+    "magnitude_threshold": 0.08,
+    "angle_tolerance_deg": 18.0,
+    "min_length": 6.0
+  },
+  "outlier": {
+    "angle_margin_deg": 8.0,
+    "residual_thresh_px": 1.5
+  },
+  "bundling": {
+    "orientation_tol_deg": 22.5,
+    "merge_dist_px": 1.5,
+    "min_weight": 3.0,
+    "full_res_invariant": false
+  },
+  "refine": {
+    "orientation_tol_deg": 22.5,
+    "huber_delta": 1.0,
+    "max_iterations": 6,
+    "min_bundles_per_family": 4
+  },
+  "output": {
+    "dir": "out/vp_outlier_demo",
+    "coarsest_image": "coarsest.png",
+    "result_json": "result.json"
+  }
+}
