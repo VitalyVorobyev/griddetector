@@ -35,7 +35,7 @@ use crate::diagnostics::{
 };
 use crate::image::{ImageU8, ImageView};
 use crate::lsd_vp::{DetailedInference, Engine as LsdVpEngine};
-use crate::pyramid::Pyramid;
+use crate::pyramid::{Pyramid, PyramidOptions};
 use crate::refine::segment::{
     self, PyramidLevel as SegmentGradientLevel, RefineParams as SegmentRefineParams,
     Segment as SegmentSeed,
@@ -102,12 +102,13 @@ impl GridDetector {
         let total_start = Instant::now();
 
         let pyr_start = Instant::now();
-        let pyramid = match self.params.pyramid_blur_levels {
+        let pyramid_opts = match self.params.pyramid_blur_levels {
             Some(blur_levels) => {
-                Pyramid::build_u8_with_blur_levels(gray, self.params.pyramid_levels, blur_levels)
+                PyramidOptions::new(self.params.pyramid_levels).with_blur_levels(Some(blur_levels))
             }
-            None => Pyramid::build_u8(gray, self.params.pyramid_levels),
+            None => PyramidOptions::new(self.params.pyramid_levels),
         };
+        let pyramid = Pyramid::build_u8(gray, pyramid_opts);
         let pyr_ms = pyr_start.elapsed().as_secs_f64() * 1000.0;
 
         let pyramid_levels_diag = pyramid
@@ -160,15 +161,26 @@ impl GridDetector {
                 lsd_diag = Some(diagnostics);
 
                 let filter_start = Instant::now();
-                let (kept, diag) = filter_segments(
+                let original_segments = segments.clone();
+                let (kept, mut diag) = filter_segments(
                     segments,
                     &hmtx0,
                     &self.params.outlier_filter,
                     &self.params.lsd_vp_params,
                 );
                 outlier_filter_ms = filter_start.elapsed().as_secs_f64() * 1000.0;
-                filter_diag = Some(diag);
-                filtered_segments = kept;
+                if diag.total > 0 && kept.is_empty() {
+                    debug!(
+                        "GridDetector::process segment filter rejected all {} segments -> fallback to unfiltered set",
+                        diag.total
+                    );
+                    filtered_segments = original_segments;
+                    filter_diag = None;
+                } else {
+                    diag.kept = kept.len();
+                    filtered_segments = kept;
+                    filter_diag = Some(diag);
+                }
             } else {
                 debug!("GridDetector::process LSD→VP engine returned no hypothesis");
             }
@@ -240,11 +252,13 @@ impl GridDetector {
                         let improvement = frobenius_improvement(&current_h, &refine_res.h_refined);
                         current_h = refine_res.h_refined;
                         hmtx = current_h;
-                        confidence = combine_confidence(
-                            confidence,
+                        let base_conf = confidence;
+                        let combined = combine_confidence(
+                            base_conf,
                             refine_res.confidence,
                             refine_res.inlier_ratio,
                         );
+                        confidence = combined.max(base_conf);
                         if passes >= schedule.passes || improvement < schedule.improvement_thresh {
                             break;
                         }

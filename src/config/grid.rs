@@ -5,56 +5,13 @@ use crate::refine::segment::RefineParams as SegmentRefineParams;
 use crate::refine::RefineParams;
 use crate::GridParams;
 use nalgebra::Matrix3;
-use serde::de::Error as DeError;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use std::str::FromStr;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum OutputFormat {
-    Text,
-    Json,
-    Both,
-}
-
-impl OutputFormat {
-    pub fn includes_text(&self) -> bool {
-        matches!(self, Self::Text | Self::Both)
-    }
-
-    pub fn includes_json(&self) -> bool {
-        matches!(self, Self::Json | Self::Both)
-    }
-}
-
-impl FromStr for OutputFormat {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "text" => Ok(Self::Text),
-            "json" => Ok(Self::Json),
-            "both" => Ok(Self::Both),
-            other => Err(format!("Unknown format '{other}'. Use text|json|both.")),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for OutputFormat {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        s.parse().map_err(DeError::custom)
-    }
-}
 
 #[derive(Clone)]
 pub struct OutputConfig {
-    pub format: OutputFormat,
     pub json_out: Option<PathBuf>,
     pub debug_dir: Option<PathBuf>,
 }
@@ -62,7 +19,6 @@ pub struct OutputConfig {
 impl Default for OutputConfig {
     fn default() -> Self {
         Self {
-            format: OutputFormat::Json,
             json_out: None,
             debug_dir: None,
         }
@@ -91,7 +47,6 @@ Examples:\n  {program} data/sample.png --format both --json-out sample_report.js
 fn parse_args(program: &str) -> Result<RuntimeConfig, String> {
     let mut args = env::args().skip(1).peekable();
     let mut input_override: Option<PathBuf> = None;
-    let mut format_override: Option<OutputFormat> = None;
     let mut json_out_override: Option<PathBuf> = None;
     let mut debug_dir_override: Option<PathBuf> = None;
     let mut spacing_override: Option<f32> = None;
@@ -109,12 +64,6 @@ fn parse_args(program: &str) -> Result<RuntimeConfig, String> {
                     .next()
                     .ok_or_else(|| format!("--config expects a path\n{}", usage(program)))?;
                 config_path = Some(PathBuf::from(value));
-            }
-            "--format" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| format!("--format expects a value\n{}", usage(program)))?;
-                format_override = Some(value.parse()?);
             }
             "--json-out" => {
                 let value = args
@@ -173,18 +122,12 @@ fn parse_args(program: &str) -> Result<RuntimeConfig, String> {
 
     let mut output = OutputConfig::default();
     if let Some(ref file_output) = file_config.output {
-        if let Some(format) = file_output.format {
-            output.format = format;
-        }
         if let Some(ref path) = file_output.json_out {
             output.json_out = Some(path.clone());
         }
         if let Some(ref dir) = file_output.debug_dir {
             output.debug_dir = Some(dir.clone());
         }
-    }
-    if let Some(format) = format_override {
-        output.format = format;
     }
     if let Some(path) = json_out_override {
         output.json_out = Some(path);
@@ -222,7 +165,6 @@ struct FileConfig {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 struct FileOutputConfig {
-    format: Option<OutputFormat>,
     json_out: Option<PathBuf>,
     #[serde(rename = "debug_dir")]
     debug_dir: Option<PathBuf>,

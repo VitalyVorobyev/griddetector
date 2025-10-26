@@ -2,7 +2,7 @@ use grid_detector::config::lsd_vp::{self, EngineParameters};
 use grid_detector::config::segments::LsdConfig;
 use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
 use grid_detector::lsd_vp::{Engine, FamilyLabel};
-use grid_detector::pyramid::Pyramid;
+use grid_detector::pyramid::{Pyramid, PyramidOptions};
 use grid_detector::segments::{lsd_extract_segments_with_options, LsdOptions, Segment};
 use serde::Serialize;
 use std::env;
@@ -21,12 +21,13 @@ fn run() -> Result<(), String> {
 
     let gray = load_grayscale_image(&config.input)?;
     let levels = config.pyramid.levels.max(1);
-    let pyramid = if let Some(blur_levels_cfg) = config.pyramid.blur_levels {
+    let pyramid_opts = if let Some(blur_levels_cfg) = config.pyramid.blur_levels {
         let blur_levels = blur_levels_cfg.min(levels.saturating_sub(1));
-        Pyramid::build_u8_with_blur_levels(gray.as_view(), levels, blur_levels)
+        PyramidOptions::new(levels).with_blur_levels(Some(blur_levels))
     } else {
-        Pyramid::build_u8(gray.as_view(), levels)
+        PyramidOptions::new(levels)
     };
+    let pyramid = Pyramid::build_u8(gray.as_view(), pyramid_opts);
     let coarsest_index = pyramid
         .levels
         .len()

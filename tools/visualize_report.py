@@ -30,10 +30,10 @@ def main() -> None:
         img = img[..., :3].mean(axis=2)
 
     detailed = data
-    diagnostics = detailed.get("diagnostics", {})
-    lsd = diagnostics.get("lsd", {})
-    refinement = diagnostics.get("refinement", {})
-    result = detailed.get("result", {})
+    diagnostics = detailed.get("diagnostics") or {}
+    lsd = diagnostics.get("lsd") or {}
+    refinement = diagnostics.get("refinement") or {}
+    result = detailed.get("result") or {}
 
     fig, axes = plt.subplots(2, 2, figsize=(16, 10))
     ax_img = axes[0, 0]

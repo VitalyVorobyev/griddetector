@@ -17,7 +17,7 @@ use grid_detector::config::segments::LsdConfig;
 use grid_detector::edges::grad::{sobel_gradients, Grad};
 use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
 use grid_detector::image::ImageView;
-use grid_detector::pyramid::Pyramid;
+use grid_detector::pyramid::{Pyramid, PyramidOptions};
 use grid_detector::refine::segment::{self, ScaleMap, Segment as RefineSegment};
 use grid_detector::segments::Segment as LsdSegment;
 use grid_detector::segments::{lsd_extract_segments_with_options, LsdOptions};
@@ -48,12 +48,13 @@ fn run() -> Result<(), String> {
 
     let levels = config.pyramid.levels.max(1);
     let pyr_start = Instant::now();
-    let pyramid = if let Some(blur_levels_cfg) = config.pyramid.blur_levels {
+    let pyramid_opts = if let Some(blur_levels_cfg) = config.pyramid.blur_levels {
         let blur_levels = blur_levels_cfg.min(levels.saturating_sub(1));
-        Pyramid::build_u8_with_blur_levels(gray.as_view(), levels, blur_levels)
+        PyramidOptions::new(levels).with_blur_levels(Some(blur_levels))
     } else {
-        Pyramid::build_u8(gray.as_view(), levels)
+        PyramidOptions::new(levels)
     };
+    let pyramid = Pyramid::build_u8(gray.as_view(), pyramid_opts);
     let pyramid_ms = pyr_start.elapsed().as_secs_f32() * 1000.0;
     save_pyramid_images(&pyramid, &config.output.dir)?;
 
