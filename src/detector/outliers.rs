@@ -109,17 +109,16 @@ pub fn classify_segments_with_details(
         return (decisions, diag);
     }
 
+    let ctx = ClassificationContext {
+        vpu: &vpu,
+        vpv: &vpv,
+        dir_u,
+        dir_v,
+        angle_thresh_rad,
+        residual_thresh_px: filter_params.line_residual_thresh_px,
+    };
     for (i, seg) in segments.iter().enumerate() {
-        decisions.push(classify_one(
-            i,
-            seg,
-            &vpu,
-            &vpv,
-            dir_u,
-            dir_v,
-            angle_thresh_rad,
-            filter_params.line_residual_thresh_px,
-        ));
+        decisions.push(classify_one(i, seg, &ctx));
     }
 
     let diag = aggregate_diagnostics(
@@ -130,21 +129,21 @@ pub fn classify_segments_with_details(
     (decisions, diag)
 }
 
-fn classify_one(
-    index: usize,
-    seg: &Segment,
-    vpu: &nalgebra::Vector3<f32>,
-    vpv: &nalgebra::Vector3<f32>,
+struct ClassificationContext<'a> {
+    vpu: &'a nalgebra::Vector3<f32>,
+    vpv: &'a nalgebra::Vector3<f32>,
     dir_u: Option<[f32; 2]>,
     dir_v: Option<[f32; 2]>,
     angle_thresh_rad: f32,
     residual_thresh_px: f32,
-) -> SegmentDecision {
+}
+
+fn classify_one(index: usize, seg: &Segment, ctx: &ClassificationContext<'_>) -> SegmentDecision {
     let tangent = seg.dir;
 
     // Compare orientation with direction-invariant angle.
-    let du = dir_u.map(|d| angle_between_dirless(&tangent, &d));
-    let dv = dir_v.map(|d| angle_between_dirless(&tangent, &d));
+    let du = ctx.dir_u.map(|d| angle_between_dirless(&tangent, &d));
+    let dv = ctx.dir_v.map(|d| angle_between_dirless(&tangent, &d));
 
     let (family, angle_opt) = match (du, dv) {
         (Some(a), Some(b)) => {
@@ -171,7 +170,7 @@ fn classify_one(
     }
 
     let angle = angle_opt.unwrap();
-    if angle > angle_thresh_rad {
+    if angle > ctx.angle_thresh_rad {
         return SegmentDecision {
             index,
             family,
@@ -183,11 +182,11 @@ fn classify_one(
     }
 
     let vp = match family.unwrap() {
-        FamilyLabel::U => vpu,
-        FamilyLabel::V => vpv,
+        FamilyLabel::U => ctx.vpu,
+        FamilyLabel::V => ctx.vpv,
     };
     let (residual_px, ok) = residual_to_vp_px(seg, vp)
-        .map(|r| (Some(r), r <= residual_thresh_px))
+        .map(|r| (Some(r), r <= ctx.residual_thresh_px))
         .unwrap_or((None, true));
 
     if !ok {

@@ -74,12 +74,13 @@ fn save_coarsest_level(config: &VpOutlierDemoConfig, pyramid: &Pyramid) -> Resul
 }
 
 fn grid_params_from_config(config: &VpOutlierDemoConfig, levels: usize) -> GridParams {
-    let mut params = GridParams::default();
-    params.pyramid_levels = levels;
-    params.pyramid_blur_levels = config.pyramid.blur_levels;
-    params.lsd_vp_params = config.resolve_lsd_vp_params();
-    params.outlier_filter = config.outlier.resolve();
-    params.bundling_params = config.bundling.resolve();
-    params.refine_params = config.refine.resolve();
-    params
+    GridParams {
+        pyramid_levels: levels,
+        pyramid_blur_levels: config.pyramid.blur_levels,
+        lsd_vp_params: config.resolve_lsd_vp_params(),
+        outlier_filter: config.outlier.resolve(),
+        bundling_params: config.bundling.resolve(),
+        refine_params: config.refine.resolve(),
+        ..GridParams::default()
+    }
 }

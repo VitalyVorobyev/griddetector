@@ -162,8 +162,8 @@ impl GridDetector {
             elapsed_ms: lsd_ms,
         } = self.run_lsd_on_coarsest(&pyramid, width, height);
 
-        let initial_h_full = full_h.clone();
-        let coarse_h_matrix = full_h.clone();
+        let initial_h_full = full_h;
+        let coarse_h_matrix = full_h;
 
         if let Some(stage) = lsd_stage.as_mut() {
             stage.elapsed_ms = lsd_ms;
@@ -642,7 +642,7 @@ impl GridDetector {
             .unwrap_or(0.0);
 
         let hmtx = full_h.unwrap_or_else(Matrix3::identity);
-        let coarse_h_matrix = full_h.clone();
+        let coarse_h_matrix = full_h;
 
         if hmtx != Matrix3::identity() {
             self.last_hmtx = Some(hmtx);
@@ -793,9 +793,7 @@ impl GridDetector {
         if bundles.is_empty() {
             return None;
         }
-        let Some(h_inv) = h.try_inverse() else {
-            return None;
-        };
+        let h_inv = h.try_inverse()?;
         let h_inv_t = h_inv.transpose();
         let orientation_tol = self.params.refine_params.orientation_tol_deg.to_radians();
         let buckets = crate::refine::split_bundles(h, bundles, orientation_tol)?;
