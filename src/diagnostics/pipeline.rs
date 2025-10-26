@@ -3,6 +3,7 @@ use crate::diagnostics::{
     SegmentDescriptor, TimingBreakdown,
 };
 use crate::types::{GridResult, Pose};
+use nalgebra::Matrix3;
 use serde::Serialize;
 
 /// Result produced by [`GridDetector::process_with_diagnostics`](crate::GridDetector).
@@ -45,15 +46,15 @@ impl DetectionReport {
         if let Some(coarse) = &self.trace.coarse_homography {
             println!(
                 "\nCoarse homography (pre-refine):\n    [{:.4} {:.4} {:.4}]\n    [{:.4} {:.4} {:.4}]\n    [{:.4} {:.4} {:.4}]",
-                coarse[0][0],
-                coarse[0][1],
-                coarse[0][2],
-                coarse[1][0],
-                coarse[1][1],
-                coarse[1][2],
-                coarse[2][0],
-                coarse[2][1],
-                coarse[2][2]
+                coarse[(0, 0)],
+                coarse[(0, 1)],
+                coarse[(0, 2)],
+                coarse[(1, 0)],
+                coarse[(1, 1)],
+                coarse[(1, 2)],
+                coarse[(2, 0)],
+                coarse[(2, 1)],
+                coarse[(2, 2)]
             );
         }
 
@@ -222,9 +223,9 @@ pub struct PipelineTrace {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refinement: Option<RefinementStage>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub coarse_homography: Option<[[f32; 3]; 3]>,
+    pub coarse_homography: Option<Matrix3<f32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pose: Option<PoseStage>,
+    pub pose: Option<Pose>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -235,23 +236,4 @@ pub struct InputDescriptor {
     pub pyramid_levels: usize,
 }
 
-/// Camera pose recovered from the refined homography, if available.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PoseStage {
-    pub rotation: [[f32; 3]; 3],
-    pub translation: [f32; 3],
-}
-
-impl PoseStage {
-    pub fn from_pose(pose: &Pose) -> Self {
-        Self {
-            rotation: [
-                [pose.r[(0, 0)], pose.r[(0, 1)], pose.r[(0, 2)]],
-                [pose.r[(1, 0)], pose.r[(1, 1)], pose.r[(1, 2)]],
-                [pose.r[(2, 0)], pose.r[(2, 1)], pose.r[(2, 2)]],
-            ],
-            translation: [pose.t[0], pose.t[1], pose.t[2]],
-        }
-    }
-}
+// Camera pose recovered from the refined homography is serialized via `Pose`.

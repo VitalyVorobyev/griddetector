@@ -100,8 +100,8 @@ fn run() -> Result<(), String> {
         lsd: lsd_stage,
         lsd_config: LsdParamsOut::from(&config.lsd),
         engine_config: EngineParamsOut::from(&engine_params),
-        coarse_h: coarse_h.map(matrix_to_array),
-        full_h: full_h.map(matrix_to_array),
+        coarse_h,
+        full_h,
         segments: descriptors,
     };
 
@@ -136,9 +136,9 @@ struct LsdVpDemoOutput {
     lsd_config: LsdParamsOut,
     engine_config: EngineParamsOut,
     #[serde(skip_serializing_if = "Option::is_none")]
-    coarse_h: Option<[[f32; 3]; 3]>,
+    coarse_h: Option<Matrix3<f32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    full_h: Option<[[f32; 3]; 3]>,
+    full_h: Option<Matrix3<f32>>,
     segments: Vec<SegmentDescriptor>,
 }
 
@@ -193,10 +193,4 @@ impl From<&LsdVpParams> for EngineParamsOut {
     }
 }
 
-fn matrix_to_array(m: Matrix3<f32>) -> [[f32; 3]; 3] {
-    [
-        [m[(0, 0)], m[(0, 1)], m[(0, 2)]],
-        [m[(1, 0)], m[(1, 1)], m[(1, 2)]],
-        [m[(2, 0)], m[(2, 1)], m[(2, 2)]],
-    ]
-}
+// matrix_to_array removed: use nalgebra serde directly for Matrix3.
