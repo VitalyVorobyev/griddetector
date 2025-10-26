@@ -38,7 +38,7 @@ pub fn apply(filter: &dyn SeparableFilter, input: &ImageF32) -> ImageF32 {
     let h = input.h;
     let taps = filter.taps();
     assert!(
-        taps.len() >= 1,
+        !taps.is_empty(),
         "separable filter requires at least one tap"
     );
     let radius = taps.len() / 2;
@@ -48,14 +48,14 @@ pub fn apply(filter: &dyn SeparableFilter, input: &ImageF32) -> ImageF32 {
     for y in 0..h {
         let in_row = input.row(y);
         let out_row = tmp.row_mut(y);
-        for x in 0..w {
+        for (x, dst_px) in out_row.iter_mut().enumerate() {
             let mut acc = 0.0f32;
             for (k, &tap) in taps.iter().enumerate() {
                 let offset = k as isize - radius as isize;
                 let sx = clamp_index(x as isize + offset, w);
                 acc += tap * in_row[sx];
             }
-            out_row[x] = acc;
+            *dst_px = acc;
         }
     }
 
@@ -63,14 +63,14 @@ pub fn apply(filter: &dyn SeparableFilter, input: &ImageF32) -> ImageF32 {
     // Vertical pass
     for y in 0..h {
         let out_row = out.row_mut(y);
-        for x in 0..w {
+        for (x, dst_px) in out_row.iter_mut().enumerate() {
             let mut acc = 0.0f32;
             for (k, &tap) in taps.iter().enumerate() {
                 let offset = k as isize - radius as isize;
                 let sy = clamp_index(y as isize + offset, h);
                 acc += tap * tmp.row(sy)[x];
             }
-            out_row[x] = acc;
+            *dst_px = acc;
         }
     }
 

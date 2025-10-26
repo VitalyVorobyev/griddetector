@@ -5,24 +5,14 @@ use crate::refine::segment::RefineParams as SegmentRefineParams;
 use crate::refine::RefineParams;
 use crate::GridParams;
 use nalgebra::Matrix3;
-use serde::{Deserialize};
-use std::env;
+use serde::Deserialize;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct OutputConfig {
     pub json_out: Option<PathBuf>,
     pub debug_dir: Option<PathBuf>,
-}
-
-impl Default for OutputConfig {
-    fn default() -> Self {
-        Self {
-            json_out: None,
-            debug_dir: None,
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -32,119 +22,30 @@ pub struct RuntimeConfig {
     pub grid_params: GridParams,
 }
 
-pub fn parse_cli(program: &str) -> Result<RuntimeConfig, String> {
-    parse_args(program)
-}
+pub fn load_config(path: &Path) -> Result<RuntimeConfig, String> {
+    let contents = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read config {}: {e}", path.display()))?;
+    let file_config: FileConfig = serde_json::from_str(&contents)
+        .map_err(|e| format!("Failed to parse config {}: {e}", path.display()))?;
 
-pub fn usage(program: &str) -> String {
-    format!(
-        "Usage: {program} <image.png> [--config config.json] [--format text|json|both] [--json-out report.json] \\\n         [--save-debug dir] [--spacing-mm mm] [--intrinsics fx,fy,cx,cy]\n\n\
-Runs the grid detector on a grayscale PNG image and emits diagnostics.\n\
-Examples:\n  {program} data/sample.png --format both --json-out sample_report.json\n  {program} board.png --config cfg.json --format text\n"
-    )
-}
-
-fn parse_args(program: &str) -> Result<RuntimeConfig, String> {
-    let mut args = env::args().skip(1).peekable();
-    let mut input_override: Option<PathBuf> = None;
-    let mut json_out_override: Option<PathBuf> = None;
-    let mut debug_dir_override: Option<PathBuf> = None;
-    let mut spacing_override: Option<f32> = None;
-    let mut intrinsics_override: Option<Matrix3<f32>> = None;
-    let mut config_path: Option<PathBuf> = None;
-
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--help" | "-h" => {
-                println!("{}", usage(program));
-                std::process::exit(0);
-            }
-            "--config" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| format!("--config expects a path\n{}", usage(program)))?;
-                config_path = Some(PathBuf::from(value));
-            }
-            "--json-out" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| format!("--json-out expects a path\n{}", usage(program)))?;
-                json_out_override = Some(PathBuf::from(value));
-            }
-            "--save-debug" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| format!("--save-debug expects a path\n{}", usage(program)))?;
-                debug_dir_override = Some(PathBuf::from(value));
-            }
-            "--spacing-mm" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| format!("--spacing-mm expects a value\n{}", usage(program)))?;
-                let parsed: f32 = value
-                    .parse()
-                    .map_err(|_| format!("Invalid spacing '{value}'"))?;
-                spacing_override = Some(parsed);
-            }
-            "--intrinsics" => {
-                let value = args.next().ok_or_else(|| {
-                    format!("--intrinsics expects fx,fy,cx,cy\n{}", usage(program))
-                })?;
-                intrinsics_override = Some(parse_intrinsics(&value)?);
-            }
-            _ if arg.starts_with('-') => {
-                return Err(format!("Unknown option '{arg}'\n{}", usage(program)));
-            }
-            _ => {
-                if input_override.is_some() {
-                    return Err(format!(
-                        "Unexpected positional argument '{arg}'\n{}",
-                        usage(program)
-                    ));
-                }
-                input_override = Some(PathBuf::from(arg));
-            }
-        }
-    }
-
-    let file_config = if let Some(path) = config_path {
-        let contents = fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read config {}: {e}", path.display()))?;
-        serde_json::from_str::<FileConfig>(&contents)
-            .map_err(|e| format!("Failed to parse config {}: {e}", path.display()))?
-    } else {
-        FileConfig::default()
-    };
-
-    let input_path = input_override
-        .or_else(|| file_config.input.clone())
-        .ok_or_else(|| usage(program))?;
+    let input_path = file_config
+        .input
+        .clone()
+        .ok_or_else(|| format!("Config {} missing 'input' field", path.display()))?;
 
     let mut output = OutputConfig::default();
     if let Some(ref file_output) = file_config.output {
-        if let Some(ref path) = file_output.json_out {
-            output.json_out = Some(path.clone());
+        if let Some(ref json) = file_output.json_out {
+            output.json_out = Some(json.clone());
         }
         if let Some(ref dir) = file_output.debug_dir {
             output.debug_dir = Some(dir.clone());
         }
     }
-    if let Some(path) = json_out_override {
-        output.json_out = Some(path);
-    }
-    if let Some(dir) = debug_dir_override {
-        output.debug_dir = Some(dir);
-    }
 
     let mut grid_params = GridParams::default();
     if let Some(ref grid_cfg) = file_config.grid {
         apply_grid_file_config(&mut grid_params, grid_cfg);
-    }
-    if let Some(spacing) = spacing_override {
-        grid_params.spacing_mm = spacing;
-    }
-    if let Some(intrinsics) = intrinsics_override {
-        grid_params.kmtx = intrinsics;
     }
 
     Ok(RuntimeConfig {
@@ -199,6 +100,13 @@ struct FileRefineConfig {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
+struct FileRefinementScheduleConfig {
+    passes: Option<usize>,
+    improvement_thresh: Option<f32>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
 struct FileSegmentRefineConfig {
     delta_s: Option<f32>,
     w_perp: Option<f32>,
@@ -226,13 +134,6 @@ struct FileBundlingConfig {
     merge_dist_px: Option<f32>,
     min_weight: Option<f32>,
     scale_mode: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default)]
-struct FileRefinementScheduleConfig {
-    passes: Option<usize>,
-    improvement_thresh: Option<f32>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -319,6 +220,18 @@ fn apply_refine_file_config(params: &mut RefineParams, cfg: &FileRefineConfig) {
     }
 }
 
+fn apply_refinement_schedule_config(
+    params: &mut RefinementSchedule,
+    cfg: &FileRefinementScheduleConfig,
+) {
+    if let Some(v) = cfg.passes {
+        params.passes = v.max(1);
+    }
+    if let Some(v) = cfg.improvement_thresh {
+        params.improvement_thresh = v.max(0.0);
+    }
+}
+
 fn apply_segment_refine_file_config(
     params: &mut SegmentRefineParams,
     cfg: &FileSegmentRefineConfig,
@@ -381,18 +294,6 @@ fn apply_bundling_file_config(params: &mut BundlingParams, cfg: &FileBundlingCon
     }
 }
 
-fn apply_refinement_schedule_config(
-    params: &mut RefinementSchedule,
-    cfg: &FileRefinementScheduleConfig,
-) {
-    if let Some(v) = cfg.passes {
-        params.passes = v.max(1);
-    }
-    if let Some(v) = cfg.improvement_thresh {
-        params.improvement_thresh = v.max(0.0);
-    }
-}
-
 fn apply_outlier_filter_config(params: &mut OutlierFilterParams, cfg: &FileOutlierFilterConfig) {
     if let Some(v) = cfg.angle_margin_deg {
         params.angle_margin_deg = v;
@@ -410,28 +311,4 @@ fn parse_bundling_scale_mode(value: &str) -> Option<BundlingScaleMode> {
         }
         _ => None,
     }
-}
-
-fn parse_intrinsics(value: &str) -> Result<Matrix3<f32>, String> {
-    let parts: Vec<&str> = value.split(',').collect();
-    if parts.len() != 4 {
-        return Err(format!("Expected fx,fy,cx,cy but got '{value}'"));
-    }
-    let fx: f32 = parts[0]
-        .trim()
-        .parse()
-        .map_err(|_| format!("Invalid fx '{}'", parts[0]))?;
-    let fy: f32 = parts[1]
-        .trim()
-        .parse()
-        .map_err(|_| format!("Invalid fy '{}'", parts[1]))?;
-    let cx: f32 = parts[2]
-        .trim()
-        .parse()
-        .map_err(|_| format!("Invalid cx '{}'", parts[2]))?;
-    let cy: f32 = parts[3]
-        .trim()
-        .parse()
-        .map_err(|_| format!("Invalid cy '{}'", parts[3]))?;
-    Ok(Matrix3::new(fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0))
 }

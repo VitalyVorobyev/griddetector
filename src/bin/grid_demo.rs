@@ -16,10 +16,8 @@ fn main() {
 }
 
 fn run() -> Result<(), String> {
-    let program = env::args()
-        .next()
-        .unwrap_or_else(|| "grid_demo".to_string());
-    let config = grid::parse_cli(&program)?;
+    let config_path = env::args().nth(1).ok_or_else(usage)?;
+    let config = grid::load_config(Path::new(&config_path))?;
 
     let gray = load_grayscale_image(&config.input_path)?;
     let image = gray.as_view();
@@ -41,6 +39,10 @@ fn run() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn usage() -> String {
+    "Usage: grid_demo <config.json>".to_string()
 }
 
 fn save_debug_artifacts(
