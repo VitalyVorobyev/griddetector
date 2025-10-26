@@ -13,9 +13,13 @@ pub mod segments;
 pub mod types;
 
 pub use crate::detector::{GridDetector, GridParams};
+pub use crate::diagnostics::builders::{
+    run_lsd_stage, run_outlier_stage, LsdStageOutput, OutlierStageOutput,
+};
 pub use crate::diagnostics::{
-    BundleDiagnostics, BundleEntryDiagnostics, DetailedResult, LsdDiagnostics,
-    LsdSegmentDiagnostics, ProcessingDiagnostics, PyramidLevelDiagnostics, RefinementDiagnostics,
-    RefinementLevelDiagnostics,
+    BundlingLevel, BundlingStage, DetectionReport, InputDescriptor, LsdStage, OutlierFilterStage,
+    PipelineTrace, PoseStage, PyramidLevelReport, PyramidStage, RefinementIteration,
+    RefinementOutcome, RefinementStage, SegmentClass, SegmentDescriptor, SegmentId, SegmentSample,
+    StageTiming, TimingBreakdown,
 };
 pub use crate::types::{GridResult, Pose};

@@ -13,28 +13,27 @@
 //!
 //! # fn example(gray: ImageU8) {
 //! let mut detector = GridDetector::new(GridParams::default());
-//! let detailed = detector.process_with_diagnostics(gray);
-//! if detailed.result.found {
-//!     println!("confidence: {:.3}", detailed.result.confidence);
+//! let report = detector.process_with_diagnostics(gray);
+//! if report.grid.found {
+//!     println!("confidence: {:.3}", report.grid.confidence);
 //! }
 //! # }
 //! ```
-use super::outliers::{filter_segments, OutlierFilterDiagnostics};
+use super::outliers::classify_segments_with_details;
 use super::params::{
     BundlingParams, BundlingScaleMode, GridParams, LsdVpParams, OutlierFilterParams,
     RefinementSchedule,
 };
-use super::scaling::{
-    rescale_bundle_to_full_res, rescale_lsd_segments, LevelScaleMap, LevelScaling,
-};
+use super::scaling::{rescale_bundle_to_full_res, LevelScaleMap, LevelScaling};
 use super::workspace::DetectorWorkspace;
 use crate::diagnostics::{
-    BundleDiagnostics, BundleEntryDiagnostics, DetailedResult, LsdDiagnostics,
-    ProcessingDiagnostics, PyramidLevelDiagnostics, RefinementDiagnostics,
-    SegmentFilterDiagnostics,
+    BundleDescriptor, BundlingLevel, BundlingStage, DetectionReport, FamilyCounts, InputDescriptor,
+    LsdStage, OutlierFilterStage, OutlierThresholds, PipelineTrace, PoseStage, PyramidStage,
+    RefinementOutcome, RefinementStage, SegmentDescriptor, SegmentId, SegmentSample,
+    TimingBreakdown,
 };
 use crate::image::{ImageU8, ImageView};
-use crate::lsd_vp::{DetailedInference, Engine as LsdVpEngine};
+use crate::lsd_vp::{DetailedInference, Engine as LsdVpEngine, FamilyLabel};
 use crate::pyramid::{Pyramid, PyramidOptions};
 use crate::refine::segment::{
     self, PyramidLevel as SegmentGradientLevel, RefineParams as SegmentRefineParams,
@@ -89,11 +88,11 @@ impl GridDetector {
 
     /// Run the detector on a grayscale image, returning a compact result.
     pub fn process(&mut self, gray: ImageU8) -> GridResult {
-        self.process_with_diagnostics(gray).result
+        self.process_with_diagnostics(gray).grid
     }
 
-    /// Run the detector and return both the result and rich diagnostics.
-    pub fn process_with_diagnostics(&mut self, gray: ImageU8) -> DetailedResult {
+    /// Run the detector and return both the result and a detailed report.
+    pub fn process_with_diagnostics(&mut self, gray: ImageU8) -> DetectionReport {
         let (width, height) = (gray.w, gray.h);
         debug!(
             "GridDetector::process start w={} h={} levels={}",
@@ -111,83 +110,130 @@ impl GridDetector {
         let pyramid = Pyramid::build_u8(gray, pyramid_opts);
         let pyr_ms = pyr_start.elapsed().as_secs_f64() * 1000.0;
 
-        let pyramid_levels_diag = pyramid
-            .levels
-            .iter()
-            .enumerate()
-            .map(|(level, lvl)| {
-                let sum: f32 = if let Some(slice) = lvl.as_slice() {
-                    slice.iter().copied().sum()
-                } else {
-                    lvl.rows().map(|r| r.iter().copied().sum::<f32>()).sum()
-                };
-                let denom = (lvl.w * lvl.h).max(1) as f32;
-                PyramidLevelDiagnostics {
-                    level,
-                    width: lvl.w,
-                    height: lvl.h,
-                    mean_intensity: sum / denom,
-                }
-            })
-            .collect::<Vec<_>>();
+        let pyramid_stage = if pyramid.levels.is_empty() {
+            None
+        } else {
+            Some(PyramidStage::from_pyramid(&pyramid, pyr_ms))
+        };
 
-        let lsd_start = Instant::now();
-        let mut confidence = 0.0f32;
-        let mut h_full = None;
-        let mut lsd_diag: Option<LsdDiagnostics> = None;
-        let mut filtered_segments: Vec<Segment> = Vec::new();
-        let mut filter_diag: Option<OutlierFilterDiagnostics> = None;
+        let mut segment_descriptors: Vec<SegmentDescriptor> = Vec::new();
+        let mut lsd_stage: Option<LsdStage> = None;
+        let mut outlier_stage: Option<OutlierFilterStage> = None;
+        let mut bundling_stage: Option<BundlingStage> = None;
+        let mut refinement_stage: Option<RefinementStage> = None;
+
+        let mut lsd_ms = 0.0f64;
         let mut outlier_filter_ms = 0.0f64;
+        let mut refine_ms = 0.0f64;
+
+        let mut confidence = 0.0f32;
+        let mut h_full: Option<Matrix3<f32>> = None;
+        let mut hmtx = Matrix3::identity();
+
+        let mut filtered_segments: Vec<Segment> = Vec::new();
 
         if let Some(coarse_level) = pyramid.levels.last() {
+            let lsd_start = Instant::now();
             if let Some(detailed) = self.lsd_engine.infer_detailed(coarse_level) {
                 let DetailedInference {
                     hypothesis,
+                    dominant_angles_rad,
+                    families,
                     segments,
-                    ..
                 } = detailed;
                 confidence = hypothesis.confidence;
-                let mut diagnostics = hypothesis.diagnostics;
                 let hmtx0 = hypothesis.hmtx0;
-                if coarse_level.w > 0 && coarse_level.h > 0 {
-                    let scale_x = width as f32 / coarse_level.w as f32;
-                    let scale_y = height as f32 / coarse_level.h as f32;
-                    rescale_lsd_segments(&mut diagnostics, scale_x, scale_y);
-                    let scale = Matrix3::new(scale_x, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 1.0);
-                    h_full = Some(scale * hmtx0);
-                } else {
-                    h_full = Some(hmtx0);
+
+                for (idx, seg) in segments.iter().enumerate() {
+                    segment_descriptors
+                        .push(SegmentDescriptor::from_segment(SegmentId(idx as u32), seg));
                 }
-                lsd_diag = Some(diagnostics);
+
+                let scale_x = if coarse_level.w > 0 {
+                    width as f32 / coarse_level.w as f32
+                } else {
+                    1.0
+                };
+                let scale_y = if coarse_level.h > 0 {
+                    height as f32 / coarse_level.h as f32
+                } else {
+                    1.0
+                };
+                let scale = Matrix3::new(scale_x, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 1.0);
+                h_full = Some(if coarse_level.w > 0 && coarse_level.h > 0 {
+                    scale * hmtx0
+                } else {
+                    hmtx0
+                });
+                hmtx = h_full.unwrap_or_else(Matrix3::identity);
+
+                let dominant_angles_deg = [
+                    dominant_angles_rad[0].to_degrees(),
+                    dominant_angles_rad[1].to_degrees(),
+                ];
+                let family_counts = compute_family_counts(&families);
+                lsd_stage = Some(LsdStage {
+                    elapsed_ms: 0.0,
+                    confidence,
+                    dominant_angles_deg,
+                    family_counts,
+                    segment_families: families.clone(),
+                    sample_ids: Vec::new(),
+                });
 
                 let filter_start = Instant::now();
-                let original_segments = segments.clone();
-                let (kept, mut diag) = filter_segments(
-                    segments,
+                let (decisions, diag) = classify_segments_with_details(
+                    &segments,
                     &hmtx0,
                     &self.params.outlier_filter,
                     &self.params.lsd_vp_params,
                 );
                 outlier_filter_ms = filter_start.elapsed().as_secs_f64() * 1000.0;
-                if diag.total > 0 && kept.is_empty() {
+
+                let mut kept_segments = Vec::new();
+                let mut classifications = Vec::with_capacity(decisions.len());
+                for decision in &decisions {
+                    let seg_id = SegmentId(decision.index as u32);
+                    if decision.inlier {
+                        kept_segments.push(segments[decision.index].clone());
+                    }
+                    classifications.push(SegmentSample::from_decision(seg_id, decision));
+                }
+                if diag.total > 0 && kept_segments.is_empty() {
                     debug!(
                         "GridDetector::process segment filter rejected all {} segments -> fallback to unfiltered set",
                         diag.total
                     );
-                    filtered_segments = original_segments;
-                    filter_diag = None;
-                } else {
-                    diag.kept = kept.len();
-                    filtered_segments = kept;
-                    filter_diag = Some(diag);
+                    kept_segments = segments.clone();
                 }
+
+                outlier_stage = Some(OutlierFilterStage {
+                    elapsed_ms: outlier_filter_ms,
+                    total: diag.total,
+                    kept: kept_segments.len(),
+                    rejected: diag.rejected,
+                    kept_u: diag.kept_u,
+                    kept_v: diag.kept_v,
+                    degenerate_segments: diag.skipped_degenerate,
+                    thresholds: OutlierThresholds {
+                        angle_threshold_deg: diag.angle_threshold_deg,
+                        angle_margin_deg: self.params.outlier_filter.angle_margin_deg,
+                        residual_threshold_px: diag.residual_threshold_px,
+                    },
+                    classifications,
+                });
+
+                filtered_segments = kept_segments;
             } else {
                 debug!("GridDetector::process LSD→VP engine returned no hypothesis");
+            }
+            lsd_ms = lsd_start.elapsed().as_secs_f64() * 1000.0;
+            if let Some(stage) = lsd_stage.as_mut() {
+                stage.elapsed_ms = lsd_ms;
             }
         } else {
             debug!("GridDetector::process pyramid has no levels");
         }
-        let lsd_ms = lsd_start.elapsed().as_secs_f64() * 1000.0;
 
         let mut prepared_levels = PreparedLevels {
             levels: Vec::new(),
@@ -197,36 +243,41 @@ impl GridDetector {
         if !filtered_segments.is_empty() && !pyramid.levels.is_empty() {
             self.workspace.reset(pyramid.levels.len());
             prepared_levels =
-                self.prepare_refinement_levels(&pyramid, filtered_segments, width, height);
+                self.prepare_refinement_levels(&pyramid, filtered_segments.clone(), width, height);
         }
 
-        let bundling_diag = if !prepared_levels.levels.is_empty() {
-            Some(
-                prepared_levels
-                    .levels
-                    .iter()
-                    .map(|data| BundleDiagnostics {
-                        level_index: data.level_index,
-                        bundles: data
-                            .bundles
-                            .iter()
-                            .map(|b| BundleEntryDiagnostics {
-                                center: b.center,
-                                line: b.line,
-                                weight: b.weight,
-                            })
-                            .collect(),
-                    })
-                    .collect::<Vec<_>>(),
-            )
-        } else {
-            None
-        };
+        if !prepared_levels.levels.is_empty() {
+            let levels = prepared_levels
+                .levels
+                .iter()
+                .map(|lvl| BundlingLevel {
+                    level_index: lvl.level_index,
+                    width: lvl.level_width,
+                    height: lvl.level_height,
+                    bundles: lvl
+                        .bundles
+                        .iter()
+                        .map(|b| BundleDescriptor {
+                            center: b.center,
+                            line: b.line,
+                            weight: b.weight,
+                        })
+                        .collect(),
+                })
+                .collect();
+            bundling_stage = Some(BundlingStage {
+                elapsed_ms: prepared_levels.bundling_ms,
+                segment_refine_ms: prepared_levels.segment_refine_ms,
+                orientation_tol_deg: self.params.bundling_params.orientation_tol_deg,
+                merge_distance_px: self.params.bundling_params.merge_dist_px,
+                min_weight: self.params.bundling_params.min_weight,
+                source_segments: filtered_segments.len(),
+                scale_applied: None,
+                levels,
+            });
+        }
 
-        let mut hmtx = h_full.unwrap_or_else(Matrix3::identity);
-        let mut refinement_diag: Option<RefinementDiagnostics> = None;
         let mut refinement_passes = 0usize;
-        let mut refine_ms = 0.0f64;
         if self.params.enable_refine
             && h_full.is_some()
             && hmtx != Matrix3::identity()
@@ -236,6 +287,7 @@ impl GridDetector {
             let schedule = &self.params.refinement_schedule;
             let mut current_h = hmtx;
             let mut passes = 0usize;
+            let mut last_outcome: Option<RefinementOutcome> = None;
             while passes < schedule.passes {
                 let refine_start = Instant::now();
                 match self.refiner.refine(current_h, &refine_levels) {
@@ -243,15 +295,15 @@ impl GridDetector {
                         refine_ms += refine_start.elapsed().as_secs_f64() * 1000.0;
                         passes += 1;
                         refinement_passes = passes;
-                        refinement_diag = Some(RefinementDiagnostics {
-                            levels_used: refine_res.levels_used,
-                            aggregated_confidence: refine_res.confidence,
-                            final_inlier_ratio: refine_res.inlier_ratio,
-                            levels: refine_res.level_reports.clone(),
-                        });
                         let improvement = frobenius_improvement(&current_h, &refine_res.h_refined);
-                        current_h = refine_res.h_refined;
-                        hmtx = current_h;
+                        let outcome = RefinementOutcome {
+                            levels_used: refine_res.levels_used,
+                            confidence: refine_res.confidence,
+                            inlier_ratio: refine_res.inlier_ratio,
+                            iterations: refine_res.level_reports.clone(),
+                        };
+                        last_outcome = Some(outcome);
+
                         let base_conf = confidence;
                         let combined = combine_confidence(
                             base_conf,
@@ -259,6 +311,9 @@ impl GridDetector {
                             refine_res.inlier_ratio,
                         );
                         confidence = combined.max(base_conf);
+                        current_h = refine_res.h_refined;
+                        hmtx = current_h;
+
                         if passes >= schedule.passes || improvement < schedule.improvement_thresh {
                             break;
                         }
@@ -278,6 +333,12 @@ impl GridDetector {
                     }
                 }
             }
+
+            refinement_stage = Some(RefinementStage {
+                elapsed_ms: refine_ms,
+                passes: refinement_passes,
+                outcome: last_outcome,
+            });
         }
 
         if hmtx != Matrix3::identity() {
@@ -298,7 +359,7 @@ impl GridDetector {
         let result = GridResult {
             found,
             hmtx,
-            pose,
+            pose: pose.clone(),
             origin_uv: (0, 0),
             visible_range: (0, 0, 0, 0),
             coverage: 0.0,
@@ -307,39 +368,45 @@ impl GridDetector {
             latency_ms: latency,
         };
 
-        let segment_filter_diag = filter_diag.map(|d| SegmentFilterDiagnostics {
-            total: d.total,
-            kept: d.kept,
-            rejected: d.rejected,
-            kept_u: d.kept_u,
-            kept_v: d.kept_v,
-            skipped_degenerate: d.skipped_degenerate,
-            angle_threshold_deg: d.angle_threshold_deg,
-            residual_threshold_px: d.residual_threshold_px,
-            elapsed_ms: outlier_filter_ms,
-        });
+        let mut timings = TimingBreakdown::with_total(latency);
+        if pyr_ms > 0.0 {
+            timings.push("pyramid", pyr_ms);
+        }
+        if lsd_ms > 0.0 {
+            timings.push("lsd_vp", lsd_ms);
+        }
+        if outlier_filter_ms > 0.0 {
+            timings.push("outlier_filter", outlier_filter_ms);
+        }
+        if prepared_levels.segment_refine_ms > 0.0 {
+            timings.push("segment_refine", prepared_levels.segment_refine_ms);
+        }
+        if prepared_levels.bundling_ms > 0.0 {
+            timings.push("bundling", prepared_levels.bundling_ms);
+        }
+        if refine_ms > 0.0 {
+            timings.push("refinement", refine_ms);
+        }
 
-        let diagnostics = ProcessingDiagnostics {
-            input_width: width,
-            input_height: height,
-            pyramid_levels: pyramid_levels_diag,
-            pyramid_build_ms: pyr_ms,
-            lsd_ms,
-            segment_filter: segment_filter_diag,
-            outlier_filter_ms,
-            bundling_ms: prepared_levels.bundling_ms,
-            segment_refine_ms: prepared_levels.segment_refine_ms,
-            refine_ms,
-            refinement_passes,
-            lsd: lsd_diag,
-            refinement: refinement_diag,
-            bundling: bundling_diag,
-            homography: hmtx,
-            total_latency_ms: latency,
+        let trace = PipelineTrace {
+            input: InputDescriptor {
+                width,
+                height,
+                pyramid_levels: pyramid.levels.len(),
+            },
+            timings,
+            segments: segment_descriptors,
+            pyramid: pyramid_stage,
+            lsd: lsd_stage,
+            outlier_filter: outlier_stage,
+            bundling: bundling_stage,
+            refinement: refinement_stage,
+            pose: pose.as_ref().map(PoseStage::from_pose),
         };
-        DetailedResult {
-            result,
-            diagnostics,
+
+        DetectionReport {
+            grid: result,
+            trace,
         }
     }
 
@@ -591,6 +658,22 @@ fn convert_refine_result(prev: &Segment, result: segment::RefineResult) -> Segme
         avg_mag,
         strength,
     }
+}
+
+fn compute_family_counts(families: &[Option<FamilyLabel>]) -> FamilyCounts {
+    let mut counts = FamilyCounts {
+        family_u: 0,
+        family_v: 0,
+        unassigned: 0,
+    };
+    for fam in families {
+        match fam {
+            Some(FamilyLabel::U) => counts.family_u += 1,
+            Some(FamilyLabel::V) => counts.family_v += 1,
+            None => counts.unassigned += 1,
+        }
+    }
+    counts
 }
 
 fn combine_confidence(base: f32, refine_conf: f32, inlier_ratio: f32) -> f32 {

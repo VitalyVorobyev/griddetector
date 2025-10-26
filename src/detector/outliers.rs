@@ -43,12 +43,8 @@ pub fn filter_segments(
     filter_params: &OutlierFilterParams,
     lsd_params: &LsdVpParams,
 ) -> (Vec<Segment>, OutlierFilterDiagnostics) {
-    let (decisions, diag) = classify_segments_with_details(
-        &segments,
-        h_coarse,
-        filter_params,
-        lsd_params,
-    );
+    let (decisions, diag) =
+        classify_segments_with_details(&segments, h_coarse, filter_params, lsd_params);
     let mut kept = Vec::with_capacity(segments.len());
     for d in decisions {
         if d.inlier {

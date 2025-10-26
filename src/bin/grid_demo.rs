@@ -1,5 +1,5 @@
 use grid_detector::config::grid::{self};
-use grid_detector::diagnostics::DetailedResult;
+use grid_detector::diagnostics::DetectionReport;
 use grid_detector::image::io::{
     load_grayscale_image, save_grayscale_f32, write_json_file, GrayImageU8,
 };
@@ -48,7 +48,7 @@ fn usage() -> String {
 fn save_debug_artifacts(
     dir: &Path,
     gray: &GrayImageU8,
-    detailed: &DetailedResult,
+    detailed: &DetectionReport,
     grid_params: &grid_detector::GridParams,
 ) -> Result<(), String> {
     std::fs::create_dir_all(dir)
@@ -56,13 +56,13 @@ fn save_debug_artifacts(
 
     write_json_file(&dir.join("detailed_result.json"), detailed)?;
 
-    if let Some(lsd) = &detailed.diagnostics.lsd {
+    if let Some(lsd) = &detailed.trace.lsd {
         write_json_file(&dir.join("lsd_diagnostics.json"), lsd)?;
     }
-    if let Some(refine) = &detailed.diagnostics.refinement {
+    if let Some(refine) = &detailed.trace.refinement {
         write_json_file(&dir.join("refinement_diagnostics.json"), refine)?;
     }
-    if let Some(bundles) = &detailed.diagnostics.bundling {
+    if let Some(bundles) = &detailed.trace.bundling {
         write_json_file(&dir.join("bundles.json"), bundles)?;
     }
 

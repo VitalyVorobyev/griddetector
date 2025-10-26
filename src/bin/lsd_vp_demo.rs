@@ -1,12 +1,16 @@
 use grid_detector::config::lsd_vp::{self, EngineParameters};
 use grid_detector::config::segments::LsdConfig;
+use grid_detector::diagnostics::builders::run_lsd_stage;
+use grid_detector::diagnostics::{LsdStage, PyramidStage, SegmentDescriptor, SegmentId};
 use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
-use grid_detector::lsd_vp::{Engine, FamilyLabel};
+use grid_detector::lsd_vp::Engine;
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
-use grid_detector::segments::{lsd_extract_segments_with_options, LsdOptions, Segment};
+use grid_detector::segments::{lsd_extract_segments_with_options, LsdOptions};
+use nalgebra::Matrix3;
 use serde::Serialize;
 use std::env;
 use std::path::Path;
+use std::time::Instant;
 
 fn main() {
     if let Err(err) = run() {
@@ -60,61 +64,50 @@ fn run() -> Result<(), String> {
         angle_tol_deg: engine_params.angle_tolerance_deg,
         min_len: engine_params.min_length,
     };
-    let inference = engine.infer_with_segments(coarsest, segments.clone());
+    let pyramid_stage = PyramidStage::from_pyramid(&pyramid, 0.0);
 
-    let (hypothesis, dominant_angles_deg, family_counts, segment_outputs) =
-        if let Some(detail) = inference {
-            let mut fam_u = 0usize;
-            let mut fam_v = 0usize;
-            let DetailedInferenceFields {
-                hypothesis,
-                dominant_angles_deg,
-                segments,
-                families,
-            } = DetailedInferenceFields::from(detail);
-            let segment_outputs = segments
-                .into_iter()
-                .zip(families)
-                .map(|(seg, fam)| {
-                    if let Some(FamilyLabel::U) = fam {
-                        fam_u += 1;
-                    } else if let Some(FamilyLabel::V) = fam {
-                        fam_v += 1;
-                    }
-                    SegmentClusterOutput::from_segment(seg, fam)
-                })
-                .collect::<Vec<_>>();
-            let unassigned = segment_outputs.len().saturating_sub(fam_u + fam_v);
+    let lsd_start = Instant::now();
+    let lsd_output = run_lsd_stage(
+        &engine,
+        coarsest,
+        Some(segments.clone()),
+        gray.width(),
+        gray.height(),
+    );
+    let lsd_ms = lsd_start.elapsed().as_secs_f64() * 1000.0;
+
+    let (lsd_stage, descriptors, coarse_h, full_h) = match lsd_output {
+        Some(mut output) => {
+            output.stage.elapsed_ms = lsd_ms;
             (
-                Some(hypothesis),
-                Some(dominant_angles_deg),
-                Some(FamilyCounts {
-                    family_u: fam_u,
-                    family_v: fam_v,
-                    unassigned,
-                }),
-                segment_outputs,
+                Some(output.stage),
+                output.descriptors,
+                Some(output.coarse_h),
+                Some(output.full_h),
             )
-        } else {
-            let segment_outputs = segments
-                .into_iter()
-                .map(|seg| SegmentClusterOutput::from_segment(seg, None))
-                .collect::<Vec<_>>();
-            (None, None, None, segment_outputs)
-        };
+        }
+        None => (
+            None,
+            segments
+                .iter()
+                .enumerate()
+                .map(|(idx, seg)| SegmentDescriptor::from_segment(SegmentId(idx as u32), seg))
+                .collect(),
+            None,
+            None,
+        ),
+    };
 
     let result = LsdVpDemoOutput {
-        width: coarsest.w,
-        height: coarsest.h,
-        pyramid_level_index: coarsest_index,
-        pyramid_levels: pyramid.levels.len(),
+        image_width: gray.width(),
+        image_height: gray.height(),
+        pyramid: pyramid_stage,
+        lsd: lsd_stage,
         lsd_config: LsdParamsOut::from(&config.lsd),
         engine_config: EngineParamsOut::from(engine_params),
-        segment_count: segment_outputs.len(),
-        family_counts,
-        dominant_angles_deg,
-        hypothesis,
-        segments: segment_outputs,
+        coarse_h: coarse_h.map(matrix_to_array),
+        full_h: full_h.map(matrix_to_array),
+        segments: descriptors,
     };
 
     write_json_file(&config.output.result_json, &result)?;
@@ -125,9 +118,9 @@ fn run() -> Result<(), String> {
         coarsest_index
     );
     println!(
-        "Saved LSD-VP result with {} segments to {}",
-        result.segment_count,
-        config.output.result_json.display()
+        "Saved LSD-VP diagnostics to {} (segments={})",
+        config.output.result_json.display(),
+        result.segments.len()
     );
 
     Ok(())
@@ -137,45 +130,21 @@ fn usage() -> String {
     "Usage: lsd_vp_demo <config.json>".to_string()
 }
 
-#[derive(Debug)]
-struct DetailedInferenceFields {
-    hypothesis: grid_detector::lsd_vp::Hypothesis,
-    dominant_angles_deg: [f32; 2],
-    segments: Vec<Segment>,
-    families: Vec<Option<FamilyLabel>>,
-}
-
-impl From<grid_detector::lsd_vp::DetailedInference> for DetailedInferenceFields {
-    fn from(detail: grid_detector::lsd_vp::DetailedInference) -> Self {
-        let grid_detector::lsd_vp::DetailedInference {
-            hypothesis,
-            dominant_angles_rad,
-            families,
-            segments,
-        } = detail;
-        DetailedInferenceFields {
-            hypothesis,
-            dominant_angles_deg: dominant_angles_rad.map(|a| a.to_degrees()),
-            families,
-            segments,
-        }
-    }
-}
-
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct LsdVpDemoOutput {
-    width: usize,
-    height: usize,
-    pyramid_level_index: usize,
-    pyramid_levels: usize,
+    image_width: usize,
+    image_height: usize,
+    pyramid: PyramidStage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lsd: Option<LsdStage>,
     lsd_config: LsdParamsOut,
     engine_config: EngineParamsOut,
-    segment_count: usize,
-    family_counts: Option<FamilyCounts>,
-    dominant_angles_deg: Option<[f32; 2]>,
-    hypothesis: Option<grid_detector::lsd_vp::Hypothesis>,
-    segments: Vec<SegmentClusterOutput>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    coarse_h: Option<[[f32; 3]; 3]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    full_h: Option<[[f32; 3]; 3]>,
+    segments: Vec<SegmentDescriptor>,
 }
 
 #[derive(Debug, Serialize)]
@@ -224,47 +193,10 @@ impl From<EngineParameters> for EngineParamsOut {
     }
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct FamilyCounts {
-    family_u: usize,
-    family_v: usize,
-    unassigned: usize,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SegmentClusterOutput {
-    p0: [f32; 2],
-    p1: [f32; 2],
-    direction: [f32; 2],
-    length: f32,
-    line: [f32; 3],
-    average_magnitude: f32,
-    strength: f32,
-    family: Option<FamilyLabel>,
-}
-
-impl SegmentClusterOutput {
-    fn from_segment(seg: Segment, family: Option<FamilyLabel>) -> Self {
-        let Segment {
-            p0,
-            p1,
-            dir,
-            len,
-            line,
-            avg_mag,
-            strength,
-        } = seg;
-        Self {
-            p0,
-            p1,
-            direction: dir,
-            length: len,
-            line,
-            average_magnitude: avg_mag,
-            strength,
-            family,
-        }
-    }
+fn matrix_to_array(m: Matrix3<f32>) -> [[f32; 3]; 3] {
+    [
+        [m[(0, 0)], m[(0, 1)], m[(0, 2)]],
+        [m[(1, 0)], m[(1, 1)], m[(1, 2)]],
+        [m[(2, 0)], m[(2, 1)], m[(2, 2)]],
+    ]
 }

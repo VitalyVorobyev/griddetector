@@ -1,11 +1,9 @@
 use crate::angle::{angle_between, angular_difference, normalize_half_pi, vp_direction};
-use crate::diagnostics::{LsdDiagnostics, LsdSegmentDiagnostics};
 use crate::image::ImageF32;
 use crate::segments::{lsd_extract_segments, Segment};
 use log::debug;
 use nalgebra::{Matrix3, Vector3};
 use serde::Serialize;
-use std::cmp::Ordering;
 use std::time::Instant;
 
 use super::histogram::OrientationHistogram;
@@ -60,7 +58,6 @@ impl InternalInference {
 pub struct Hypothesis {
     pub hmtx0: Matrix3<f32>,
     pub confidence: f32,
-    pub diagnostics: LsdDiagnostics,
 }
 
 /// Lightweight engine that finds two dominant line families from LSD segments,
@@ -234,13 +231,9 @@ impl Engine {
             elapsed_ms
         );
 
-        let diagnostics =
-            build_lsd_diagnostics(&segments, &families, theta_u, theta_v, conf, elapsed_ms);
-
         let hypothesis = Hypothesis {
             hmtx0,
             confidence: conf,
-            diagnostics,
         };
 
         Some(InternalInference {
@@ -249,57 +242,5 @@ impl Engine {
             families,
             segments,
         })
-    }
-}
-
-fn build_lsd_diagnostics(
-    segs: &[Segment],
-    families: &[Option<FamilyLabel>],
-    angle_u: f32,
-    angle_v: f32,
-    confidence: f32,
-    elapsed_ms: f64,
-) -> LsdDiagnostics {
-    let mut order: Vec<usize> = (0..segs.len()).collect();
-    order.sort_by(|a, b| {
-        segs[*b]
-            .strength
-            .partial_cmp(&segs[*a].strength)
-            .unwrap_or(Ordering::Equal)
-    });
-    let sample_cap = 512usize;
-    let mut segments_sample = Vec::new();
-    for idx in order.into_iter().take(sample_cap) {
-        let seg = &segs[idx];
-        let family = match families[idx] {
-            Some(FamilyLabel::U) => Some("u"),
-            Some(FamilyLabel::V) => Some("v"),
-            _ => None,
-        };
-        segments_sample.push(LsdSegmentDiagnostics {
-            p0: seg.p0,
-            p1: seg.p1,
-            len: seg.len,
-            strength: seg.strength,
-            family,
-        });
-    }
-    let fam_u = families
-        .iter()
-        .filter(|f| matches!(f, Some(FamilyLabel::U)))
-        .count();
-    let fam_v = families
-        .iter()
-        .filter(|f| matches!(f, Some(FamilyLabel::V)))
-        .count();
-
-    LsdDiagnostics {
-        segments_total: segs.len(),
-        dominant_angles_deg: [angle_u.to_degrees(), angle_v.to_degrees()],
-        family_u_count: fam_u,
-        family_v_count: fam_v,
-        confidence,
-        elapsed_ms,
-        segments_sample,
     }
 }

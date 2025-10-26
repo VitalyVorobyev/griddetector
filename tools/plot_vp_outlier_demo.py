@@ -194,8 +194,9 @@ def plot_vp_outlier_demo(
         lc_out = LineCollection(outlier_lines, colors=OUTLIER_COLOR, linewidths=1.4, alpha=alpha)
         ax.add_collection(lc_out)
 
-    draw_model(ax, data.get("initialModel"), width, height, MODEL_COLORS["initial"], MODEL_STYLES["initial"])
-    draw_model(ax, data.get("inlierModel"), width, height, MODEL_COLORS["inlier"], MODEL_STYLES["inlier"])
+    if True:
+        draw_model(ax, data.get("initialModel"), width, height, MODEL_COLORS["initial"], MODEL_STYLES["initial"])
+        draw_model(ax, data.get("inlierModel"), width, height, MODEL_COLORS["inlier"], MODEL_STYLES["inlier"])
     draw_model(ax, data.get("refinedModel"), width, height, MODEL_COLORS["refined"], MODEL_STYLES["refined"])
 
     handles: List[Line2D] = [

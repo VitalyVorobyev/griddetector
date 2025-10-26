@@ -1,34 +1,9 @@
 //! Cross-level scaling helpers used by the detector pipeline.
 //!
-//! - Rescales the LSD stage diagnostics to full resolution for logging.
 //! - Adapts bundling thresholds to the current level when operating in a
 //!   full-resolution invariant mode.
-use crate::diagnostics::LsdDiagnostics;
 use crate::refine::segment::ScaleMap;
 use crate::segments::bundling::Bundle;
-
-/// Rescales stored LSD diagnostics to full-resolution coordinates.
-pub fn rescale_lsd_segments(diag: &mut LsdDiagnostics, scale_x: f32, scale_y: f32) {
-    if !scale_x.is_finite() || !scale_y.is_finite() {
-        return;
-    }
-    for seg in &mut diag.segments_sample {
-        let old_len = seg.len;
-        seg.p0[0] *= scale_x;
-        seg.p0[1] *= scale_y;
-        seg.p1[0] *= scale_x;
-        seg.p1[1] *= scale_y;
-        let dx = seg.p1[0] - seg.p0[0];
-        let dy = seg.p1[1] - seg.p0[1];
-        let new_len = (dx * dx + dy * dy).sqrt();
-        if old_len > f32::EPSILON {
-            seg.strength *= new_len / old_len;
-        } else if new_len <= f32::EPSILON {
-            seg.strength = 0.0;
-        }
-        seg.len = new_len;
-    }
-}
 
 /// Rescales a bundle into full-resolution coordinates.
 pub fn rescale_bundle_to_full_res(mut bundle: Bundle, scale_x: f32, scale_y: f32) -> Bundle {
