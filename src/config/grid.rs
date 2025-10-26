@@ -125,6 +125,9 @@ struct FileLsdVpConfig {
     mag_thresh: Option<f32>,
     angle_tol_deg: Option<f32>,
     min_len: Option<f32>,
+    enforce_polarity: Option<bool>,
+    limit_normal_span: Option<bool>,
+    normal_span_limit_px: Option<f32>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -275,6 +278,24 @@ fn apply_lsd_vp_file_config(params: &mut LsdVpParams, cfg: &FileLsdVpConfig) {
     if let Some(v) = cfg.min_len {
         params.min_len = v;
     }
+    if let Some(flag) = cfg.enforce_polarity {
+        params.enforce_polarity = flag;
+    }
+
+    let mut normal_span = params.normal_span_limit;
+    if let Some(limit_px) = cfg.normal_span_limit_px {
+        normal_span = Some(limit_px.max(0.0));
+    }
+    if let Some(limit_enabled) = cfg.limit_normal_span {
+        if limit_enabled {
+            if normal_span.is_none() {
+                normal_span = Some(super::segments::LsdConfig::default().normal_span_limit_px);
+            }
+        } else {
+            normal_span = None;
+        }
+    }
+    params.normal_span_limit = normal_span;
 }
 
 fn apply_bundling_file_config(params: &mut BundlingParams, cfg: &FileBundlingConfig) {

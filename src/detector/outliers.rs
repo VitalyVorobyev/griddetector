@@ -282,6 +282,8 @@ mod tests {
             mag_thresh: 0.05,
             angle_tol_deg: 12.0,
             min_len: 4.0,
+            enforce_polarity: false,
+            normal_span_limit: None,
         };
         let segments = vec![seg_ok.clone(), seg_bad];
         let (filtered, diag) = filter_segments(segments, &h, &filter_params, &lsd_params);
@@ -307,6 +309,8 @@ mod tests {
             mag_thresh: 0.05,
             angle_tol_deg: 10.0,
             min_len: 4.0,
+            enforce_polarity: false,
+            normal_span_limit: None,
         };
         let (filtered, diag) = filter_segments(vec![seg], &h, &filter_params, &lsd_params);
         assert!(
@@ -335,6 +339,8 @@ mod tests {
             mag_thresh: 0.05,
             angle_tol_deg: 12.0,
             min_len: 4.0,
+            enforce_polarity: false,
+            normal_span_limit: None,
         };
         let segments = vec![seg_pos.clone(), seg_neg.clone()];
         let (filtered, diag) = filter_segments(segments, &h, &filter_params, &lsd_params);

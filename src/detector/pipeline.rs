@@ -1027,6 +1027,7 @@ impl GridDetector {
             mag_thresh: params.mag_thresh,
             angle_tol_deg: params.angle_tol_deg,
             min_len: params.min_len,
+            options: params.to_lsd_options(),
         }
     }
 

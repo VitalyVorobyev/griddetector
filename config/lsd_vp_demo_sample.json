@@ -12,11 +12,6 @@
         "limit_normal_span": false,
         "normal_span_limit_px": 2.0
     },
-    "engine": {
-        "magnitude_threshold": 0.15,
-        "angle_tolerance_deg": 22.5,
-        "min_length": 6.0
-    },
     "output": {
         "coarsest_image": "out/lsd_vp_coarsest.png",
         "result_json": "out/lsd_vp_result.json"

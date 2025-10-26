@@ -1,6 +1,6 @@
 use crate::angle::{angle_between, angular_difference, normalize_half_pi, vp_direction};
 use crate::image::ImageF32;
-use crate::segments::{lsd_extract_segments, Segment};
+use crate::segments::{lsd_extract_segments_with_options, LsdOptions, Segment};
 use log::debug;
 use nalgebra::{Matrix3, Vector3};
 use serde::Serialize;
@@ -70,6 +70,8 @@ pub struct Engine {
     pub angle_tol_deg: f32,
     /// Minimum accepted segment length in pixels (at that level)
     pub min_len: f32,
+    /// Additional options controlling LSD region growth.
+    pub options: LsdOptions,
 }
 
 impl Default for Engine {
@@ -78,6 +80,7 @@ impl Default for Engine {
             mag_thresh: 0.05,
             angle_tol_deg: 22.5,
             min_len: 4.0,
+            options: LsdOptions::default(),
         }
     }
 }
@@ -85,11 +88,12 @@ impl Default for Engine {
 impl Engine {
     /// Run the engine on a single pyramid level image. Returns a coarse H0 if successful.
     pub fn infer(&self, l: &ImageF32) -> Option<Hypothesis> {
-        let segments = lsd_extract_segments(
+        let segments = lsd_extract_segments_with_options(
             l,
             self.mag_thresh,
             self.angle_tol_deg.to_radians(),
             self.min_len,
+            self.options,
         );
         self.infer_with_segments_internal(l, segments)
             .map(InternalInference::into_hypothesis)
@@ -97,11 +101,12 @@ impl Engine {
 
     /// Returns detailed inference with segment assignments.
     pub fn infer_detailed(&self, l: &ImageF32) -> Option<DetailedInference> {
-        let segments = lsd_extract_segments(
+        let segments = lsd_extract_segments_with_options(
             l,
             self.mag_thresh,
             self.angle_tol_deg.to_radians(),
             self.min_len,
+            self.options,
         );
         self.infer_with_segments_internal(l, segments)
             .map(InternalInference::into_detailed)
