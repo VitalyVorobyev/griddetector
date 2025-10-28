@@ -203,6 +203,153 @@ def draw_model(
         )
 
 
+def clip_line_to_bounds(
+    coeffs: np.ndarray,
+    width: int,
+    height: int,
+) -> np.ndarray | None:
+    a, b, c = coeffs
+    eps = 1e-6
+    w = float(width)
+    h = float(height)
+    intersections: List[np.ndarray] = []
+
+    if abs(b) > eps:
+        for x in (0.0, w):
+            y = -(a * x + c) / b
+            if -eps <= y <= h + eps:
+                intersections.append(np.array([x, np.clip(y, 0.0, h)], dtype=float))
+    if abs(a) > eps:
+        for y in (0.0, h):
+            x = -(b * y + c) / a
+            if -eps <= x <= w + eps:
+                intersections.append(np.array([np.clip(x, 0.0, w), y], dtype=float))
+
+    unique: List[np.ndarray] = []
+    tol = 1e-4
+    for pt in intersections:
+        if not any(np.linalg.norm(pt - other) < tol for other in unique):
+            unique.append(pt)
+
+    if len(unique) < 2:
+        return None
+
+    if len(unique) > 2:
+        max_dist = -1.0
+        best = (unique[0], unique[1])
+        for i in range(len(unique)):
+            for j in range(i + 1, len(unique)):
+                dist = float(np.linalg.norm(unique[i] - unique[j]))
+                if dist > max_dist:
+                    max_dist = dist
+                    best = (unique[i], unique[j])
+        return np.stack(best, axis=0)
+
+    return np.stack(unique, axis=0)
+
+
+def gather_bundle_lines(
+    bundling_stage: dict,
+    image_width: int,
+    image_height: int,
+    limit: int | None,
+) -> Tuple[List[np.ndarray], List[float], List[np.ndarray]]:
+    levels = bundling_stage.get("levels")
+    if not isinstance(levels, list) or not levels:
+        return [], [], []
+
+    stage_scale = bundling_stage.get("scaleApplied")
+
+    def parse_scale(value) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return 1.0
+        return parsed if abs(parsed) > 1e-9 else 1.0
+
+    has_stage_scale = isinstance(stage_scale, (list, tuple)) and len(stage_scale) == 2
+
+    if has_stage_scale:
+        stage_scale_x = parse_scale(stage_scale[0])
+        stage_scale_y = parse_scale(stage_scale[1])
+    else:
+        stage_scale_x = 1.0
+        stage_scale_y = 1.0
+
+    bundle_lines: List[np.ndarray] = []
+    bundle_weights: List[float] = []
+    bundle_centers: List[np.ndarray] = []
+    count = 0
+
+    for level in levels:
+        if limit is not None and count >= limit:
+            break
+        if not isinstance(level, dict):
+            continue
+        level_width = float(level.get("width", image_width))
+        level_height = float(level.get("height", image_height))
+        if not has_stage_scale:
+            bundle_space_w = level_width
+            bundle_space_h = level_height
+        else:
+            bundle_space_w = level_width * stage_scale_x
+            bundle_space_h = level_height * stage_scale_y
+
+        scale_x = float(image_width) / bundle_space_w if bundle_space_w > 1e-6 else 1.0
+        scale_y = float(image_height) / bundle_space_h if bundle_space_h > 1e-6 else 1.0
+
+        bundles = level.get("bundles", [])
+        if not isinstance(bundles, list):
+            continue
+        for bundle in bundles:
+            if limit is not None and count >= limit:
+                break
+            if not isinstance(bundle, dict):
+                continue
+            center = bundle.get("center")
+            line = bundle.get("line")
+            weight = bundle.get("weight")
+            if not is_two_vector(center) or not isinstance(line, (list, tuple)) or len(line) != 3:
+                continue
+            sx = scale_x if abs(scale_x) > 1e-6 else 1.0
+            sy = scale_y if abs(scale_y) > 1e-6 else 1.0
+            center_scaled = np.array(
+                [float(center[0]) * sx, float(center[1]) * sy],
+                dtype=float,
+            )
+            a = float(line[0])
+            b = float(line[1])
+            c = float(line[2])
+            a_scaled = a / sx
+            b_scaled = b / sy
+            norm = float(np.hypot(a_scaled, b_scaled))
+            if norm < 1e-8:
+                continue
+            coeffs = np.array([a_scaled / norm, b_scaled / norm, c / norm], dtype=float)
+            segment = clip_line_to_bounds(coeffs, image_width, image_height)
+            if segment is None:
+                tangent = np.array([-coeffs[1], coeffs[0]], dtype=float)
+                tang_norm = float(np.linalg.norm(tangent))
+                if tang_norm < 1e-8:
+                    continue
+                tangent /= tang_norm
+                half = 0.15 * min(image_width, image_height)
+                p0 = center_scaled - tangent * half
+                p1 = center_scaled + tangent * half
+                p0[0] = np.clip(p0[0], 0.0, float(image_width))
+                p0[1] = np.clip(p0[1], 0.0, float(image_height))
+                p1[0] = np.clip(p1[0], 0.0, float(image_width))
+                p1[1] = np.clip(p1[1], 0.0, float(image_height))
+                segment = np.stack([p0, p1], axis=0)
+
+            bundle_lines.append(segment)
+            bundle_weights.append(float(weight) if weight is not None else 0.0)
+            bundle_centers.append(center_scaled)
+            count += 1
+
+    return bundle_lines, bundle_weights, bundle_centers
+
+
 def plot_vp_outlier_demo(
     image_path: Path,
     result_path: Path,
@@ -228,18 +375,33 @@ def plot_vp_outlier_demo(
 
     inlier_lines, outlier_lines = gather_segments(descriptors, classifications, limit)
 
-    fig, ax = plt.subplots(figsize=figure_size(width, height), dpi=120)
-    ax.imshow(image, cmap="gray", origin="upper")
-    ax.set_xlim(0, width)
-    ax.set_ylim(height, 0)
-    ax.set_axis_off()
+    bundling_stage = trace.get("bundling", {}) if isinstance(trace.get("bundling"), dict) else {}
+    bundle_lines, bundle_weights, bundle_centers = gather_bundle_lines(
+        bundling_stage,
+        width,
+        height,
+        limit,
+    )
+    has_bundles = bool(bundle_lines)
+
+    if has_bundles:
+        fig, axes = plt.subplots(1, 2, figsize=figure_size(width * 2, height), dpi=120)
+        ax_main, ax_bundle = axes
+    else:
+        fig, ax_main = plt.subplots(figsize=figure_size(width, height), dpi=120)
+        ax_bundle = None
+
+    ax_main.imshow(image, cmap="gray", origin="upper")
+    ax_main.set_xlim(0, width)
+    ax_main.set_ylim(height, 0)
+    ax_main.set_axis_off()
 
     if inlier_lines:
         lc_in = LineCollection(inlier_lines, colors=INLIER_COLOR, linewidths=1.8, alpha=alpha)
-        ax.add_collection(lc_in)
+        ax_main.add_collection(lc_in)
     if outlier_lines:
         lc_out = LineCollection(outlier_lines, colors=OUTLIER_COLOR, linewidths=1.4, alpha=alpha)
-        ax.add_collection(lc_out)
+        ax_main.add_collection(lc_out)
 
     src = trace.get("input", {}) if isinstance(trace.get("input"), dict) else {}
     src_w = int(src.get("width", width))
@@ -249,7 +411,7 @@ def plot_vp_outlier_demo(
     if m_coarse is not None:
         m_coarse = rescale_homography(m_coarse, src_w, src_h, width, height)
         draw_model(
-            ax,
+            ax_main,
             m_coarse,
             width,
             height,
@@ -261,7 +423,7 @@ def plot_vp_outlier_demo(
     if m_refined is not None:
         m_refined = rescale_homography(m_refined, src_w, src_h, width, height)
         draw_model(
-            ax,
+            ax_main,
             m_refined,
             width,
             height,
@@ -310,7 +472,7 @@ def plot_vp_outlier_demo(
         ]
     )
 
-    ax.legend(handles=handles, loc="upper right", frameon=True, facecolor="#ffffffdd")
+    ax_main.legend(handles=handles, loc="upper right", frameon=True, facecolor="#ffffffdd")
 
     total = outlier_stage.get("total")
     kept = outlier_stage.get("kept")
@@ -327,7 +489,51 @@ def plot_vp_outlier_demo(
         title_parts.append(f"refined conf={grid['confidence']:.3f}")
     if isinstance(total_ms, (int, float)):
         title_parts.append(f"total={total_ms:.1f} ms")
-    ax.set_title(" | ".join(title_parts))
+    ax_main.set_title(" | ".join(title_parts))
+
+    if has_bundles and ax_bundle is not None:
+        ax_bundle.imshow(image, cmap="gray", origin="upper")
+        ax_bundle.set_xlim(0, width)
+        ax_bundle.set_ylim(height, 0)
+        ax_bundle.set_axis_off()
+
+        weights = np.asarray(bundle_weights, dtype=float)
+        if weights.size:
+            w_min = float(np.min(weights))
+            w_max = float(np.max(weights))
+            if w_max > w_min:
+                norm = (weights - w_min) / (w_max - w_min)
+            else:
+                norm = np.zeros_like(weights)
+        else:
+            norm = np.array([])
+        colors = plt.cm.plasma(0.3 + 0.7 * norm) if norm.size else plt.cm.plasma(0.6)
+        widths = 0.9 + 2.2 * norm if norm.size else 1.5
+
+        lc_bundle = LineCollection(bundle_lines, colors=colors, linewidths=widths, alpha=0.9)
+        ax_bundle.add_collection(lc_bundle)
+
+        centers_arr = np.asarray(bundle_centers)
+        if centers_arr.size:
+            sizes = 20.0 + 40.0 * norm if norm.size else 30.0
+            ax_bundle.scatter(
+                centers_arr[:, 0],
+                centers_arr[:, 1],
+                s=sizes,
+                c=colors if norm.size else [colors],
+                edgecolors="white",
+                linewidths=0.3,
+                alpha=0.9,
+            )
+
+        bundle_title_parts = [f"Bundles ({len(bundle_lines)})"]
+        orientation_tol = bundling_stage.get("orientationTolDeg")
+        merge_dist = bundling_stage.get("mergeDistancePx")
+        if isinstance(orientation_tol, (int, float)):
+            bundle_title_parts.append(f"tol={orientation_tol:.1f}°")
+        if isinstance(merge_dist, (int, float)):
+            bundle_title_parts.append(f"merge={merge_dist:.1f}px")
+        ax_bundle.set_title(" | ".join(bundle_title_parts))
 
     fig.tight_layout()
     if save_path:
