@@ -1,0 +1,63 @@
+{
+  "input": {
+    "glob": "",
+    "paths": ["../data/Cam1_-9.0Rx+9.0Ry+0.0X+0.0Y+0.0Z.png"]
+  },
+  "synthetic": {
+    "count": 5,
+    "width": 1280,
+    "height": 720
+  },
+  "board": {
+    "squares_x": 22,
+    "squares_y": 22,
+    "square_length": 1.0,
+    "marker_length": 0.75,
+    "dictionary": "DICT_4X4_1000"
+  },
+  "detector": {
+    "parameters": {
+      "adaptiveThreshWinSizeMin": 3,
+      "adaptiveThreshWinSizeMax": 23,
+      "adaptiveThreshWinSizeStep": 10,
+      "adaptiveThreshConstant": 7.0,
+      "minMarkerPerimeterRate": 0.03,
+      "maxMarkerPerimeterRate": 4.0,
+      "polygonalApproxAccuracyRate": 0.03,
+      "minCornerDistanceRate": 0.05,
+      "minDistanceToBorder": 3,
+      "minMarkerDistanceRate": 0.05,
+      "markerBorderBits": 1,
+      "minOtsuStdDev": 5.0,
+      "perspectiveRemovePixelPerCell": 8,
+      "perspectiveRemoveIgnoredMarginPerCell": 0.13,
+      "maxErroneousBitsInBorderRate": 0.04,
+      "errorCorrectionRate": 0.6,
+      "cornerRefinementMethod": 1,
+      "cornerRefinementWinSize": 5,
+      "cornerRefinementMaxIterations": 30,
+      "cornerRefinementMinAccuracy": 0.1
+    },
+    "refine": {
+      "enabled": true
+    }
+  },
+  "charuco": {
+    "min_markers": 2
+  },
+  "camera": {
+    "estimate_pose": false,
+    "matrix": null,
+    "dist": null
+  },
+  "timing": {
+    "warmup_runs": 2,
+    "runs": 10
+  },
+  "output": {
+    "dir": "out/charuco_benchmark",
+    "result_json": "results.json",
+    "csv": "timings.csv"
+  }
+}
+
