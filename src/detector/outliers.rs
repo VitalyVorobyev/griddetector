@@ -258,7 +258,7 @@ mod tests {
             p1: [dir[0], dir[1]],
             dir,
             len: (dir[0] * dir[0] + dir[1] * dir[1]).sqrt().max(1e-3),
-            line,
+            line: nalgebra::Vector3::new(line[0], line[1], line[2]),
             avg_mag: 1.0,
             strength: 1.0,
         }

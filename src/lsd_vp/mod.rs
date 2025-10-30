@@ -30,7 +30,6 @@
 mod engine;
 mod histogram;
 mod vp;
-mod bundling;
+pub mod bundling;
 
 pub use engine::{DetailedInference, Engine, FamilyLabel, Hypothesis};
-pub use bundling::{Bundle, bundle_segments};

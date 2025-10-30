@@ -329,7 +329,7 @@ impl<'a> LsdExtractor<'a> {
             p1,
             dir: [tx, ty],
             len,
-            line: [nx, ny, c],
+            line: nalgebra::Vector3::new(nx, ny, c),
             avg_mag,
             strength,
         })

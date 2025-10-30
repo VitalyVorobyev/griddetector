@@ -201,7 +201,7 @@ pub fn convert_refined_segment(prev: &Segment, result: RefineResult) -> Segment 
         p1,
         dir,
         len,
-        line: [normal[0], normal[1], c],
+        line: nalgebra::Vector3::new(normal[0], normal[1], c),
         avg_mag,
         strength,
     }

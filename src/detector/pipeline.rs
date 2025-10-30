@@ -41,7 +41,7 @@ use crate::refine::segment::{
     Segment as SegmentSeed,
 };
 use crate::refine::{RefineLevel, RefineParams as HomographyRefineParams, Refiner};
-use crate::segments::{bundle_segments, Bundle, Segment};
+use crate::segments::{Bundle, Segment};
 use crate::types::{GridResult, Pose};
 use log::debug;
 use nalgebra::Matrix3;
@@ -178,8 +178,13 @@ impl GridDetector {
         let mut prepared_levels = PreparedLevels::empty();
         if !filtered_segments.is_empty() && !pyramid.levels.is_empty() {
             self.workspace.reset(pyramid.levels.len());
-            prepared_levels =
-                self.prepare_refinement_levels(&pyramid, filtered_segments.clone(), width, height);
+            prepared_levels = self.prepare_refinement_levels(
+                &pyramid,
+                full_h.as_ref(),
+                filtered_segments.clone(),
+                width,
+                height,
+            );
         }
 
         let bundling_stage = self.build_bundling_stage(&prepared_levels, filtered_segments.len());
@@ -630,9 +635,13 @@ impl GridDetector {
 
         let mut bundling_stage = None;
         let mut coarse_bundles: Vec<Bundle> = Vec::new();
-        if let Some((stage, bundles)) =
-            self.bundle_coarsest(&pyramid, &filtered_segments, width, height)
-        {
+        if let Some((stage, bundles)) = self.bundle_coarsest(
+            &pyramid,
+            coarse_h.as_ref(),
+            &filtered_segments,
+            width,
+            height,
+        ) {
             coarse_bundles = bundles;
             bundling_stage = Some(stage);
         }
@@ -727,6 +736,7 @@ impl GridDetector {
     pub fn bundle_coarsest(
         &self,
         pyramid: &Pyramid,
+        coarse_h: Option<&Matrix3<f32>>,
         segments: &[Segment],
         full_width: usize,
         full_height: usize,
@@ -734,18 +744,23 @@ impl GridDetector {
         if segments.is_empty() {
             return None;
         }
+        let h = coarse_h?;
         let level_index = pyramid.levels.len().checked_sub(1)?;
         let level = &pyramid.levels[level_index];
 
         let bundling_params = &self.params.bundling_params;
-        let orientation_tol = bundling_params.orientation_tol_deg.to_radians();
         let scaling = LevelScaling::from_dimensions(level.w, level.h, full_width, full_height);
         let (dist_tol_level, min_weight_level) =
             adapt_bundling_thresholds(bundling_params, &scaling);
 
         let bundling_start = Instant::now();
-        let bundles_level =
-            bundle_segments(segments, orientation_tol, dist_tol_level, min_weight_level);
+        // Perform homography-rectified bundling on the coarsest level using the coarse H.
+        let bundles_level = crate::lsd_vp::bundling::bundle_rectified(
+            segments,
+            h,
+            dist_tol_level,
+            min_weight_level,
+        );
         let mut bundles_full: Vec<Bundle> = Vec::with_capacity(bundles_level.len());
         for bundle in bundles_level {
             bundles_full.push(rescale_bundle_to_full_res(
@@ -1034,6 +1049,7 @@ impl GridDetector {
     fn prepare_refinement_levels(
         &mut self,
         pyramid: &Pyramid,
+        coarse_h: Option<&Matrix3<f32>>,
         initial_segments: Vec<Segment>,
         full_width: usize,
         full_height: usize,
@@ -1047,7 +1063,6 @@ impl GridDetector {
         }
 
         let bundling_params = &self.params.bundling_params;
-        let orientation_tol = bundling_params.orientation_tol_deg.to_radians();
         let mut levels_data = Vec::new();
         let mut current_segments = initial_segments;
         let mut bundling_ms = 0.0f64;
@@ -1061,12 +1076,22 @@ impl GridDetector {
             let bundling_start = Instant::now();
             let (dist_tol_level, min_weight_level) =
                 adapt_bundling_thresholds(bundling_params, &scaling);
-            let bundles_raw = bundle_segments(
-                &current_segments,
-                orientation_tol,
-                dist_tol_level,
-                min_weight_level,
-            );
+            let bundles_raw = if let Some(h) = coarse_h {
+                crate::lsd_vp::bundling::bundle_rectified(
+                    &current_segments,
+                    h,
+                    dist_tol_level,
+                    min_weight_level,
+                )
+            } else {
+                // Fallback to legacy bundling if no coarse homography is available.
+                crate::segments::bundle_segments(
+                    &current_segments,
+                    bundling_params.orientation_tol_deg.to_radians(),
+                    dist_tol_level,
+                    min_weight_level,
+                )
+            };
             let bundles_full: Vec<Bundle> = bundles_raw
                 .into_iter()
                 .map(|b| {

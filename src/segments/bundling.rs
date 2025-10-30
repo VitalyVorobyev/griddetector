@@ -123,7 +123,8 @@ pub fn bundle_segments(
             if let Some(bid) = best_id {
                 // Merge into the best bundle and update its offset bucket if needed.
                 let old_key = bundle_keys[bid];
-                merge_bundle(&mut bundles[bid], &s.line, s, weight);
+                let line_arr = [s.line[0], s.line[1], s.line[2]];
+                merge_bundle(&mut bundles[bid], &line_arr, s, weight);
 
                 // Reindex bundle if its center moved across offset buckets.
                 let new_center = bundles[bid].center;
@@ -144,7 +145,7 @@ pub fn bundle_segments(
                 // Start a new bundle seeded by this segment.
                 let bundle_id = bundles.len();
                 bundles.push(Bundle {
-                    line: s.line,
+                    line: [s.line[0], s.line[1], s.line[2]],
                     center: segment_center(s),
                     weight,
                 });

@@ -30,7 +30,7 @@ impl SegmentDescriptor {
             p1: seg.p1,
             direction: seg.dir,
             length: seg.len,
-            line: seg.line,
+            line: [seg.line[0], seg.line[1], seg.line[2]],
             average_magnitude: seg.avg_mag,
             strength: seg.strength,
         }

@@ -20,7 +20,9 @@ pub(crate) fn estimate_vp(
     let mut by = 0.0f32;
     for &idx in indices {
         let s = &segs[idx];
-        let [a, b, c] = s.line;
+        let a = s.line[0];
+        let b = s.line[1];
+        let c = s.line[2];
         let w = s.strength.max(1.0);
         a11 += w * a * a;
         a12 += w * a * b;
@@ -58,7 +60,7 @@ mod tests {
             p1: [dir[0], dir[1]],
             dir,
             len: strength,
-            line,
+            line: nalgebra::Vector3::new(line[0], line[1], line[2]),
             avg_mag: 1.0,
             strength,
         }
