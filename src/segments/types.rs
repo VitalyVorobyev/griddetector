@@ -1,3 +1,5 @@
+use nalgebra::Vector3;
+
 /// Line segment produced by the LSD-like extractor.
 #[derive(Clone, Debug)]
 pub struct Segment {
@@ -5,7 +7,7 @@ pub struct Segment {
     pub p1: [f32; 2],
     pub dir: [f32; 2],
     pub len: f32,
-    pub line: [f32; 3], // ax + by + c = 0, with sqrt(a^2+b^2)=1
+    pub line: Vector3<f32>, // ax + by + c = 0, with sqrt(a^2+b^2)=1
     pub avg_mag: f32,
     pub strength: f32,
 }
