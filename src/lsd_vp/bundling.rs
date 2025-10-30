@@ -17,7 +17,11 @@ fn cluster_1d(mut obs: Vec<Obs>, eps: f32, min_strength: f32) -> Vec<Vec<Obs>> {
     if obs.is_empty() {
         return Vec::new();
     }
-    obs.sort_by(|a, b| a.param.partial_cmp(&b.param).unwrap_or(std::cmp::Ordering::Equal));
+    obs.sort_by(|a, b| {
+        a.param
+            .partial_cmp(&b.param)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let mut clusters: Vec<Vec<Obs>> = Vec::new();
     let mut cur: Vec<Obs> = Vec::new();
     for o in obs.into_iter() {
@@ -121,13 +125,19 @@ pub fn bundle_rectified(
 
     let mut bundles_out: Vec<crate::segments::bundling::Bundle> = Vec::new();
 
-    let to_bundle = |cluster: Vec<Obs>, axis: char, h: &Matrix3<f32>| -> Option<crate::segments::bundling::Bundle> {
+    let to_bundle = |cluster: Vec<Obs>,
+                     axis: char,
+                     h: &Matrix3<f32>|
+     -> Option<crate::segments::bundling::Bundle> {
         // Robust center: start with weighted mean, then trim outliers by param residual ≤ 2*eps.
         let mut sum_w: f32 = cluster.iter().map(|o| o.strength).sum();
         if sum_w <= 1e-6 {
             return None;
         }
-        let mut avg_param = cluster.iter().fold(0.0, |acc, o| acc + o.param * o.strength) / sum_w;
+        let mut avg_param = cluster
+            .iter()
+            .fold(0.0, |acc, o| acc + o.param * o.strength)
+            / sum_w;
         let mut kept: Vec<&Obs> = cluster
             .iter()
             .filter(|o| (o.param - avg_param).abs() <= 2.0 * eps)

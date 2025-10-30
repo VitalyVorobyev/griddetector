@@ -27,9 +27,9 @@
 //! - The returned `H0` is defined in the current level’s coordinates; callers
 //!   should rescale to full-resolution before use.
 
+pub mod bundling;
 mod engine;
 mod histogram;
 mod vp;
-pub mod bundling;
 
 pub use engine::{DetailedInference, Engine, FamilyLabel, Hypothesis};

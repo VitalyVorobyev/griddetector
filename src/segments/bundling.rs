@@ -84,7 +84,13 @@ pub fn bundle_segments(
         // Sort segments by projected offset along bin normal to visit nearby ones first.
         let mut items: Vec<(usize, f32)> = seg_indices_per_bin[b]
             .iter()
-            .map(|&idx| (idx, nbin[0] * segment_center(&segs[idx])[0] + nbin[1] * segment_center(&segs[idx])[1]))
+            .map(|&idx| {
+                (
+                    idx,
+                    nbin[0] * segment_center(&segs[idx])[0]
+                        + nbin[1] * segment_center(&segs[idx])[1],
+                )
+            })
             .collect();
         items.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -196,5 +202,9 @@ fn segment_center(seg: &Segment) -> [f32; 2] {
 fn max_endpoint_distance(p0: &[f32; 2], p1: &[f32; 2], line: &[f32; 3]) -> f32 {
     let d0 = (line[0] * p0[0] + line[1] * p0[1] + line[2]).abs();
     let d1 = (line[0] * p1[0] + line[1] * p1[1] + line[2]).abs();
-    if d0 > d1 { d0 } else { d1 }
+    if d0 > d1 {
+        d0
+    } else {
+        d1
+    }
 }
