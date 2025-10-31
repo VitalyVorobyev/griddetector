@@ -1,5 +1,5 @@
 use crate::segments::Segment;
-use log::debug;
+use log::{debug, info};
 use nalgebra::{Matrix3, Vector3};
 
 /// Internal observation used for 1D clustering in rectified space.
@@ -42,6 +42,33 @@ fn cluster_1d(mut obs: Vec<Obs>, eps: f32, min_strength: f32) -> Vec<Vec<Obs>> {
         }
     }
     clusters
+}
+
+fn compute_auto_eps(obs: &[Obs], default_eps: f32, factor: f32) -> f32 {
+    if obs.len() < 2 {
+        return default_eps.max(1e-6);
+    }
+    let mut params: Vec<f32> = obs.iter().map(|o| o.param).collect();
+    params.sort_by(|a, b| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal));
+    let mut diffs: Vec<f32> = Vec::with_capacity(params.len().saturating_sub(1));
+    for i in 1..params.len() {
+        let d = (params[i] - params[i - 1]).abs();
+        if d.is_finite() && d > 0.0 {
+            diffs.push(d);
+        }
+    }
+    if diffs.is_empty() {
+        return default_eps.max(1e-6);
+    }
+    diffs.sort_by(|a, b| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal));
+    let m = diffs.len();
+    let median = if m % 2 == 1 {
+        diffs[m / 2]
+    } else {
+        0.5 * (diffs[m / 2 - 1] + diffs[m / 2])
+    };
+    let eps_auto = (factor * median).max(1e-6);
+    if eps_auto.is_finite() { eps_auto } else { default_eps.max(1e-6) }
 }
 
 fn segment_center(seg: &Segment) -> [f32; 2] {
@@ -125,9 +152,20 @@ pub fn bundle_rectified(
 
     let mut bundles_out: Vec<crate::segments::bundling::Bundle> = Vec::new();
 
-    let to_bundle = |cluster: Vec<Obs>,
-                     axis: char,
-                     h: &Matrix3<f32>|
+    // Compute adaptive eps from median inter-line spacing in rectified space.
+    let eps_factor = 3.0f32; // default factor per spec
+    let eps_u = compute_auto_eps(&u_obs, eps, eps_factor);
+    let eps_v = compute_auto_eps(&v_obs, eps, eps_factor);
+
+    info!(
+        "LSD-VP rectified bundling: eps_u={:.2}, eps_v={:.2}",
+        eps_u, eps_v
+    );
+
+    let to_bundle_with = |cluster: Vec<Obs>,
+                          axis: char,
+                          h: &Matrix3<f32>,
+                          eps_used: f32|
      -> Option<crate::segments::bundling::Bundle> {
         // Robust center: start with weighted mean, then trim outliers by param residual ≤ 2*eps.
         let mut sum_w: f32 = cluster.iter().map(|o| o.strength).sum();
@@ -140,13 +178,13 @@ pub fn bundle_rectified(
             / sum_w;
         let mut kept: Vec<&Obs> = cluster
             .iter()
-            .filter(|o| (o.param - avg_param).abs() <= 2.0 * eps)
+            .filter(|o| (o.param - avg_param).abs() <= 2.0 * eps_used)
             .collect();
         if kept.is_empty() {
             // Fall back to 3*eps to avoid dropping valid singletons in noisy cases
             kept = cluster
                 .iter()
-                .filter(|o| (o.param - avg_param).abs() <= 3.0 * eps)
+                .filter(|o| (o.param - avg_param).abs() <= 3.0 * eps_used)
                 .collect();
         }
         if kept.is_empty() {
@@ -184,13 +222,13 @@ pub fn bundle_rectified(
         })
     };
 
-    for cluster in cluster_1d(u_obs, eps, min_strength) {
-        if let Some(b) = to_bundle(cluster, 'x', hmtx) {
+    for cluster in cluster_1d(u_obs, eps_u, min_strength) {
+        if let Some(b) = to_bundle_with(cluster, 'x', hmtx, eps_u) {
             bundles_out.push(b);
         }
     }
-    for cluster in cluster_1d(v_obs, eps, min_strength) {
-        if let Some(b) = to_bundle(cluster, 'y', hmtx) {
+    for cluster in cluster_1d(v_obs, eps_v, min_strength) {
+        if let Some(b) = to_bundle_with(cluster, 'y', hmtx, eps_v) {
             bundles_out.push(b);
         }
     }

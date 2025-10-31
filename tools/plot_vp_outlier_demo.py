@@ -536,10 +536,82 @@ def plot_vp_outlier_demo(
         ax_bundle.set_title(" | ".join(bundle_title_parts))
 
     fig.tight_layout()
+    # --- Rectified segments figure (using refined grid.hmtx) ---
+    def rectify_points(Hinv: np.ndarray, pts: np.ndarray) -> np.ndarray | None:
+        if Hinv is None:
+            return None
+        out = []
+        for p in pts:
+            ph = np.array([float(p[0]), float(p[1]), 1.0], dtype=float)
+            q = Hinv @ ph
+            if abs(q[2]) < 1e-9 or not np.isfinite(q).all():
+                return None
+            out.append([q[0] / q[2], q[1] / q[2]])
+        return np.asarray(out, dtype=float)
+
+    rect_fig = None
+    rect_ax = None
+    H_grid = to_matrix3x3(grid.get("hmtx"))
+    if H_grid is not None:
+        # Rescale to image coordinates (same as drawing VPs) before inversion.
+        src = trace.get("input", {}) if isinstance(trace.get("input"), dict) else {}
+        src_w = int(src.get("width", width))
+        src_h = int(src.get("height", height))
+        H_grid = rescale_homography(H_grid, src_w, src_h, width, height)
+        try:
+            Hinv = np.linalg.inv(H_grid)
+        except np.linalg.LinAlgError:
+            Hinv = None
+
+        if Hinv is not None:
+            rect_fig, rect_ax = plt.subplots(figsize=figure_size(width, height, scale=1.2))
+            rect_ax.set_title("Rectified Segments (grid.hmtx)")
+            rect_ax.set_aspect("equal", adjustable="box")
+            rect_ax.set_axis_on()
+
+            rect_inliers: List[np.ndarray] = []
+            rect_outliers: List[np.ndarray] = []
+            all_pts: List[np.ndarray] = []
+            for seg in inlier_lines:
+                rect = rectify_points(Hinv, seg)
+                if rect is not None:
+                    rect_inliers.append(rect)
+                    all_pts.append(rect)
+            for seg in outlier_lines:
+                rect = rectify_points(Hinv, seg)
+                if rect is not None:
+                    rect_outliers.append(rect)
+                    all_pts.append(rect)
+
+            if all_pts:
+                pts = np.concatenate(all_pts, axis=0)
+                xmin, ymin = np.min(pts, axis=0)
+                xmax, ymax = np.max(pts, axis=0)
+                dx = xmax - xmin
+                dy = ymax - ymin
+                pad_x = 0.05 * dx if dx > 0 else 1.0
+                pad_y = 0.05 * dy if dy > 0 else 1.0
+                rect_ax.set_xlim(float(xmin - pad_x), float(xmax + pad_x))
+                rect_ax.set_ylim(float(ymin - pad_y), float(ymax + pad_y))
+
+            if rect_inliers:
+                lc_in_r = LineCollection(rect_inliers, colors=INLIER_COLOR, linewidths=1.8, alpha=alpha)
+                rect_ax.add_collection(lc_in_r)
+            if rect_outliers:
+                lc_out_r = LineCollection(rect_outliers, colors=OUTLIER_COLOR, linewidths=1.4, alpha=alpha)
+                rect_ax.add_collection(lc_out_r)
+
+            rect_ax.grid(True, linestyle=":", linewidth=0.6, alpha=0.6)
+
+    # Save / show figures
     if save_path:
         save_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=150, bbox_inches="tight", pad_inches=0.0)
         print(f"Saved visualization to {save_path}")
+        if rect_fig is not None:
+            rect_path = save_path.with_name(save_path.stem + "_rectified" + save_path.suffix)
+            rect_fig.savefig(rect_path, dpi=150, bbox_inches="tight", pad_inches=0.0)
+            print(f"Saved rectified visualization to {rect_path}")
     else:
         plt.show()
 
