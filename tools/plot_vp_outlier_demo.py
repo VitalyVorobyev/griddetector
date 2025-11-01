@@ -146,37 +146,84 @@ def make_rectified_figure(
     img_h: int,
     alpha: float,
 ) -> tuple[plt.Figure, plt.Axes] | tuple[None, None]:
+    """Visualize rectified segments with bounds driven by the rectified inliers.
+
+    The goal is to show the grid defined by the kept segments, so the viewport is
+    anchored to rectified inliers when available and only falls back to outliers
+    when no inliers remain.  A small percentile-based clamp combined with a
+    maximum extent keeps a single errant segment from blowing up the scale.  The
+    chosen bounds are printed to stdout so demo users can quickly spot
+    pathological rectifications without inspecting the matplotlib UI.
+    """
     H_rect = rescale_homography_image_space(H_full, src_w, src_h, img_w, img_h)
     H_rect = np.linalg.inv(H_rect)
 
     rect_inliers: List[np.ndarray] = []
     rect_outliers: List[np.ndarray] = []
-    all_pts: List[np.ndarray] = []
     for seg in inlier_lines:
         r = apply_homography_points(H_rect, seg)
         if r is not None:
             rect_inliers.append(r)
-            all_pts.append(r)
     for seg in outlier_lines:
         r = apply_homography_points(H_rect, seg)
         if r is not None:
             rect_outliers.append(r)
-            all_pts.append(r)
-    if not all_pts:
+    if not rect_inliers and not rect_outliers:
         return None, None
-    pts = np.concatenate(all_pts, axis=0)
-    xmin, ymin = np.min(pts, axis=0)
-    xmax, ymax = np.max(pts, axis=0)
-    dx = xmax - xmin
-    dy = ymax - ymin
-    pad_x = 0.05 * dx if dx > 0 else 1.0
-    pad_y = 0.05 * dy if dy > 0 else 1.0
+
+    def _stack_points(segments: List[np.ndarray]) -> np.ndarray:
+        if not segments:
+            return np.empty((0, 2), dtype=float)
+        return np.concatenate(segments, axis=0)
+
+    inlier_pts = _stack_points(rect_inliers)
+    outlier_pts = _stack_points(rect_outliers)
+    if inlier_pts.size:
+        primary_pts = inlier_pts
+        primary_label = "inliers"
+        primary_count = len(rect_inliers)
+    else:
+        primary_pts = outlier_pts
+        primary_label = "outliers"
+        primary_count = len(rect_outliers)
+    if primary_pts.size == 0:
+        return None, None
+
+    percentile_clip = 2.5
+    max_extent = 2500.0
+    raw_min = np.min(primary_pts, axis=0)
+    raw_max = np.max(primary_pts, axis=0)
+    if 0.0 < percentile_clip < 50.0:
+        lower = np.percentile(primary_pts, percentile_clip, axis=0)
+        upper = np.percentile(primary_pts, 100.0 - percentile_clip, axis=0)
+        min_xy = lower
+        max_xy = upper
+    else:
+        min_xy = raw_min
+        max_xy = raw_max
+
+    span = max_xy - min_xy
+    span = np.where(span <= 0.0, 1.0, span)
+    if max_extent is not None:
+        center = 0.5 * (max_xy + min_xy)
+        span = np.minimum(span, max_extent)
+        min_xy = center - 0.5 * span
+        max_xy = center + 0.5 * span
+
+    pad = 0.05 * span
+    xmin, ymin = (min_xy - pad)
+    xmax, ymax = (max_xy + pad)
+
+    print(
+        f"[rectified bounds] using {primary_label} (n={primary_count}) "
+        f"x=({xmin:.2f}, {xmax:.2f}) y=({ymin:.2f}, {ymax:.2f})"
+    )
 
     fig, ax = plt.subplots(figsize=figure_size(img_w, img_h, scale=1.2))
     ax.set_aspect("equal", adjustable="box")
     ax.set_axis_on()
-    ax.set_xlim(float(xmin - pad_x), float(xmax + pad_x))
-    ax.set_ylim(float(ymin - pad_y), float(ymax + pad_y))
+    ax.set_xlim(float(xmin), float(xmax))
+    ax.set_ylim(float(ymin), float(ymax))
     if rect_inliers:
         ax.add_collection(LineCollection(rect_inliers, colors=INLIER_COLOR, linewidths=1.8, alpha=alpha))
     if rect_outliers:
