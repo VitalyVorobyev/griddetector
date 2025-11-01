@@ -139,24 +139,15 @@ def make_bundles_figure(
 def make_rectified_figure(
     inlier_lines: list[np.ndarray],
     outlier_lines: list[np.ndarray],
-    H_full: np.ndarray | None,
+    H_full: np.ndarray,
     src_w: int,
     src_h: int,
     img_w: int,
     img_h: int,
     alpha: float,
 ) -> tuple[plt.Figure, plt.Axes] | tuple[None, None]:
-    if H_full is None:
-        return None, None
-    sx = float(img_w) / float(src_w) if src_w else 1.0
-    sy = float(img_h) / float(src_h) if src_h else 1.0
-    S = np.array([[sx, 0.0, 0.0], [0.0, sy, 0.0], [0.0, 0.0, 1.0]], dtype=float)
-    try:
-        H_inv_full = np.linalg.inv(H_full)
-        S_inv = np.linalg.inv(S)
-        H_rect = H_inv_full @ S_inv
-    except np.linalg.LinAlgError:
-        return None, None
+    H_rect = rescale_homography_image_space(H_full, src_w, src_h, img_w, img_h)
+    H_rect = np.linalg.inv(H_rect)
 
     rect_inliers: List[np.ndarray] = []
     rect_outliers: List[np.ndarray] = []
