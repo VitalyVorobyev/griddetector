@@ -126,41 +126,24 @@ def rescale_homography_image_space(
 
     Points transform as x_img' = S x_img, so H' = S H.
     """
-    H = np.asarray(H, dtype=np.float32)
-    if _GRID_LIB is None:
-        return _rescale_homography_python(H, src_w, src_h, dst_w, dst_h)
-
-    mat = np.ascontiguousarray(H, dtype=np.float32)
-    out = np.empty((3, 3), dtype=np.float32)
-    ok = _GRID_LIB.grid_rescale_homography(
-        mat.ctypes.data_as(POINTER(c_float)),
-        c_uint32(src_w),
-        c_uint32(src_h),
-        c_uint32(dst_w),
-        c_uint32(dst_h),
-        out.ctypes.data_as(POINTER(c_float)),
-    )
-    if not ok:
-        raise RuntimeError("grid_rescale_homography failed")
-    return out
+    sx = float(dst_w) / float(src_w)
+    sy = float(dst_h) / float(src_h)
+    S = np.array([[sx, 0.0, 0.0], [0.0, sy, 0.0], [0.0, 0.0, 1.0]], dtype=float)
+    return S @ H
 
 
-def _apply_homography_points_python(
-    H: np.ndarray, pts: np.ndarray
-) -> np.ndarray | None:
-    pts = np.asarray(pts, dtype=np.float32)
+def apply_homography_points(H: np.ndarray, pts: np.ndarray) -> np.ndarray | None:
+    """Apply H to Nx2 points; return Nx2, or None if any maps to infinity.
+
+    Accepts 2x2 (segment endpoints) as well.
+    """
+    pts = np.asarray(pts, dtype=float)
     if pts.ndim != 2 or pts.shape[1] != 2:
         return None
     ones = np.ones((pts.shape[0], 1), dtype=np.float32)
     ph = np.concatenate([pts, ones], axis=1)
     q = (H @ ph.T).T
-    w = q[:, 2:3]
-    ok = np.isfinite(q).all(axis=1) & (np.abs(w[:, 0]) > 1e-9)
-    if not np.all(ok):
-        return None
-    q[:, 0:2] /= w
-    return q[:, 0:2]
-
+    return q[:, 0:2] / q[:, 2:3]
 
 def apply_homography_points(H: np.ndarray, pts: np.ndarray) -> np.ndarray | None:
     """Apply H to Nx2 points; return Nx2, or None if any maps to infinity."""
