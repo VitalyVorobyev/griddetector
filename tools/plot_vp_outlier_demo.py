@@ -147,7 +147,6 @@ def make_rectified_figure(
     alpha: float,
 ) -> tuple[plt.Figure, plt.Axes] | tuple[None, None]:
     H_rect = rescale_homography_image_space(H_full, src_w, src_h, img_w, img_h)
-    H_rect = np.linalg.inv(H_rect)
 
     rect_inliers: List[np.ndarray] = []
     rect_outliers: List[np.ndarray] = []
@@ -179,7 +178,7 @@ def make_rectified_figure(
     ax.set_ylim(float(ymin - pad_y), float(ymax + pad_y))
     if rect_inliers:
         ax.add_collection(LineCollection(rect_inliers, colors=INLIER_COLOR, linewidths=1.8, alpha=alpha))
-    if rect_outliers:
+    if False and rect_outliers:
         ax.add_collection(LineCollection(rect_outliers, colors=OUTLIER_COLOR, linewidths=1.4, alpha=alpha))
     ax.grid(True, linestyle=":", linewidth=0.6, alpha=0.6)
     fig.tight_layout()

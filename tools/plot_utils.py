@@ -57,8 +57,6 @@ def rescale_homography_image_space(
 
     Points transform as x_img' = S x_img, so H' = S H.
     """
-    if not (src_w and src_h and dst_w and dst_h):
-        return H
     sx = float(dst_w) / float(src_w)
     sy = float(dst_h) / float(src_h)
     S = np.array([[sx, 0.0, 0.0], [0.0, sy, 0.0], [0.0, 0.0, 1.0]], dtype=float)
@@ -70,21 +68,13 @@ def apply_homography_points(H: np.ndarray, pts: np.ndarray) -> np.ndarray | None
 
     Accepts 2x2 (segment endpoints) as well.
     """
-    if H is None or pts is None:
-        return None
     pts = np.asarray(pts, dtype=float)
     if pts.ndim != 2 or pts.shape[1] != 2:
         return None
     ones = np.ones((pts.shape[0], 1), dtype=float)
     ph = np.concatenate([pts, ones], axis=1)
     q = (H @ ph.T).T
-    w = q[:, 2:3]
-    ok = np.isfinite(q).all(axis=1) & (np.abs(w[:, 0]) > 1e-9)
-    if not np.all(ok):
-        return None
-    q[:, 0:2] /= w
-    return q[:, 0:2]
-
+    return q[:, 0:2] / q[:, 2:3]
 
 def homogeneous_to_point(vec: np.ndarray) -> Tuple[np.ndarray, bool]:
     if abs(vec[2]) > 1e-6:
