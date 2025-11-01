@@ -51,11 +51,12 @@ pub(crate) fn estimate_vp(
 #[cfg(test)]
 mod tests {
     use super::estimate_vp;
-    use crate::segments::Segment;
+    use crate::segments::{Segment, SegmentId};
     use nalgebra::Vector3;
 
-    fn make_segment(line: [f32; 3], dir: [f32; 2], strength: f32) -> Segment {
+    fn make_segment(line: [f32; 3], dir: [f32; 2], strength: f32, id: u32) -> Segment {
         Segment {
+            id: SegmentId(id),
             p0: [0.0, 0.0],
             p1: [dir[0], dir[1]],
             dir,
@@ -74,8 +75,8 @@ mod tests {
     fn finite_intersection() {
         // Lines x=10 and y=20 should intersect at (10,20,1)
         let segs = vec![
-            make_segment([1.0, 0.0, -10.0], [0.0, 1.0], 20.0),
-            make_segment([0.0, 1.0, -20.0], [1.0, 0.0], 20.0),
+            make_segment([1.0, 0.0, -10.0], [0.0, 1.0], 20.0, 0),
+            make_segment([0.0, 1.0, -20.0], [1.0, 0.0], 20.0, 1),
         ];
         let vp = estimate_vp(&segs, &[0, 1], 0.0).expect("vp");
         assert!(approx_vec(&vp, &Vector3::new(10.0, 20.0, 1.0)));
@@ -85,8 +86,8 @@ mod tests {
     fn fallback_direction_when_parallel() {
         // Parallel lines should trigger fallback direction (point at infinity)
         let segs = vec![
-            make_segment([1.0, 0.0, -5.0], [0.0, 1.0], 15.0),
-            make_segment([1.0, 0.0, -15.0], [0.0, 1.0], 15.0),
+            make_segment([1.0, 0.0, -5.0], [0.0, 1.0], 15.0, 0),
+            make_segment([1.0, 0.0, -15.0], [0.0, 1.0], 15.0, 1),
         ];
         let fallback = std::f32::consts::FRAC_PI_4;
         let vp = estimate_vp(&segs, &[0, 1], fallback).expect("vp");

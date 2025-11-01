@@ -31,28 +31,6 @@ pub struct DetailedInference {
     pub segments: Vec<Segment>,
 }
 
-struct InternalInference {
-    hypothesis: Hypothesis,
-    dominant_angles_rad: [f32; 2],
-    families: Vec<Option<FamilyLabel>>,
-    segments: Vec<Segment>,
-}
-
-impl InternalInference {
-    fn into_hypothesis(self) -> Hypothesis {
-        self.hypothesis
-    }
-
-    fn into_detailed(self) -> DetailedInference {
-        DetailedInference {
-            hypothesis: self.hypothesis,
-            dominant_angles_rad: self.dominant_angles_rad,
-            families: self.families,
-            segments: self.segments,
-        }
-    }
-}
-
 /// Coarse hypothesis returned by the LSD→VP engine
 #[derive(Clone, Debug, Serialize)]
 pub struct Hypothesis {
@@ -96,7 +74,7 @@ impl Engine {
             self.options,
         );
         self.infer_with_segments_internal(l, segments)
-            .map(InternalInference::into_hypothesis)
+            .map(|d| d.hypothesis)
     }
 
     /// Returns detailed inference with segment assignments.
@@ -109,7 +87,6 @@ impl Engine {
             self.options,
         );
         self.infer_with_segments_internal(l, segments)
-            .map(InternalInference::into_detailed)
     }
 
     /// Run inference on pre-computed segments (e.g., using custom LSD options).
@@ -119,14 +96,13 @@ impl Engine {
         segments: Vec<Segment>,
     ) -> Option<DetailedInference> {
         self.infer_with_segments_internal(l, segments)
-            .map(InternalInference::into_detailed)
     }
 
     fn infer_with_segments_internal(
         &self,
         l: &ImageF32,
         segments: Vec<Segment>,
-    ) -> Option<InternalInference> {
+    ) -> Option<DetailedInference> {
         let t0 = Instant::now();
         if segments.len() < MIN_SEGS {
             debug!(
@@ -241,7 +217,7 @@ impl Engine {
             confidence: conf,
         };
 
-        Some(InternalInference {
+        Some(DetailedInference {
             hypothesis,
             dominant_angles_rad: [theta_u, theta_v],
             families,

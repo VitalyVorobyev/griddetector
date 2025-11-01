@@ -9,8 +9,7 @@ use grid_detector::config::segment_refine_demo as seg_cfg;
 use grid_detector::config::segments::LsdConfig;
 use grid_detector::diagnostics::builders::convert_refined_segment;
 use grid_detector::diagnostics::{
-    PyramidStage, SegmentDescriptor, SegmentId, SegmentRefineLevel, SegmentRefineSample,
-    SegmentRefineStage, TimingBreakdown,
+    PyramidStage, SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage, TimingBreakdown,
 };
 use grid_detector::edges::grad::{sobel_gradients, Grad};
 use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
@@ -71,15 +70,7 @@ fn run() -> Result<(), String> {
     let lsd_ms = lsd_start.elapsed().as_secs_f64() * 1000.0;
 
     let mut current_segments: Vec<Segment> = lsd_segments.clone();
-    let mut segment_id_counter: u32 = 0;
-    let mut initial_descriptors = Vec::with_capacity(current_segments.len());
-    for seg in &current_segments {
-        initial_descriptors.push(SegmentDescriptor::from_segment(
-            SegmentId(segment_id_counter),
-            seg,
-        ));
-        segment_id_counter += 1;
-    }
+    let initial_segments = current_segments.clone();
 
     let mut refine_params = config.refine.resolve();
     if refine_params.delta_s <= 0.0 {
@@ -147,11 +138,8 @@ fn run() -> Result<(), String> {
                 None
             };
             let updated = convert_refined_segment(seg, result);
-            let descriptor =
-                SegmentDescriptor::from_segment(SegmentId(segment_id_counter), &updated);
-            segment_id_counter += 1;
             samples.push(SegmentRefineSample {
-                segment: descriptor,
+                segment: updated.clone(),
                 score,
                 ok: Some(ok),
                 inliers,
@@ -204,7 +192,7 @@ fn run() -> Result<(), String> {
 
     let stage = SegmentRefineStage {
         pyramid: pyramid_stage,
-        lsd_segments: Some(initial_descriptors),
+        lsd_segments: Some(initial_segments),
         levels: levels_report,
         timings,
     };
@@ -238,11 +226,7 @@ fn detect_coarse_segments(
 ) -> Vec<Segment> {
     let options = LsdOptions {
         enforce_polarity: lsd_cfg.enforce_polarity,
-        normal_span_limit: if lsd_cfg.limit_normal_span {
-            Some(lsd_cfg.normal_span_limit_px)
-        } else {
-            None
-        },
+        normal_span_limit: lsd_cfg.normal_span_limit_px,
     };
     let angle_tol = lsd_cfg.angle_tolerance_deg.to_radians();
     lsd_extract_segments_with_options(

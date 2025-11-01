@@ -1,4 +1,4 @@
-use crate::diagnostics::segments::SegmentDescriptor;
+use crate::segments::Segment;
 use serde::Serialize;
 
 use crate::diagnostics::timing::TimingBreakdown;
@@ -9,7 +9,7 @@ use crate::diagnostics::timing::TimingBreakdown;
 pub struct SegmentRefineStage {
     pub pyramid: crate::diagnostics::PyramidStage,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub lsd_segments: Option<Vec<SegmentDescriptor>>,
+    pub lsd_segments: Option<Vec<Segment>>,
     pub levels: Vec<SegmentRefineLevel>,
     pub timings: TimingBreakdown,
 }
@@ -34,7 +34,7 @@ pub struct SegmentRefineLevel {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SegmentRefineSample {
-    pub segment: SegmentDescriptor,
+    pub segment: Segment,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub score: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]

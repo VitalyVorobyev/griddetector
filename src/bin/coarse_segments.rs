@@ -1,9 +1,8 @@
 use grid_detector::config::segments;
 use grid_detector::diagnostics::pyramid::PyramidStage;
-use grid_detector::diagnostics::{SegmentDescriptor, SegmentId};
 use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
-use grid_detector::segments::{lsd_extract_segments_with_options, LsdOptions};
+use grid_detector::segments::{lsd_extract_segments_with_options, LsdOptions, Segment};
 use serde::Serialize;
 use std::env;
 use std::path::Path;
@@ -39,24 +38,15 @@ fn run() -> Result<(), String> {
     let angle_tol_rad = config.lsd.angle_tolerance_deg.to_radians();
     let options = LsdOptions {
         enforce_polarity: config.lsd.enforce_polarity,
-        normal_span_limit: if config.lsd.limit_normal_span {
-            Some(config.lsd.normal_span_limit_px)
-        } else {
-            None
-        },
+        normal_span_limit: config.lsd.normal_span_limit_px,
     };
-    let raw_segments = lsd_extract_segments_with_options(
+    let segments = lsd_extract_segments_with_options(
         coarsest,
         config.lsd.magnitude_threshold,
         angle_tol_rad,
         config.lsd.min_length,
         options,
     );
-    let segments: Vec<SegmentDescriptor> = raw_segments
-        .iter()
-        .enumerate()
-        .map(|(idx, seg)| SegmentDescriptor::from_segment(SegmentId(idx as u32), seg))
-        .collect();
 
     let summary = CoarseSegmentsReport {
         pyramid: pyramid_stage,
@@ -88,5 +78,5 @@ fn usage() -> String {
 #[serde(rename_all = "camelCase")]
 struct CoarseSegmentsReport {
     pyramid: PyramidStage,
-    segments: Vec<SegmentDescriptor>,
+    segments: Vec<Segment>,
 }

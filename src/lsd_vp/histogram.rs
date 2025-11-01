@@ -100,7 +100,28 @@ impl OrientationHistogram {
         Some((first, second))
     }
 
-    /// Refines the angle around a peak by computing a circular mean over a window.
+    /// Refines a peak angle via a weighted circular mean (mod π).
+    ///
+    /// This treats each histogram bin within a symmetric window around `index`
+    /// as a weighted sample located at the bin center and computes a mean
+    /// direction on the circle of orientations modulo π (i.e., θ ≡ θ+π).
+    ///
+    /// Implementation notes
+    /// - Bin center: angle at bin `i` is `(i + 0.5) * bin_width`.
+    /// - Window: spans `index - half_window .. index + half_window` with wrap-around.
+    /// - Weights: per-bin magnitudes stored in the histogram (non-negative).
+    /// - Mod-π mean: uses the “angle-doubling” trick — accumulate on the unit
+    ///   circle using 2θ (cos, sin), then halve the resulting mean angle.
+    /// - Fallbacks: if the window has zero total weight or an almost-cancelled
+    ///   resultant vector, return the center angle of `index`.
+    /// - Output is normalized to [0, π).
+    ///
+    /// Parameters
+    /// - `index`: Peak bin index to refine around (0-based, wraps internally).
+    /// - `half_window`: Number of bins to include on each side of `index`.
+    ///
+    /// Returns
+    /// - A refined orientation in radians within [0, π).
     pub(crate) fn refined_angle(&self, index: usize, half_window: usize) -> f32 {
         if self.bins.is_empty() {
             return 0.0;

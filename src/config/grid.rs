@@ -289,7 +289,8 @@ fn apply_lsd_vp_file_config(params: &mut LsdVpParams, cfg: &FileLsdVpConfig) {
     if let Some(limit_enabled) = cfg.limit_normal_span {
         if limit_enabled {
             if normal_span.is_none() {
-                normal_span = Some(super::segments::LsdConfig::default().normal_span_limit_px);
+                // Use a sensible default when the flag is set without an explicit value.
+                normal_span = Some(2.0);
             }
         } else {
             normal_span = None;
