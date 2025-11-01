@@ -226,11 +226,7 @@ fn detect_coarse_segments(
 ) -> Vec<Segment> {
     let options = LsdOptions {
         enforce_polarity: lsd_cfg.enforce_polarity,
-        normal_span_limit: if lsd_cfg.limit_normal_span {
-            Some(lsd_cfg.normal_span_limit_px)
-        } else {
-            None
-        },
+        normal_span_limit: lsd_cfg.normal_span_limit_px,
     };
     let angle_tol = lsd_cfg.angle_tolerance_deg.to_radians();
     lsd_extract_segments_with_options(

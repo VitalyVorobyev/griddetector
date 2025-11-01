@@ -38,11 +38,7 @@ fn run() -> Result<(), String> {
     let angle_tol_rad = config.lsd.angle_tolerance_deg.to_radians();
     let options = LsdOptions {
         enforce_polarity: config.lsd.enforce_polarity,
-        normal_span_limit: if config.lsd.limit_normal_span {
-            Some(config.lsd.normal_span_limit_px)
-        } else {
-            None
-        },
+        normal_span_limit: config.lsd.normal_span_limit_px,
     };
     let segments = lsd_extract_segments_with_options(
         coarsest,

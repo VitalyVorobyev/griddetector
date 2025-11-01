@@ -140,7 +140,6 @@ struct LsdParamsOut {
     angle_tolerance_deg: f32,
     min_length: f32,
     enforce_polarity: bool,
-    limit_normal_span: bool,
     normal_span_limit_px: Option<f32>,
 }
 
@@ -151,12 +150,7 @@ impl From<&LsdConfig> for LsdParamsOut {
             angle_tolerance_deg: cfg.angle_tolerance_deg,
             min_length: cfg.min_length,
             enforce_polarity: cfg.enforce_polarity,
-            limit_normal_span: cfg.limit_normal_span,
-            normal_span_limit_px: if cfg.limit_normal_span {
-                Some(cfg.normal_span_limit_px)
-            } else {
-                None
-            },
+            normal_span_limit_px: cfg.normal_span_limit_px,
         }
     }
 }

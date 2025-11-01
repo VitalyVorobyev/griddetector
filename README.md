@@ -94,7 +94,7 @@ LSD options in `config/coarse_segments.json`:
 - `magnitude_threshold`, `angle_tolerance_deg`, `min_length`
 - Optional guards:
   - `enforce_polarity` (bool): prevent merging opposite‑polarity parallel edges.
-  - `limit_normal_span` (bool) and `normal_span_limit_px` (float): reject thick regions by capping perpendicular span.
+  - `normal_span_limit_px` (float, optional): reject thick regions by capping perpendicular span. Omit to disable.
 
 See [doc/segments.md](doc/segments.md) for details and tuning tips.
 
