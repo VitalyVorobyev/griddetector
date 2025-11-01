@@ -44,9 +44,10 @@ fn cluster_1d(mut obs: Vec<Obs>, eps: f32, min_strength: f32) -> Vec<Vec<Obs>> {
     clusters
 }
 
-fn compute_auto_eps(obs: &[Obs], default_eps: f32, factor: f32) -> f32 {
+fn compute_auto_eps(obs: &[Obs], default_eps: f32) -> f32 {
+    let eps_cap = default_eps.max(1e-6);
     if obs.len() < 2 {
-        return default_eps.max(1e-6);
+        return eps_cap;
     }
     let mut params: Vec<f32> = obs.iter().map(|o| o.param).collect();
     params.sort_by(|a, b| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal));
@@ -58,7 +59,7 @@ fn compute_auto_eps(obs: &[Obs], default_eps: f32, factor: f32) -> f32 {
         }
     }
     if diffs.is_empty() {
-        return default_eps.max(1e-6);
+        return eps_cap;
     }
     diffs.sort_by(|a, b| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal));
     let m = diffs.len();
@@ -67,11 +68,20 @@ fn compute_auto_eps(obs: &[Obs], default_eps: f32, factor: f32) -> f32 {
     } else {
         0.5 * (diffs[m / 2 - 1] + diffs[m / 2])
     };
-    let eps_auto = (factor * median).max(1e-6);
+    let jitter_idx = ((m as f32) * 0.25).floor() as usize;
+    let jitter = diffs[jitter_idx.min(m - 1)];
+    let spacing_guard = 0.5 * median;
+    let eps_auto = jitter
+        .min(if spacing_guard.is_finite() {
+            spacing_guard.max(1e-6)
+        } else {
+            f32::INFINITY
+        })
+        .max(1e-6);
     if eps_auto.is_finite() {
-        eps_auto
+        eps_auto.min(eps_cap)
     } else {
-        default_eps.max(1e-6)
+        eps_cap
     }
 }
 
@@ -93,7 +103,9 @@ fn normalize_line(mut l: Vector3<f32>) -> Option<[f32; 3]> {
 /// then mapped back to image space as aggregated bundles.
 ///
 /// - `hmtx` is expected in the same coordinate system as the segments.
-/// - `eps` is the 1D clustering tolerance on rectified offsets (approx. pixels).
+/// - `eps` is the maximum 1D clustering tolerance on rectified offsets (approx. pixels);
+///   the actual tolerance is estimated from the distribution of offsets by taking a
+///   low quantile of inter-line spacing and clamping it to half the median spacing.
 /// - `min_strength` is the minimum total weight for a cluster to form a bundle.
 pub fn bundle_rectified(
     segs: &[Segment],
@@ -156,10 +168,9 @@ pub fn bundle_rectified(
 
     let mut bundles_out: Vec<crate::segments::bundling::Bundle> = Vec::new();
 
-    // Compute adaptive eps from median inter-line spacing in rectified space.
-    let eps_factor = 3.0f32; // default factor per spec
-    let eps_u = compute_auto_eps(&u_obs, eps, eps_factor);
-    let eps_v = compute_auto_eps(&v_obs, eps, eps_factor);
+    // Compute adaptive eps from inter-line spacing statistics in rectified space.
+    let eps_u = compute_auto_eps(&u_obs, eps);
+    let eps_v = compute_auto_eps(&v_obs, eps);
 
     info!(
         "LSD-VP rectified bundling: eps_u={:.2}, eps_v={:.2}",
@@ -238,4 +249,43 @@ pub fn bundle_rectified(
     }
 
     bundles_out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_vertical_segment(x: f32, y0: f32, y1: f32) -> Segment {
+        let len = (y1 - y0).abs();
+        Segment {
+            p0: [x, y0],
+            p1: [x, y1],
+            dir: [0.0, 1.0],
+            len,
+            line: Vector3::new(1.0, 0.0, -x),
+            avg_mag: 1.0,
+            strength: len.max(1.0),
+        }
+    }
+
+    #[test]
+    fn bundle_rectified_keeps_single_observations_separate() {
+        let segs = vec![
+            make_vertical_segment(10.0, 0.0, 20.0),
+            make_vertical_segment(23.0, -5.0, 18.0),
+            make_vertical_segment(39.0, 5.0, 22.0),
+        ];
+
+        // A large configured eps would normally merge the three lines, but the adaptive
+        // rule should shrink it enough to keep them separated.
+        let bundles = bundle_rectified(&segs, &Matrix3::identity(), 15.0, 0.5);
+        assert_eq!(bundles.len(), segs.len());
+
+        let mut sorted_centers: Vec<f32> = bundles.iter().map(|b| b.center[0]).collect();
+        sorted_centers.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+        let expected = [10.0, 23.0, 39.0];
+        for (observed, exp) in sorted_centers.iter().zip(expected.iter()) {
+            assert!((observed - exp).abs() < 1.0);
+        }
+    }
 }
