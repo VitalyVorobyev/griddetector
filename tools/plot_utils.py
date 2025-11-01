@@ -8,8 +8,66 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
+import ctypes
 import json
+import os
+import sys
+from ctypes import POINTER, c_float, c_int32, c_size_t, c_uint32
+
 import numpy as np
+
+
+def _default_library_candidates() -> list[Path]:
+    root = Path(__file__).resolve().parents[1]
+    target = root / "target"
+    libnames = []
+    if sys.platform.startswith("win"):
+        libnames.extend(["grid_detector.dll", "libgrid_detector.dll"])
+    elif sys.platform == "darwin":
+        libnames.append("libgrid_detector.dylib")
+    else:
+        libnames.append("libgrid_detector.so")
+    candidates: list[Path] = []
+    for profile in ("release", "debug"):
+        for name in libnames:
+            candidates.append(target / profile / name)
+    return candidates
+
+
+def _load_grid_library() -> ctypes.CDLL | None:
+    explicit = os.environ.get("GRID_DETECTOR_LIB")
+    if explicit:
+        try:
+            return ctypes.CDLL(explicit)
+        except OSError:
+            return None
+    for candidate in _default_library_candidates():
+        if candidate.exists():
+            try:
+                return ctypes.CDLL(str(candidate))
+            except OSError:
+                continue
+    return None
+
+
+_GRID_LIB = _load_grid_library()
+if _GRID_LIB is not None:
+    _GRID_LIB.grid_rescale_homography.argtypes = [
+        POINTER(c_float),
+        c_uint32,
+        c_uint32,
+        c_uint32,
+        c_uint32,
+        POINTER(c_float),
+    ]
+    _GRID_LIB.grid_rescale_homography.restype = ctypes.c_bool
+    _GRID_LIB.grid_apply_homography_points.argtypes = [
+        POINTER(c_float),
+        POINTER(c_float),
+        c_size_t,
+        POINTER(c_float),
+    ]
+    _GRID_LIB.grid_apply_homography_points.restype = c_int32
 
 
 # -------------------- I/O --------------------
@@ -50,6 +108,17 @@ def to_matrix3x3(matrix) -> np.ndarray | None:
     return None
 
 
+def _rescale_homography_python(
+    H: np.ndarray, src_w: int, src_h: int, dst_w: int, dst_h: int
+) -> np.ndarray:
+    if not (src_w and src_h and dst_w and dst_h):
+        return H.astype(np.float32, copy=True)
+    sx = float(dst_w) / float(src_w)
+    sy = float(dst_h) / float(src_h)
+    S = np.array([[sx, 0.0, 0.0], [0.0, sy, 0.0], [0.0, 0.0, 1.0]], dtype=np.float32)
+    return S @ H
+
+
 def rescale_homography_image_space(
     H: np.ndarray, src_w: int, src_h: int, dst_w: int, dst_h: int
 ) -> np.ndarray:
@@ -57,25 +126,32 @@ def rescale_homography_image_space(
 
     Points transform as x_img' = S x_img, so H' = S H.
     """
-    if not (src_w and src_h and dst_w and dst_h):
-        return H
-    sx = float(dst_w) / float(src_w)
-    sy = float(dst_h) / float(src_h)
-    S = np.array([[sx, 0.0, 0.0], [0.0, sy, 0.0], [0.0, 0.0, 1.0]], dtype=float)
-    return S @ H
+    H = np.asarray(H, dtype=np.float32)
+    if _GRID_LIB is None:
+        return _rescale_homography_python(H, src_w, src_h, dst_w, dst_h)
+
+    mat = np.ascontiguousarray(H, dtype=np.float32)
+    out = np.empty((3, 3), dtype=np.float32)
+    ok = _GRID_LIB.grid_rescale_homography(
+        mat.ctypes.data_as(POINTER(c_float)),
+        c_uint32(src_w),
+        c_uint32(src_h),
+        c_uint32(dst_w),
+        c_uint32(dst_h),
+        out.ctypes.data_as(POINTER(c_float)),
+    )
+    if not ok:
+        raise RuntimeError("grid_rescale_homography failed")
+    return out
 
 
-def apply_homography_points(H: np.ndarray, pts: np.ndarray) -> np.ndarray | None:
-    """Apply H to Nx2 points; return Nx2, or None if any maps to infinity.
-
-    Accepts 2x2 (segment endpoints) as well.
-    """
-    if H is None or pts is None:
-        return None
-    pts = np.asarray(pts, dtype=float)
+def _apply_homography_points_python(
+    H: np.ndarray, pts: np.ndarray
+) -> np.ndarray | None:
+    pts = np.asarray(pts, dtype=np.float32)
     if pts.ndim != 2 or pts.shape[1] != 2:
         return None
-    ones = np.ones((pts.shape[0], 1), dtype=float)
+    ones = np.ones((pts.shape[0], 1), dtype=np.float32)
     ph = np.concatenate([pts, ones], axis=1)
     q = (H @ ph.T).T
     w = q[:, 2:3]
@@ -84,6 +160,29 @@ def apply_homography_points(H: np.ndarray, pts: np.ndarray) -> np.ndarray | None
         return None
     q[:, 0:2] /= w
     return q[:, 0:2]
+
+
+def apply_homography_points(H: np.ndarray, pts: np.ndarray) -> np.ndarray | None:
+    """Apply H to Nx2 points; return Nx2, or None if any maps to infinity."""
+    if H is None or pts is None:
+        return None
+    H = np.asarray(H, dtype=np.float32)
+    pts = np.asarray(pts, dtype=np.float32)
+    if pts.ndim != 2 or pts.shape[1] != 2:
+        return None
+    if _GRID_LIB is None:
+        return _apply_homography_points_python(H, pts)
+
+    out = np.empty_like(pts, dtype=np.float32)
+    result = _GRID_LIB.grid_apply_homography_points(
+        H.ctypes.data_as(POINTER(c_float)),
+        pts.ctypes.data_as(POINTER(c_float)),
+        c_size_t(pts.shape[0]),
+        out.ctypes.data_as(POINTER(c_float)),
+    )
+    if result < 0:
+        return None
+    return out
 
 
 def homogeneous_to_point(vec: np.ndarray) -> Tuple[np.ndarray, bool]:

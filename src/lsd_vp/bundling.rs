@@ -68,7 +68,11 @@ fn compute_auto_eps(obs: &[Obs], default_eps: f32, factor: f32) -> f32 {
         0.5 * (diffs[m / 2 - 1] + diffs[m / 2])
     };
     let eps_auto = (factor * median).max(1e-6);
-    if eps_auto.is_finite() { eps_auto } else { default_eps.max(1e-6) }
+    if eps_auto.is_finite() {
+        eps_auto
+    } else {
+        default_eps.max(1e-6)
+    }
 }
 
 fn segment_center(seg: &Segment) -> [f32; 2] {

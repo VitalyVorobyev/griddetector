@@ -10,6 +10,7 @@ readme = "README.md"
 [lib]
 name = "grid_detector"
 path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
 
 [[bin]]
 name = "grid_demo"
