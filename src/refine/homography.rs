@@ -154,8 +154,26 @@ impl Refiner {
             anchor::estimate_anchor(&buckets.family_u, &buckets.family_v).unwrap_or(buckets.anchor);
 
         let h_new = Matrix3::from_columns(&[vpu_new, vpv_new, anchor_new]);
-        let combined_inlier = (stats_u.inlier_weight + stats_v.inlier_weight)
-            / (stats_u.total_weight + stats_v.total_weight + EPS);
+        let ratio_u = if stats_u.total_weight > EPS {
+            (stats_u.inlier_weight / stats_u.total_weight).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let ratio_v = if stats_v.total_weight > EPS {
+            (stats_v.inlier_weight / stats_v.total_weight).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let combined_inlier = if stats_u.inlier_weight <= EPS && stats_v.inlier_weight <= EPS {
+            0.0
+        } else if stats_u.inlier_weight <= EPS {
+            ratio_v
+        } else if stats_v.inlier_weight <= EPS {
+            ratio_u
+        } else {
+            (stats_u.inlier_weight + stats_v.inlier_weight)
+                / (stats_u.total_weight + stats_v.total_weight + EPS)
+        };
         let confidence = ((stats_u.confidence + stats_v.confidence) * 0.5).clamp(0.0, 1.0);
         Some(LevelRefinement {
             h_new,
