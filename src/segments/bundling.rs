@@ -56,6 +56,15 @@ pub fn bundle_segments(
         (idx as usize).min(nbins - 1)
     };
 
+    // Precompute canonical tangents/normals per orientation bin.
+    let mut bin_normals: Vec<[f32; 2]> = Vec::with_capacity(nbins);
+    for i in 0..nbins {
+        let angle = (i as f32 + 0.5) * bin_width;
+        let t = [angle.cos(), angle.sin()];
+        let n = [-t[1], t[0]];
+        bin_normals.push(n);
+    }
+
     // Per orientation bin, collect segment indices and precompute their projection along bin normal.
     let mut seg_indices_per_bin: Vec<Vec<usize>> = vec![Vec::new(); nbins];
     for (i, s) in segs.iter().enumerate() {
@@ -77,9 +86,7 @@ pub fn bundle_segments(
             continue;
         }
         // Canonical tangent/normal for this bin.
-        let th0 = (b as f32 + 0.5) * bin_width;
-        let tbin = [th0.cos(), th0.sin()];
-        let nbin = [-tbin[1], tbin[0]];
+        let nbin = bin_normals[b];
 
         // Sort segments by projected offset along bin normal to visit nearby ones first.
         let mut items: Vec<(usize, f32)> = seg_indices_per_bin[b]
@@ -100,27 +107,43 @@ pub fn bundle_segments(
             if weight < min_weight {
                 continue;
             }
+            let seg_center = segment_center(s);
 
-            // Candidate search over neighboring offset buckets within this orientation bin.
+            // Candidate search over neighboring offset buckets across adjacent orientation bins.
             let key = (proj / dist_tol).floor() as i32;
             let mut best_id: Option<usize> = None;
             let mut best_cost = f32::INFINITY;
 
-            for dk in -1..=1 {
-                if let Some(list) = bin_maps[b].get(&(key + dk)) {
-                    for &bid in list.iter() {
-                        let cb = &bundles[bid];
-                        // Orientation gate: compare segment tangent with bundle tangent, dirless.
-                        let bt = cb.tangent();
-                        let dot = s.dir[0] * bt[0] + s.dir[1] * bt[1];
-                        if dot.abs() < cos_tol {
-                            continue;
-                        }
-                        // Endpoint-to-line distance cost (max of endpoints).
-                        let cost = max_endpoint_distance(&s.p0, &s.p1, &cb.line);
-                        if cost <= dist_tol && cost < best_cost {
-                            best_cost = cost;
-                            best_id = Some(bid);
+            let mut bins_to_search: Vec<usize> = Vec::with_capacity(3);
+            let th0 = (b as f32 + 0.5) * bin_width;
+            for delta in [-1isize, 0, 1] {
+                let angle = th0 + delta as f32 * bin_width;
+                let idx = orient_bin(angle.cos(), angle.sin());
+                if !bins_to_search.contains(&idx) {
+                    bins_to_search.push(idx);
+                }
+            }
+
+            for &bin_idx in &bins_to_search {
+                let nbin_adj = bin_normals[bin_idx];
+                let proj_adj = nbin_adj[0] * seg_center[0] + nbin_adj[1] * seg_center[1];
+                let key_adj = (proj_adj / dist_tol).floor() as i32;
+                for dk in -1..=1 {
+                    if let Some(list) = bin_maps[bin_idx].get(&(key_adj + dk)) {
+                        for &bid in list.iter() {
+                            let cb = &bundles[bid];
+                            // Orientation gate: compare segment tangent with bundle tangent, dirless.
+                            let bt = cb.tangent();
+                            let dot = s.dir[0] * bt[0] + s.dir[1] * bt[1];
+                            if dot.abs() < cos_tol {
+                                continue;
+                            }
+                            // Endpoint-to-line distance cost (max of endpoints).
+                            let cost = max_endpoint_distance(&s.p0, &s.p1, &cb.line);
+                            if cost <= dist_tol && cost < best_cost {
+                                best_cost = cost;
+                                best_id = Some(bid);
+                            }
                         }
                     }
                 }
@@ -134,7 +157,9 @@ pub fn bundle_segments(
 
                 // Reindex bundle if its center moved across offset buckets.
                 let new_center = bundles[bid].center;
-                let new_proj = nbin[0] * new_center[0] + nbin[1] * new_center[1];
+                let target_bin = old_key.0;
+                let nbin_target = bin_normals[target_bin];
+                let new_proj = nbin_target[0] * new_center[0] + nbin_target[1] * new_center[1];
                 let new_k = (new_proj / dist_tol).floor() as i32;
                 if new_k != old_key.1 {
                     // Remove from old bucket.
@@ -144,15 +169,15 @@ pub fn bundle_segments(
                         }
                     }
                     // Insert into new bucket.
-                    bin_maps[b].entry(new_k).or_default().push(bid);
-                    bundle_keys[bid] = (b, new_k);
+                    bin_maps[target_bin].entry(new_k).or_default().push(bid);
+                    bundle_keys[bid] = (target_bin, new_k);
                 }
             } else {
                 // Start a new bundle seeded by this segment.
                 let bundle_id = bundles.len();
                 bundles.push(Bundle {
                     line: [s.line[0], s.line[1], s.line[2]],
-                    center: segment_center(s),
+                    center: seg_center,
                     weight,
                 });
                 bin_maps[b].entry(key).or_default().push(bundle_id);

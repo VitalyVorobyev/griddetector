@@ -5,6 +5,20 @@ use nalgebra::Vector3;
 use super::types::VpStats;
 use super::EPS;
 
+fn normalize_vp(vp: &mut Vector3<f32>) {
+    if vp[2].abs() <= 1e-3 {
+        let norm = (vp[0] * vp[0] + vp[1] * vp[1]).sqrt().max(EPS);
+        vp[0] /= norm;
+        vp[1] /= norm;
+        vp[2] = 0.0;
+    } else {
+        let inv = 1.0 / vp[2];
+        vp[0] *= inv;
+        vp[1] *= inv;
+        vp[2] = 1.0;
+    }
+}
+
 fn huber_weight(residual: f32, delta: f32) -> (f32, bool) {
     let abs = residual.abs();
     if abs <= delta {
@@ -26,9 +40,7 @@ pub(crate) fn estimate_vp_huber(
     max_iters: usize,
 ) -> Option<(Vector3<f32>, VpStats)> {
     let mut vp = *vp_init;
-    if vp[2].abs() <= 1e-3 {
-        vp[2] = 1.0;
-    }
+    normalize_vp(&mut vp);
     let mut stats = VpStats {
         confidence: 0.0,
         total_weight: 0.0,
@@ -49,13 +61,16 @@ pub(crate) fn estimate_vp_huber(
         }
         let (x, y) = accum.solve(det);
         let new_vp = Vector3::new(x, y, 1.0);
+        // Ensure the updated vanishing point is normalised for subsequent iterations.
+        let mut vp_norm = new_vp;
+        normalize_vp(&mut vp_norm);
         stats.total_weight = accum.total_weight;
         stats.inlier_weight = accum.inlier_weight;
         stats.confidence = (accum.inlier_weight / (bundles.len() as f32 + EPS)).clamp(0.0, 1.0);
-        if (new_vp - vp).norm() < 1e-3 {
-            return Some((new_vp, stats));
+        if (vp_norm - vp).norm() < 1e-3 {
+            return Some((vp_norm, stats));
         }
-        vp = new_vp;
+        vp = vp_norm;
     }
     Some((vp, stats))
 }
