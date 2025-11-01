@@ -106,13 +106,13 @@ impl GridDetector {
         let bundler = BundleStack::new(&self.params.bundling_params);
         let LsdComputation {
             stage: mut lsd_stage,
-            descriptors: segment_descriptors,
             segments: coarse_segments,
             coarse_h,
             full_h,
             mut confidence,
             elapsed_ms: lsd_ms,
         } = lsd::run_on_coarsest(&self.lsd_engine, &pyramid, width, height);
+        let segment_trace = coarse_segments.clone();
 
         let initial_h_full = full_h.clone();
         let coarse_h_matrix = full_h.clone();
@@ -247,7 +247,7 @@ impl GridDetector {
                 pyramid_levels: pyramid.levels.len(),
             },
             timings,
-            segments: segment_descriptors,
+            segments: segment_trace,
             pyramid: pyramid_stage,
             lsd: lsd_stage,
             outlier_filter: outlier_stage,
@@ -304,13 +304,13 @@ impl GridDetector {
         let bundler = BundleStack::new(&self.params.bundling_params);
         let LsdComputation {
             stage: mut lsd_stage,
-            descriptors: segment_descriptors,
             segments: coarse_segments,
             coarse_h,
             full_h,
             confidence,
             elapsed_ms: lsd_ms,
         } = lsd::run_on_coarsest(&self.lsd_engine, &pyramid, width, height);
+        let segment_trace = coarse_segments.clone();
 
         if let Some(stage) = lsd_stage.as_mut() {
             stage.elapsed_ms = lsd_ms;
@@ -414,7 +414,7 @@ impl GridDetector {
                 pyramid_levels: pyramid.levels.len(),
             },
             timings,
-            segments: segment_descriptors,
+            segments: segment_trace,
             pyramid: pyramid_stage,
             lsd: lsd_stage,
             outlier_filter: outlier_stage,

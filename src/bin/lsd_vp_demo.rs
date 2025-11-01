@@ -2,11 +2,11 @@ use grid_detector::config::lsd_vp;
 use grid_detector::config::segments::LsdConfig;
 use grid_detector::detector::params::LsdVpParams;
 use grid_detector::diagnostics::builders::run_lsd_stage;
-use grid_detector::diagnostics::{LsdStage, PyramidStage, SegmentDescriptor, SegmentId};
+use grid_detector::diagnostics::{LsdStage, PyramidStage};
 use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
 use grid_detector::lsd_vp::Engine;
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
-use grid_detector::segments::{lsd_extract_segments_with_options, LsdOptions};
+use grid_detector::segments::{lsd_extract_segments_with_options, LsdOptions, Segment};
 use nalgebra::Matrix3;
 use serde::Serialize;
 use std::env;
@@ -44,7 +44,7 @@ fn run() -> Result<(), String> {
 
     let lsd_options: LsdOptions = config.lsd.to_lsd_options();
     let angle_tol_rad = config.lsd.angle_tolerance_deg.to_radians();
-    let segments = lsd_extract_segments_with_options(
+    let initial_segments = lsd_extract_segments_with_options(
         coarsest,
         config.lsd.magnitude_threshold,
         angle_tol_rad,
@@ -65,32 +65,23 @@ fn run() -> Result<(), String> {
     let lsd_output = run_lsd_stage(
         &engine,
         coarsest,
-        Some(segments.clone()),
+        Some(initial_segments.clone()),
         gray.width(),
         gray.height(),
     );
     let lsd_ms = lsd_start.elapsed().as_secs_f64() * 1000.0;
 
-    let (lsd_stage, descriptors, coarse_h, full_h) = match lsd_output {
+    let (lsd_stage, segments, coarse_h, full_h) = match lsd_output {
         Some(mut output) => {
             output.stage.elapsed_ms = lsd_ms;
             (
                 Some(output.stage),
-                output.descriptors,
+                output.segments,
                 Some(output.coarse_h),
                 Some(output.full_h),
             )
         }
-        None => (
-            None,
-            segments
-                .iter()
-                .enumerate()
-                .map(|(idx, seg)| SegmentDescriptor::from_segment(SegmentId(idx as u32), seg))
-                .collect(),
-            None,
-            None,
-        ),
+        None => (None, initial_segments, None, None),
     };
 
     let result = LsdVpDemoOutput {
@@ -102,7 +93,7 @@ fn run() -> Result<(), String> {
         engine_config: EngineParamsOut::from(&engine_params),
         coarse_h,
         full_h,
-        segments: descriptors,
+        segments,
     };
 
     write_json_file(&config.output.result_json, &result)?;
@@ -139,7 +130,7 @@ struct LsdVpDemoOutput {
     coarse_h: Option<Matrix3<f32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     full_h: Option<Matrix3<f32>>,
-    segments: Vec<SegmentDescriptor>,
+    segments: Vec<Segment>,
 }
 
 #[derive(Debug, Serialize)]

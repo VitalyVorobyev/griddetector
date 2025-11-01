@@ -1,7 +1,8 @@
 use crate::diagnostics::{
     BundlingStage, GridIndexingStage, LsdStage, OutlierFilterStage, PyramidStage, RefinementStage,
-    SegmentDescriptor, TimingBreakdown,
+    TimingBreakdown,
 };
+use crate::segments::Segment;
 use crate::types::{GridResult, Pose};
 use nalgebra::Matrix3;
 use serde::Serialize;
@@ -209,7 +210,7 @@ fn format_optional(val: Option<f32>) -> String {
 pub struct PipelineTrace {
     pub input: InputDescriptor,
     pub timings: TimingBreakdown,
-    pub segments: Vec<SegmentDescriptor>,
+    pub segments: Vec<Segment>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pyramid: Option<PyramidStage>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -1,5 +1,5 @@
 use crate::detector::params::LsdVpParams;
-use crate::diagnostics::{FamilyCounts, LsdStage, SegmentDescriptor, SegmentId};
+use crate::diagnostics::{FamilyCounts, LsdStage};
 use crate::lsd_vp::{DetailedInference, Engine as LsdVpEngine, FamilyLabel};
 use crate::pyramid::Pyramid;
 use crate::segments::Segment;
@@ -10,7 +10,6 @@ use std::time::Instant;
 #[derive(Debug)]
 pub struct LsdComputation {
     pub stage: Option<LsdStage>,
-    pub descriptors: Vec<SegmentDescriptor>,
     pub segments: Vec<Segment>,
     pub coarse_h: Option<Matrix3<f32>>,
     pub full_h: Option<Matrix3<f32>>,
@@ -37,7 +36,6 @@ pub fn run_on_coarsest(
         debug!("GridDetector::process pyramid has no levels");
         return LsdComputation {
             stage: None,
-            descriptors: Vec::new(),
             segments: Vec::new(),
             coarse_h: None,
             full_h: None,
@@ -54,11 +52,6 @@ pub fn run_on_coarsest(
             families,
             segments,
         }) => {
-            let mut descriptors = Vec::with_capacity(segments.len());
-            for (idx, seg) in segments.iter().enumerate() {
-                descriptors.push(SegmentDescriptor::from_segment(SegmentId(idx as u32), seg));
-            }
-
             let scale_x = if coarse_level.w > 0 {
                 width as f32 / coarse_level.w as f32
             } else {
@@ -92,7 +85,6 @@ pub fn run_on_coarsest(
 
             LsdComputation {
                 stage: Some(stage),
-                descriptors,
                 segments,
                 coarse_h: Some(hypothesis.hmtx0),
                 full_h: Some(h_full),
@@ -104,7 +96,6 @@ pub fn run_on_coarsest(
             debug!("GridDetector::process LSD→VP engine returned no hypothesis");
             LsdComputation {
                 stage: None,
-                descriptors: Vec::new(),
                 segments: Vec::new(),
                 coarse_h: None,
                 full_h: None,

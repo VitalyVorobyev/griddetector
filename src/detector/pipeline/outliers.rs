@@ -1,6 +1,6 @@
 use crate::detector::outliers::classify_segments_with_details;
 use crate::detector::params::{LsdVpParams, OutlierFilterParams};
-use crate::diagnostics::{OutlierFilterStage, OutlierThresholds, SegmentId, SegmentSample};
+use crate::diagnostics::{OutlierFilterStage, OutlierThresholds, SegmentSample};
 use crate::segments::Segment;
 use log::debug;
 use nalgebra::Matrix3;
@@ -41,7 +41,7 @@ pub fn filter_segments(
     let mut kept_segments = Vec::new();
     let mut classifications = Vec::with_capacity(decisions.len());
     for decision in &decisions {
-        let seg_id = SegmentId(decision.index as u32);
+        let seg_id = segments[decision.index].id;
         if decision.inlier {
             kept_segments.push(segments[decision.index].clone());
         }

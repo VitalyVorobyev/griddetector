@@ -4,8 +4,7 @@
 use crate::detector::outliers::{classify_segments_with_details, OutlierFilterDiagnostics};
 use crate::detector::params::{LsdVpParams, OutlierFilterParams};
 use crate::diagnostics::{
-    FamilyCounts, LsdStage, OutlierFilterStage, OutlierThresholds, SegmentDescriptor, SegmentId,
-    SegmentSample,
+    FamilyCounts, LsdStage, OutlierFilterStage, OutlierThresholds, SegmentSample,
 };
 use crate::image::ImageF32;
 use crate::lsd_vp::{DetailedInference, Engine as LsdVpEngine, FamilyLabel};
@@ -16,8 +15,7 @@ use nalgebra::Matrix3;
 /// Result of running the LSD→VP stage in isolation.
 pub struct LsdStageOutput {
     pub stage: LsdStage,
-    pub descriptors: Vec<SegmentDescriptor>,
-    pub coarse_segments: Vec<Segment>,
+    pub segments: Vec<Segment>,
     pub coarse_h: Matrix3<f32>,
     pub full_h: Matrix3<f32>,
 }
@@ -46,11 +44,6 @@ pub fn run_lsd_stage(
         Some(segs) => engine.infer_with_segments(level, segs)?,
         None => engine.infer_detailed(level)?,
     };
-
-    let mut descriptors = Vec::with_capacity(segments.len());
-    for (idx, seg) in segments.iter().enumerate() {
-        descriptors.push(SegmentDescriptor::from_segment(SegmentId(idx as u32), seg));
-    }
 
     let scale_x = if level.w > 0 {
         full_width as f32 / level.w as f32
@@ -85,8 +78,7 @@ pub fn run_lsd_stage(
 
     Some(LsdStageOutput {
         stage,
-        descriptors,
-        coarse_segments: segments,
+        segments,
         coarse_h: hypothesis.hmtx0,
         full_h,
     })
@@ -113,7 +105,7 @@ fn build_outlier_stage(
     let mut kept_segments = Vec::new();
     let mut classifications = Vec::with_capacity(decisions.len());
     for decision in &decisions {
-        let seg_id = SegmentId(decision.index as u32);
+        let seg_id = segments[decision.index].id;
         if decision.inlier {
             kept_segments.push(segments[decision.index].clone());
         }
@@ -197,6 +189,7 @@ pub fn convert_refined_segment(prev: &Segment, result: RefineResult) -> Segment 
     let strength = len.max(1e-3) * avg_mag;
 
     Segment {
+        id: prev.id,
         p0,
         p1,
         dir,
