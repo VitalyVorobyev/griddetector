@@ -142,30 +142,30 @@ def apply_homography_points(H: np.ndarray, pts: np.ndarray) -> np.ndarray | None
         return None
     ones = np.ones((pts.shape[0], 1), dtype=np.float32)
     ph = np.concatenate([pts, ones], axis=1)
-    q = (H @ ph.T).T
+    q = (np.linalg.inv(H) @ ph.T).T
     return q[:, 0:2] / q[:, 2:3]
 
-def apply_homography_points(H: np.ndarray, pts: np.ndarray) -> np.ndarray | None:
-    """Apply H to Nx2 points; return Nx2, or None if any maps to infinity."""
-    if H is None or pts is None:
-        return None
-    H = np.asarray(H, dtype=np.float32)
-    pts = np.asarray(pts, dtype=np.float32)
-    if pts.ndim != 2 or pts.shape[1] != 2:
-        return None
-    if _GRID_LIB is None:
-        return _apply_homography_points_python(H, pts)
+# def apply_homography_points(H: np.ndarray, pts: np.ndarray) -> np.ndarray | None:
+#     """Apply H to Nx2 points; return Nx2, or None if any maps to infinity."""
+#     if H is None or pts is None:
+#         return None
+#     H = np.asarray(H, dtype=np.float32)
+#     pts = np.asarray(pts, dtype=np.float32)
+#     if pts.ndim != 2 or pts.shape[1] != 2:
+#         return None
+#     if _GRID_LIB is None:
+#         return _apply_homography_points_python(H, pts)
 
-    out = np.empty_like(pts, dtype=np.float32)
-    result = _GRID_LIB.grid_apply_homography_points(
-        H.ctypes.data_as(POINTER(c_float)),
-        pts.ctypes.data_as(POINTER(c_float)),
-        c_size_t(pts.shape[0]),
-        out.ctypes.data_as(POINTER(c_float)),
-    )
-    if result < 0:
-        return None
-    return out
+#     out = np.empty_like(pts, dtype=np.float32)
+#     result = _GRID_LIB.grid_apply_homography_points(
+#         H.ctypes.data_as(POINTER(c_float)),
+#         pts.ctypes.data_as(POINTER(c_float)),
+#         c_size_t(pts.shape[0]),
+#         out.ctypes.data_as(POINTER(c_float)),
+#     )
+#     if result < 0:
+#         return None
+#     return out
 
 
 def homogeneous_to_point(vec: np.ndarray) -> Tuple[np.ndarray, bool]:

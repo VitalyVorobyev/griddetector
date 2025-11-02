@@ -323,6 +323,9 @@ impl GridDetector {
             elapsed_ms: lsd_ms,
         } = lsd::run_on_coarsest(&lsd_engine, &pyramid, width, height);
 
+        println!("Coarse hmtx:\n{coarse_h:?}");
+        println!("Full hmtx:\n{full_h:?}");
+
         if let Some(stage) = lsd_stage.as_mut() {
             stage.elapsed_ms = lsd_ms;
         }
