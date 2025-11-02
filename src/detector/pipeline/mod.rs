@@ -1,10 +1,10 @@
-//! Detector pipeline driving the grid detection end-to-end.
+//! Detector pipeline orchestrating end-to-end grid detection.
 //!
 //! The [`GridDetector`] exposes a simple API: feed a grayscale image and get a
 //! coarse-to-fine homography estimate with detailed diagnostics. Internally it
-//! coordinates the LSD→VP coarse hypothesis, outlier filtering, segment
-//! refinement across the pyramid, bundling, and a Huber-weighted IRLS update
-//! of the vanishing-point columns.
+//! coordinates the LSD→VP coarse hypothesis, outlier filtering, preparation
+//! (per-level bundling + segment refinement), an IRLS homography update, and
+//! a final grid indexing pass in the rectified frame.
 //!
 //! Typical usage:
 //! ```no_run
@@ -24,6 +24,23 @@ mod lsd;
 mod outliers;
 mod refinement;
 mod reporting;
+
+// Stages
+// - Pyramid: build multi-level grayscale pyramid (float levels with optional blur).
+// - LSD→VP: detect segments on the coarsest level and estimate a coarse homography.
+// - Outlier filter: reject coarse segments against the VP geometry.
+// - Prepare: for each level from coarse→fine, bundle constraints and refine segments forward.
+// - Refine: run IRLS (`refinement::refine_homography`) across prepared levels; update confidence.
+// - Indexing: map bundles to discrete U/V grid lines (`refinement::index_grid_from_bundles`).
+// - Reporting: assemble timings, diagnostics, and (optionally) derive camera pose.
+//
+// Submodules
+// - `lsd`: lightweight LSD-like and VP inference.
+// - `outliers`: coarse segment classification.
+// - `bundling`: image/rectified bundling strategies + coarsest convenience.
+// - `refinement::prepare`: per-level bundling + segment refinement.
+// - `refinement::homography`: IRLS-driven homography update and confidence blend.
+// - `refinement::indexing`: bundle-to-grid indexing in rectified space.
 
 use super::params::{
     BundlingParams, GridParams, LsdVpParams, OutlierFilterParams, RefinementSchedule,
@@ -158,7 +175,7 @@ impl GridDetector {
             confidence: refined_confidence,
             stage: refinement_stage,
             elapsed_ms: refine_ms,
-        } = refinement::run_refinement_stage(
+        } = refinement::refine_homography(
             &mut self.refiner,
             &prepared_levels,
             initial_h_full,
@@ -174,7 +191,7 @@ impl GridDetector {
         let mut origin_uv = (0, 0);
         let mut visible_range = (0, 0, 0, 0);
         let grid_indexing_stage = if let Some(level) = prepared_levels.levels.first() {
-            let stage = refinement::run_grid_indexing_stage(
+            let stage = refinement::index_grid_from_bundles(
                 level.bundles.as_slice(),
                 Some(&hmtx),
                 self.params.refine_params.orientation_tol_deg.to_radians(),
@@ -329,7 +346,7 @@ impl GridDetector {
 
         let mut bundling_stage = None;
         let mut coarse_bundles: Vec<Bundle> = Vec::new();
-        if let Some((stage, bundles)) = refinement::bundle_coarsest(
+        if let Some((stage, bundles)) = bundling::bundle_coarsest(
             &bundler,
             &pyramid,
             coarse_h.as_ref(),
@@ -354,7 +371,7 @@ impl GridDetector {
 
         let mut origin_uv = (0, 0);
         let mut visible_range = (0, 0, 0, 0);
-        let grid_indexing_stage = refinement::run_grid_indexing_stage(
+        let grid_indexing_stage = refinement::index_grid_from_bundles(
             &coarse_bundles,
             full_h.as_ref(),
             self.params.refine_params.orientation_tol_deg.to_radians(),
@@ -441,7 +458,7 @@ impl GridDetector {
         full_height: usize,
     ) -> Option<(BundlingStage, Vec<Bundle>)> {
         let bundler = BundleStack::new(&self.params.bundling_params);
-        refinement::bundle_coarsest(
+        bundling::bundle_coarsest(
             &bundler,
             pyramid,
             coarse_h,

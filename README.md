@@ -24,13 +24,16 @@ This repo contains both a library crate (`grid_detector`) and a tiny demo binary
    - Gate segments whose lines pass far from the family vanishing point (homography residual).
 
 4. Coarse‑to‑Fine Refinement
-   - For each level from coarse → fine:
-     - Refine segments at the next finer level using gradient support (normal probing, orthogonal fit, endpoint search).
-     - Bundle near‑collinear constraints; thresholds can be level‑invariant or full‑resolution‑invariant.
-   - Run a Huber‑weighted IRLS update for the vanishing points and anchor; stop early on negligible Frobenius improvement.
+   - Prepare (per level, coarse → fine):
+     - Bundle near‑collinear constraints (image or rectified frame; thresholds adapt by scale mode).
+     - Refine segments on the next finer level using gradients; lift geometry forward.
+   - Refine: run a Huber‑weighted IRLS update for the homography across prepared levels; stop when Frobenius improvement is small.
 
-5. Reporting
-   - Return the refined homography and confidence; surface detailed diagnostics (pyramid, LSD, filtering, bundling, refinement).
+5. Grid Indexing
+   - Rectify bundle lines with the refined homography and assign them to discrete U/V grid indices.
+
+6. Reporting
+   - Return the refined homography, confidence, grid indexing, and timings. Diagnostics include pyramid, LSD, outlier filter, bundling, refinement, and indexing.
 
 ## Status
 
@@ -136,7 +139,11 @@ cargo run --release --features parallel --bin grid_demo
 - `segments`: LSD‑like region growing and PCA line fitting ([doc/segments.md](doc/segments.md))
 - `lsd_vp`: coarse vanishing-point hypothesis ([doc/lsd_vp.md](doc/lsd_vp.md))
 - `refine`: coarse‑to‑fine homography refinement ([doc/refine.md](doc/refine.md))
-- `detector`: end‑to‑end pipeline wrapper with outlier filtering, multi‑level segment refinement, bundling, IRLS, and pose recovery
+- `detector`: end‑to‑end pipeline wrapper
+  - `pipeline::bundling`: bundling strategies and coarsest-level helper
+  - `pipeline::refinement::prepare`: per-level bundling + segment refinement
+  - `pipeline::refinement::homography`: IRLS homography update + confidence blending
+  - `pipeline::refinement::indexing`: bundle-to-grid indexing in rectified space
 - `types`: result and pose structs (`GridResult`, `Pose`)
 
 ## Configuration

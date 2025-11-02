@@ -190,6 +190,59 @@ pub fn adapt_thresholds(params: &BundlingParams, scaling: &LevelScaling) -> (f32
     }
 }
 
+/// Bundle coarse segments on the coarsest pyramid level and rescale to full resolution.
+///
+/// This is a convenience wrapper used by the coarse-only pipeline path.
+/// Returns both the diagnostic stage and the produced bundles.
+pub fn bundle_coarsest(
+    bundler: &BundleStack<'_>,
+    pyramid: &crate::pyramid::Pyramid,
+    coarse_h: Option<&Matrix3<f32>>,
+    segments: &[Segment],
+    full_width: usize,
+    full_height: usize,
+) -> Option<(crate::diagnostics::BundlingStage, Vec<Bundle>)> {
+    if segments.is_empty() {
+        return None;
+    }
+    let h = coarse_h?;
+    let level_index = pyramid.levels.len().checked_sub(1)?;
+    let level = &pyramid.levels[level_index];
+    let scaling = LevelScaling::from_dimensions(level.w, level.h, full_width, full_height);
+
+    let outcome = bundler.bundle_level(segments, &scaling, Some(h));
+    let elapsed_ms = outcome.elapsed_ms;
+    let bundles_full = outcome.bundles;
+    let params = bundler.params();
+
+    let level_descriptor = crate::diagnostics::BundlingLevel {
+        level_index,
+        width: level.w,
+        height: level.h,
+        bundles: bundles_full
+            .iter()
+            .map(|b| crate::diagnostics::BundleDescriptor {
+                center: b.center,
+                line: b.line,
+                weight: b.weight,
+            })
+            .collect(),
+    };
+
+    let stage = crate::diagnostics::BundlingStage {
+        elapsed_ms,
+        segment_refine_ms: 0.0,
+        orientation_tol_deg: params.orientation_tol_deg,
+        merge_distance_px: params.merge_dist_px,
+        min_weight: params.min_weight,
+        source_segments: segments.len(),
+        scale_applied: outcome.applied_scale,
+        levels: vec![level_descriptor],
+    };
+
+    Some((stage, bundles_full))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
