@@ -30,7 +30,7 @@ fn run() -> Result<(), String> {
     let coarsest = &pyramid.levels[coarsest_index];
     let pyramid_stage = PyramidStage::from_pyramid(&pyramid, 0.0);
 
-    let scale = 1 as f32 / (1 << pyramid.levels.len()) as f32;
+    let scale = 1_f32 / (1 << pyramid.levels.len()) as f32;
     let segments = lsd_extract_segments(coarsest, config.lsd.with_scale(scale));
 
     let summary = CoarseSegmentsReport {

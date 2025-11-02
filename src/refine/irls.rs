@@ -135,10 +135,13 @@ fn fallback_vp_from_bundles(bundles: &[&Bundle]) -> Option<(Vector3<f32>, VpStat
         return None;
     }
     let vp = Vector3::new(sum_tx / norm, sum_ty / norm, 0.0);
+    // Assign a small positive confidence proportional to support so callers
+    // can distinguish a valid (at-infinity) estimate from a hard failure.
+    let support_conf = ((bundles.len().min(50) as f32) / 50.0).clamp(0.0, 1.0);
     Some((
         vp,
         VpStats {
-            confidence: 0.0,
+            confidence: support_conf,
             total_weight: total_w,
             inlier_weight: total_w,
         },

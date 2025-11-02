@@ -61,7 +61,7 @@ fn run() -> Result<(), String> {
         .ok_or_else(|| "Pyramid must contain at least one level".to_string())?;
     let lsd_start = Instant::now();
 
-    let scale = 1 as f32 / (1 << pyramid.levels.len()) as f32;
+    let scale = 1_f32 / (1 << pyramid.levels.len()) as f32;
     let lsd_segments = lsd_extract_segments(
         &pyramid.levels[coarsest_index],
         config.lsd.with_scale(scale),

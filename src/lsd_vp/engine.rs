@@ -40,17 +40,9 @@ pub struct Hypothesis {
 
 /// Lightweight engine that finds two dominant line families from LSD segments,
 /// estimates their vanishing points, and returns a coarse projective basis H0.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Engine {
     pub options: LsdOptions,
-}
-
-impl Default for Engine {
-    fn default() -> Self {
-        Self {
-            options: LsdOptions::default(),
-        }
-    }
 }
 
 impl Engine {

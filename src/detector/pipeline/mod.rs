@@ -487,7 +487,7 @@ impl GridDetector {
 
     /// Update LSD coarse stage parameters.
     pub fn set_lsd_params(&mut self, params: LsdOptions) {
-        self.params.lsd_params = params.clone();
+        self.params.lsd_params = params;
         self.lsd_engine = LsdVpEngine { options: params }
     }
 

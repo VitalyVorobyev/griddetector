@@ -44,7 +44,9 @@ impl Default for LsdOptions {
         Self {
             magnitude_threshold: 0.05,
             angle_tolerance_deg: 22.5,
-            min_length_px: 16.0,
+            // Keep default minimum segment length permissive at coarse scales
+            // to match pre-refactor engine behavior and tests.
+            min_length_px: 4.0,
             enforce_polarity: false,
             normal_span_limit_px: None,
         }
@@ -53,7 +55,7 @@ impl Default for LsdOptions {
 
 impl LsdOptions {
     pub fn with_scale(mut self, scale: f32) -> Self {
-        self.min_length_px = self.min_length_px + scale;
+        self.min_length_px *= scale;
         self
     }
 }
