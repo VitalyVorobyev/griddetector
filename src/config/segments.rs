@@ -28,11 +28,10 @@ pub struct LsdConfig {
     /// If true, require gradient polarity consistency during region growth.
     #[serde(default)]
     pub enforce_polarity: bool,
-    /// If true, reject regions whose normal span exceeds `normal_span_limit_px`.
-    #[serde(default)]
-    pub limit_normal_span: bool,
-    /// Maximum allowed span (pixels) along the region normal when `limit_normal_span` is true.
-    pub normal_span_limit_px: f32,
+    /// Maximum allowed span (pixels) along the region normal.
+    /// When `None`, no span limit is applied.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub normal_span_limit_px: Option<f32>,
 }
 
 impl Default for LsdConfig {
@@ -42,8 +41,7 @@ impl Default for LsdConfig {
             angle_tolerance_deg: 12.0,
             min_length: 8.0,
             enforce_polarity: false,
-            limit_normal_span: false,
-            normal_span_limit_px: 2.0,
+            normal_span_limit_px: None,
         }
     }
 }
@@ -52,11 +50,9 @@ impl LsdConfig {
     pub fn to_lsd_options(&self) -> LsdOptions {
         LsdOptions {
             enforce_polarity: self.enforce_polarity,
-            normal_span_limit: if self.limit_normal_span {
-                Some(self.normal_span_limit_px)
-            } else {
-                None
-            },
+            normal_span_limit: self
+                .normal_span_limit_px
+                .filter(|v| v.is_finite() && *v > 0.0),
         }
     }
 
@@ -66,11 +62,9 @@ impl LsdConfig {
             angle_tol_deg: self.angle_tolerance_deg,
             min_len: self.min_length,
             enforce_polarity: self.enforce_polarity,
-            normal_span_limit: if self.limit_normal_span {
-                Some(self.normal_span_limit_px)
-            } else {
-                None
-            },
+            normal_span_limit: self
+                .normal_span_limit_px
+                .filter(|v| v.is_finite() && *v > 0.0),
         }
     }
 }

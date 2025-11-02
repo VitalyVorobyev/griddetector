@@ -1,11 +1,20 @@
+use nalgebra::Vector3;
+use serde::{Deserialize, Serialize};
+
+/// Identifier referencing a segment recorded in the pipeline trace.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SegmentId(pub u32);
+
 /// Line segment produced by the LSD-like extractor.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Segment {
+    pub id: SegmentId,
     pub p0: [f32; 2],
     pub p1: [f32; 2],
     pub dir: [f32; 2],
     pub len: f32,
-    pub line: [f32; 3], // ax + by + c = 0, with sqrt(a^2+b^2)=1
+    pub line: Vector3<f32>, // ax + by + c = 0, with sqrt(a^2+b^2)=1
     pub avg_mag: f32,
     pub strength: f32,
 }

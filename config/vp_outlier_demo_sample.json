@@ -8,9 +8,7 @@
     "magnitude_threshold": 0.1,
     "angle_tolerance_deg": 12.0,
     "min_length": 8.0,
-    "enforce_polarity": false,
-    "limit_normal_span": false,
-    "normal_span_limit_px": 2.0
+    "enforce_polarity": false
   },
   "outlier": {
     "angle_margin_deg": 8.0,

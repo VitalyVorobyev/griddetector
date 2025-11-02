@@ -1,41 +1,7 @@
 use crate::detector::outliers::SegmentDecision;
 use crate::lsd_vp::FamilyLabel;
-use crate::segments::Segment;
+use crate::segments::SegmentId;
 use serde::{Deserialize, Serialize};
-
-/// Identifier referencing a segment recorded in the pipeline trace.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct SegmentId(pub u32);
-
-/// Geometry snapshot for a segment detected on the coarse pyramid level.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SegmentDescriptor {
-    pub id: SegmentId,
-    pub p0: [f32; 2],
-    pub p1: [f32; 2],
-    pub direction: [f32; 2],
-    pub length: f32,
-    pub line: [f32; 3],
-    pub average_magnitude: f32,
-    pub strength: f32,
-}
-
-impl SegmentDescriptor {
-    pub fn from_segment(id: SegmentId, seg: &Segment) -> Self {
-        Self {
-            id,
-            p0: seg.p0,
-            p1: seg.p1,
-            direction: seg.dir,
-            length: seg.len,
-            line: seg.line,
-            average_magnitude: seg.avg_mag,
-            strength: seg.strength,
-        }
-    }
-}
 
 /// Classification outcome for a segment after running the outlier filter.
 #[derive(Clone, Debug, Serialize)]

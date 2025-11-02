@@ -1,4 +1,4 @@
-use super::types::{LsdOptions, Segment};
+use super::types::{LsdOptions, Segment, SegmentId};
 use crate::angle::{angular_difference, normalize_half_pi};
 use crate::edges::{sobel_gradients, Grad};
 use crate::image::ImageF32;
@@ -109,6 +109,7 @@ pub(super) struct LsdExtractor<'a> {
     mask: Option<&'a [u8]>,
     enforce_polarity: bool,
     normal_span_limit: Option<f32>,
+    next_id: u32,
 }
 
 impl<'a> LsdExtractor<'a> {
@@ -152,6 +153,7 @@ impl<'a> LsdExtractor<'a> {
             normal_span_limit: options
                 .normal_span_limit
                 .filter(|v| v.is_finite() && *v > 0.0),
+            next_id: 0,
         }
     }
 
@@ -232,7 +234,7 @@ impl<'a> LsdExtractor<'a> {
         }
     }
 
-    fn build_segment(&self) -> Option<Segment> {
+    fn build_segment(&mut self) -> Option<Segment> {
         if self.region.len() < 12 {
             return None;
         }
@@ -324,12 +326,15 @@ impl<'a> LsdExtractor<'a> {
         let avg_mag = self.region.avg_mag();
         let strength = len * avg_mag.max(1e-3);
 
+        let id = SegmentId(self.next_id);
+        self.next_id = self.next_id.wrapping_add(1);
         Some(Segment {
+            id,
             p0,
             p1,
             dir: [tx, ty],
             len,
-            line: [nx, ny, c],
+            line: nalgebra::Vector3::new(nx, ny, c),
             avg_mag,
             strength,
         })

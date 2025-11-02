@@ -5,6 +5,7 @@ pub mod config;
 pub mod detector;
 pub mod diagnostics;
 pub mod edges;
+pub mod homography;
 pub mod image;
 pub mod lsd_vp;
 pub mod pyramid;
@@ -19,7 +20,8 @@ pub use crate::diagnostics::builders::{
 pub use crate::diagnostics::{
     BundlingLevel, BundlingStage, DetectionReport, InputDescriptor, LsdStage, OutlierFilterStage,
     PipelineTrace, PyramidLevelReport, PyramidStage, RefinementIteration, RefinementOutcome,
-    RefinementStage, SegmentClass, SegmentDescriptor, SegmentId, SegmentRefineLevel,
-    SegmentRefineSample, SegmentRefineStage, SegmentSample, StageTiming, TimingBreakdown,
+    RefinementStage, SegmentClass, SegmentId, SegmentRefineLevel, SegmentRefineSample,
+    SegmentRefineStage, SegmentSample, StageTiming, TimingBreakdown,
 };
+pub use crate::homography::{apply_homography_points, rescale_homography_image_space};
 pub use crate::types::{GridResult, Pose};

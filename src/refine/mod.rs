@@ -10,8 +10,11 @@
 //!   snaps it to gradient support on the next finer level, performing the
 //!   coarse-to-fine carrier update used by the detector’s refinement cascade.
 //!
-//! Downstream code typically invokes the segment refiner first (per level) to
-//! obtain cleaned-up bundles before running the homography IRLS pass.
+//! Downstream pipeline typically:
+//! - prepares per-level bundles + refined segments in the detector module,
+//! - then runs the homography IRLS via [`homography::Refiner`],
+//! - and finally uses `families::split_bundles` (re-exported as
+//!   `split_bundles`) during grid indexing in rectified space.
 
 const EPS: f32 = 1e-6;
 
