@@ -75,7 +75,7 @@ struct FileOutputConfig {
 #[serde(default)]
 struct FileGridConfig {
     pyramid_levels: Option<usize>,
-    pyramid_blur_levels: Option<Option<usize>>,
+    pyramid_blur_levels: Option<usize>,
     spacing_mm: Option<f32>,
     intrinsics: Option<IntrinsicsConfig>,
     min_cells: Option<i32>,

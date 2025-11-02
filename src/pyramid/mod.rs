@@ -22,10 +22,9 @@ pub struct PyramidOptions<'a> {
     pub levels: usize,
     /// Number of initial downscale steps that apply the separable filter.
     ///
-    /// `None` applies the filter before every decimation. `Some(0)` skips blur
-    /// entirely. `Some(k)` applies the filter for the first `k` downscale
+    ///`Some(k)` applies the filter for the first `k` downscale
     /// operations (e.g. `k >= levels` → blur everywhere).
-    pub blur_levels: Option<usize>,
+    pub blur_levels: usize,
     /// Filter used for the separable blur stage.
     pub filter: &'a dyn SeparableFilter,
 }
@@ -34,12 +33,12 @@ impl<'a> PyramidOptions<'a> {
     pub fn new(levels: usize) -> Self {
         Self {
             levels,
-            blur_levels: None,
+            blur_levels: 0,
             filter: &GAUSSIAN_5TAP,
         }
     }
 
-    pub fn with_blur_levels(mut self, blur_levels: Option<usize>) -> Self {
+    pub fn with_blur_levels(mut self, blur_levels: usize) -> Self {
         self.blur_levels = blur_levels;
         self
     }
@@ -67,7 +66,7 @@ impl Pyramid {
         let mut levels = Vec::with_capacity(options.levels);
         levels.push(convert_l0(gray));
 
-        let blur_limit = options.blur_levels.unwrap_or(usize::MAX);
+        let blur_limit = options.blur_levels;
         for lvl in 1..options.levels {
             let prev = levels.last().expect("previous level available");
             let use_blur = lvl <= blur_limit;

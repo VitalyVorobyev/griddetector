@@ -18,7 +18,7 @@ pub struct GridParams {
     pub pyramid_levels: usize,
     /// Optional number of levels that apply Gaussian blur before decimation.
     /// `None` falls back to legacy behaviour (blur at every step).
-    pub pyramid_blur_levels: Option<usize>,
+    pub pyramid_blur_levels: usize,
     /// Grid spacing used by downstream pose estimation (millimetres).
     pub spacing_mm: f32,
     /// Camera intrinsics used to derive the pose from the final homography.
@@ -47,7 +47,7 @@ impl Default for GridParams {
     fn default() -> Self {
         Self {
             pyramid_levels: 4,
-            pyramid_blur_levels: None,
+            pyramid_blur_levels: 0,
             spacing_mm: 5.0,
             kmtx: Matrix3::identity(),
             min_cells: 6,

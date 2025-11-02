@@ -67,12 +67,8 @@ fn save_debug_artifacts(
     }
 
     // Rebuild the pyramid for debugging using the same blur schedule as the detector
-    let pyramid_opts = match grid_params.pyramid_blur_levels {
-        Some(blur_levels) => {
-            PyramidOptions::new(grid_params.pyramid_levels).with_blur_levels(Some(blur_levels))
-        }
-        None => PyramidOptions::new(grid_params.pyramid_levels),
-    };
+    let pyramid_opts = PyramidOptions::new(grid_params.pyramid_levels)
+        .with_blur_levels(grid_params.pyramid_blur_levels);
     let pyramid = Pyramid::build_u8(gray.as_view(), pyramid_opts);
     for (level_idx, level) in pyramid.levels.iter().enumerate() {
         let path = dir.join(format!("pyramid_L{}.png", level_idx));

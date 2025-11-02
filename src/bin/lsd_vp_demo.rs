@@ -26,12 +26,7 @@ fn run() -> Result<(), String> {
 
     let gray = load_grayscale_image(&config.input)?;
     let levels = config.pyramid.levels.max(1);
-    let pyramid_opts = if let Some(blur_levels_cfg) = config.pyramid.blur_levels {
-        let blur_levels = blur_levels_cfg.min(levels.saturating_sub(1));
-        PyramidOptions::new(levels).with_blur_levels(Some(blur_levels))
-    } else {
-        PyramidOptions::new(levels)
-    };
+    let pyramid_opts = PyramidOptions::new(levels).with_blur_levels(config.pyramid.blur_levels);
     let pyramid = Pyramid::build_u8(gray.as_view(), pyramid_opts);
     let coarsest_index = pyramid
         .levels

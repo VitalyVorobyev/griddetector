@@ -283,12 +283,8 @@ impl GridDetector {
 
     fn build_pyramid(&self, gray: ImageU8) -> PyramidBuildResult {
         let pyr_start = Instant::now();
-        let pyramid_opts = match self.params.pyramid_blur_levels {
-            Some(blur_levels) => {
-                PyramidOptions::new(self.params.pyramid_levels).with_blur_levels(Some(blur_levels))
-            }
-            None => PyramidOptions::new(self.params.pyramid_levels),
-        };
+        let pyramid_opts = PyramidOptions::new(self.params.pyramid_levels)
+            .with_blur_levels(self.params.pyramid_blur_levels);
         let pyramid = Pyramid::build_u8(gray, pyramid_opts);
         let elapsed_ms = pyr_start.elapsed().as_secs_f64() * 1000.0;
         let stage = if pyramid.levels.is_empty() {
