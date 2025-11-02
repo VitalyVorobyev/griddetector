@@ -127,8 +127,6 @@ impl GridDetector {
             mut confidence,
             elapsed_ms: lsd_ms,
         } = lsd::run_on_coarsest(&lsd_engine, &pyramid, width, height);
-        let segment_trace = coarse_segments.clone();
-
         let initial_h_full = full_h;
         let coarse_h_matrix = full_h;
 
@@ -262,7 +260,7 @@ impl GridDetector {
                 pyramid_levels: pyramid.levels.len(),
             },
             timings,
-            segments: segment_trace,
+            segments: coarse_segments,
             pyramid: pyramid_stage,
             lsd: lsd_stage,
             outlier_filter: outlier_stage,
@@ -324,7 +322,6 @@ impl GridDetector {
             confidence,
             elapsed_ms: lsd_ms,
         } = lsd::run_on_coarsest(&lsd_engine, &pyramid, width, height);
-        let segment_trace = coarse_segments.clone();
 
         if let Some(stage) = lsd_stage.as_mut() {
             stage.elapsed_ms = lsd_ms;
@@ -429,7 +426,7 @@ impl GridDetector {
                 pyramid_levels: pyramid.levels.len(),
             },
             timings,
-            segments: segment_trace,
+            segments: coarse_segments,
             pyramid: pyramid_stage,
             lsd: lsd_stage,
             outlier_filter: outlier_stage,
