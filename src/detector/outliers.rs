@@ -250,10 +250,12 @@ fn aggregate_diagnostics(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::segments::SegmentId;
     use nalgebra::Matrix3;
 
-    fn make_segment(dir: [f32; 2], line: [f32; 3]) -> Segment {
+    fn make_segment(id: u32, dir: [f32; 2], line: [f32; 3]) -> Segment {
         Segment {
+            id: SegmentId(id),
             p0: [0.0, 0.0],
             p1: [dir[0], dir[1]],
             dir,
@@ -271,9 +273,9 @@ mod tests {
             0.0, 1.0, 0.0, // VPv at infinity along +y
             0.0, 0.0, 1.0,
         );
-        let seg_ok = make_segment([1.0, 0.0], [0.0, 1.0, 0.0]); // horizontal line y=0
+        let seg_ok = make_segment(0, [1.0, 0.0], [0.0, 1.0, 0.0]); // horizontal line y=0
         let r2 = std::f32::consts::FRAC_1_SQRT_2;
-        let seg_bad = make_segment([r2, r2], [r2, -r2, 0.0]);
+        let seg_bad = make_segment(1, [r2, r2], [r2, -r2, 0.0]);
         let filter_params = OutlierFilterParams {
             angle_margin_deg: 0.0,
             line_residual_thresh_px: 10.0,
@@ -300,7 +302,7 @@ mod tests {
             nalgebra::Vector3::new(0.0, 1.0, 0.0),  // VPv at infinity along y
             nalgebra::Vector3::new(0.0, 0.0, 1.0),  // anchor at origin
         ]);
-        let seg = make_segment([1.0, 0.0], [0.0, 1.0, -2.0]); // horizontal line y=2
+        let seg = make_segment(0, [1.0, 0.0], [0.0, 1.0, -2.0]); // horizontal line y=2
         let filter_params = OutlierFilterParams {
             angle_margin_deg: 20.0,
             line_residual_thresh_px: 1.0,
@@ -329,8 +331,8 @@ mod tests {
             0.0, 0.0, 1.0,
         );
         // Two segments with opposite tangents along x-axis; both should pass.
-        let seg_pos = make_segment([1.0, 0.0], [0.0, 1.0, 0.0]);
-        let seg_neg = make_segment([-1.0, 0.0], [0.0, 1.0, 0.0]);
+        let seg_pos = make_segment(0, [1.0, 0.0], [0.0, 1.0, 0.0]);
+        let seg_neg = make_segment(1, [-1.0, 0.0], [0.0, 1.0, 0.0]);
         let filter_params = OutlierFilterParams {
             angle_margin_deg: 0.0,
             line_residual_thresh_px: 10.0,

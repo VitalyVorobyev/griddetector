@@ -49,7 +49,7 @@ mod extractor;
 pub mod types;
 
 pub use bundling::{bundle_segments, Bundle};
-pub use types::{LsdOptions, Segment};
+pub use types::{LsdOptions, Segment, SegmentId};
 
 use crate::image::ImageF32;
 
