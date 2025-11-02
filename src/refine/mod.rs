@@ -13,8 +13,8 @@
 //! Downstream pipeline typically:
 //! - prepares per-level bundles + refined segments in the detector module,
 //! - then runs the homography IRLS via [`homography::Refiner`],
-//! - and finally uses [`families::split_bundles`] (re-exported as
-//!   [`split_bundles`]) during grid indexing in rectified space.
+//! - and finally uses `families::split_bundles` (re-exported as
+//!   `split_bundles`) during grid indexing in rectified space.
 
 const EPS: f32 = 1e-6;
 
