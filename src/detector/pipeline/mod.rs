@@ -70,7 +70,6 @@ pub struct GridDetector {
     params: GridParams,
     last_hmtx: Option<Matrix3<f32>>,
     refiner: Refiner,
-    lsd_engine: LsdVpEngine,
     workspace: DetectorWorkspace,
 }
 struct PyramidBuildResult {
@@ -83,14 +82,10 @@ impl GridDetector {
     /// Create a detector with the supplied parameters.
     pub fn new(params: GridParams) -> Self {
         let refiner = Refiner::new(params.refine_params.clone());
-        let lsd_engine = LsdVpEngine {
-            options: params.lsd_params,
-        };
         Self {
             params,
             last_hmtx: None,
             refiner,
-            lsd_engine,
             workspace: DetectorWorkspace::new(),
         }
     }
@@ -121,6 +116,9 @@ impl GridDetector {
         } = self.build_pyramid(gray);
 
         let bundler = BundleStack::new(&self.params.bundling_params);
+        let lsd_engine = LsdVpEngine {
+            options: self.params.lsd_params,
+        };
         let LsdComputation {
             stage: mut lsd_stage,
             segments: coarse_segments,
@@ -128,7 +126,7 @@ impl GridDetector {
             full_h,
             mut confidence,
             elapsed_ms: lsd_ms,
-        } = lsd::run_on_coarsest(&self.lsd_engine, &pyramid, width, height);
+        } = lsd::run_on_coarsest(&lsd_engine, &pyramid, width, height);
         let segment_trace = coarse_segments.clone();
 
         let initial_h_full = full_h;
@@ -314,6 +312,10 @@ impl GridDetector {
             elapsed_ms: pyr_ms,
         } = self.build_pyramid(gray);
 
+        let scale = 1_f32 / (1 << pyramid.levels.len()) as f32;
+        let lsd_engine = LsdVpEngine {
+            options: self.params.lsd_params.with_scale(scale),
+        };
         let LsdComputation {
             stage: mut lsd_stage,
             segments: coarse_segments,
@@ -321,7 +323,7 @@ impl GridDetector {
             full_h,
             confidence,
             elapsed_ms: lsd_ms,
-        } = lsd::run_on_coarsest(&self.lsd_engine, &pyramid, width, height);
+        } = lsd::run_on_coarsest(&lsd_engine, &pyramid, width, height);
         let segment_trace = coarse_segments.clone();
 
         if let Some(stage) = lsd_stage.as_mut() {
@@ -488,7 +490,6 @@ impl GridDetector {
     /// Update LSD coarse stage parameters.
     pub fn set_lsd_params(&mut self, params: LsdOptions) {
         self.params.lsd_params = params;
-        self.lsd_engine = LsdVpEngine { options: params }
     }
 
     /// Update bundling parameters (orientation/distance/scale mode).
