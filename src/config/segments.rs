@@ -52,7 +52,6 @@ impl LsdConfig {
             enforce_polarity: self.enforce_polarity,
             normal_span_limit: self
                 .normal_span_limit_px
-                .map(|v| v)
                 .filter(|v| v.is_finite() && *v > 0.0),
         }
     }
@@ -65,7 +64,6 @@ impl LsdConfig {
             enforce_polarity: self.enforce_polarity,
             normal_span_limit: self
                 .normal_span_limit_px
-                .map(|v| v)
                 .filter(|v| v.is_finite() && *v > 0.0),
         }
     }

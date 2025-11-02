@@ -26,6 +26,7 @@ fn make_test_segment(angle: f32) -> Segment {
     let normal = [-dir[1], dir[0]];
     let c = -(normal[0] * center[0] + normal[1] * center[1]);
     Segment {
+        id: SegmentId(0),
         p0,
         p1,
         dir,

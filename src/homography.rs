@@ -10,7 +10,7 @@ pub fn rescale_homography_image_space(
     dst_h: usize,
 ) -> Matrix3<f32> {
     if src_w == 0 || src_h == 0 || dst_w == 0 || dst_h == 0 {
-        return h.clone();
+        return *h;
     }
     let sx = dst_w as f32 / src_w as f32;
     let sy = dst_h as f32 / src_h as f32;
@@ -31,8 +31,10 @@ pub fn apply_homography_points(h: &Matrix3<f32>, pts: &[[f32; 2]]) -> Option<Vec
     Some(out)
 }
 
+/// # Safety
+/// Dereferences raw pointers
 #[no_mangle]
-pub extern "C" fn grid_rescale_homography(
+pub unsafe extern "C" fn grid_rescale_homography(
     matrix_ptr: *const f32,
     src_w: u32,
     src_h: u32,
@@ -66,8 +68,10 @@ pub extern "C" fn grid_rescale_homography(
     true
 }
 
+/// # Safety
+/// Dereferences raw pointers
 #[no_mangle]
-pub extern "C" fn grid_apply_homography_points(
+pub unsafe extern "C" fn grid_apply_homography_points(
     matrix_ptr: *const f32,
     pts_ptr: *const f32,
     point_count: usize,

@@ -131,8 +131,8 @@ impl GridDetector {
         } = lsd::run_on_coarsest(&self.lsd_engine, &pyramid, width, height);
         let segment_trace = coarse_segments.clone();
 
-        let initial_h_full = full_h.clone();
-        let coarse_h_matrix = full_h.clone();
+        let initial_h_full = full_h;
+        let coarse_h_matrix = full_h;
 
         if let Some(stage) = lsd_stage.as_mut() {
             stage.elapsed_ms = lsd_ms;

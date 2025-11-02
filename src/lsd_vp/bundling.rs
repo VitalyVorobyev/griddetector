@@ -50,7 +50,7 @@ fn compute_auto_eps(obs: &[Obs], default_eps: f32) -> f32 {
         return eps_cap;
     }
     let mut params: Vec<f32> = obs.iter().map(|o| o.param).collect();
-    params.sort_by(|a, b| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal));
+    params.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let mut diffs: Vec<f32> = Vec::with_capacity(params.len().saturating_sub(1));
     for i in 1..params.len() {
         let d = (params[i] - params[i - 1]).abs();
@@ -61,7 +61,7 @@ fn compute_auto_eps(obs: &[Obs], default_eps: f32) -> f32 {
     if diffs.is_empty() {
         return eps_cap;
     }
-    diffs.sort_by(|a, b| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal));
+    diffs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let m = diffs.len();
     let median = if m % 2 == 1 {
         diffs[m / 2]
@@ -285,7 +285,7 @@ mod tests {
         assert_eq!(bundles.len(), segs.len());
 
         let mut sorted_centers: Vec<f32> = bundles.iter().map(|b| b.center[0]).collect();
-        sorted_centers.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+        sorted_centers.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let expected = [10.0, 23.0, 39.0];
         for (observed, exp) in sorted_centers.iter().zip(expected.iter()) {
             assert!((observed - exp).abs() < 1.0);

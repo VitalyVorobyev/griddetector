@@ -71,6 +71,7 @@ impl PreparedLevels {
 ///   lifting geometry forward for the next iteration
 ///
 /// Inputs assume `coarse_h` and all geometric data are in full-resolution coordinates.
+#[allow(clippy::too_many_arguments)]
 pub fn prepare_levels(
     workspace: &mut DetectorWorkspace,
     bundler: &BundleStack<'_>,
