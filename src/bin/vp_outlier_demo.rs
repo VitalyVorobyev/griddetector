@@ -58,12 +58,7 @@ fn usage() -> String {
 }
 
 fn build_pyramid_options(config: &VpOutlierDemoConfig, levels: usize) -> PyramidOptions<'static> {
-    if let Some(blur_levels_cfg) = config.pyramid.blur_levels {
-        let blur_levels = blur_levels_cfg.min(levels.saturating_sub(1));
-        PyramidOptions::new(levels).with_blur_levels(Some(blur_levels))
-    } else {
-        PyramidOptions::new(levels)
-    }
+    PyramidOptions::new(levels).with_blur_levels(config.pyramid.blur_levels)
 }
 
 fn save_coarsest_level(config: &VpOutlierDemoConfig, pyramid: &Pyramid) -> Result<(), String> {
@@ -87,7 +82,7 @@ fn grid_params_from_config(config: &VpOutlierDemoConfig, levels: usize) -> GridP
     GridParams {
         pyramid_levels: levels,
         pyramid_blur_levels: config.pyramid.blur_levels,
-        lsd_vp_params: config.resolve_lsd_vp_params(),
+        lsd_params: config.lsd,
         outlier_filter: config.outlier.resolve(),
         bundling_params: config.bundling.resolve(),
         refine_params: config.refine.resolve(),

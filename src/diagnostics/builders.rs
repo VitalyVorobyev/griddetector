@@ -2,14 +2,14 @@
 //! detector pipeline to standalone demos.
 
 use crate::detector::outliers::{classify_segments_with_details, OutlierFilterDiagnostics};
-use crate::detector::params::{LsdVpParams, OutlierFilterParams};
+use crate::detector::params::OutlierFilterParams;
 use crate::diagnostics::{
     FamilyCounts, LsdStage, OutlierFilterStage, OutlierThresholds, SegmentSample,
 };
 use crate::image::ImageF32;
 use crate::lsd_vp::{DetailedInference, Engine as LsdVpEngine, FamilyLabel};
 use crate::refine::segment::RefineResult;
-use crate::segments::Segment;
+use crate::segments::{LsdOptions, Segment};
 use nalgebra::Matrix3;
 
 /// Result of running the LSD→VP stage in isolation.
@@ -89,7 +89,7 @@ pub fn run_outlier_stage(
     segments: &[Segment],
     coarse_h: &Matrix3<f32>,
     filter_params: &OutlierFilterParams,
-    lsd_params: &LsdVpParams,
+    lsd_params: &LsdOptions,
 ) -> OutlierStageOutput {
     let (decisions, diag) =
         classify_segments_with_details(segments, coarse_h, filter_params, lsd_params);

@@ -8,9 +8,9 @@
 //! The filter surfaces useful diagnostics (per-family counts, thresholds), and
 //! is lightweight enough to be applied on every frame before refinement.
 use crate::angle::{angle_between_dirless, vp_direction, VP_EPS};
-use crate::detector::params::{LsdVpParams, OutlierFilterParams};
+use crate::detector::params::OutlierFilterParams;
 use crate::lsd_vp::FamilyLabel;
-use crate::segments::Segment;
+use crate::segments::{LsdOptions, Segment};
 use nalgebra::Matrix3;
 
 /// Diagnostics emitted by the outlier filter.
@@ -41,7 +41,7 @@ pub fn filter_segments(
     segments: Vec<Segment>,
     h_coarse: &Matrix3<f32>,
     filter_params: &OutlierFilterParams,
-    lsd_params: &LsdVpParams,
+    lsd_params: &LsdOptions,
 ) -> (Vec<Segment>, OutlierFilterDiagnostics) {
     let (decisions, diag) =
         classify_segments_with_details(&segments, h_coarse, filter_params, lsd_params);
@@ -76,9 +76,9 @@ pub fn classify_segments_with_details(
     segments: &[Segment],
     h_coarse: &Matrix3<f32>,
     filter_params: &OutlierFilterParams,
-    lsd_params: &LsdVpParams,
+    lsd_params: &LsdOptions,
 ) -> (Vec<SegmentDecision>, OutlierFilterDiagnostics) {
-    let angle_thresh_deg = lsd_params.angle_tol_deg + filter_params.angle_margin_deg;
+    let angle_thresh_deg = lsd_params.angle_tolerance_deg + filter_params.angle_margin_deg;
     let angle_thresh_rad = angle_thresh_deg.to_radians();
 
     let vpu = h_coarse.column(0).into_owned();
@@ -280,12 +280,12 @@ mod tests {
             angle_margin_deg: 0.0,
             line_residual_thresh_px: 10.0,
         };
-        let lsd_params = LsdVpParams {
-            mag_thresh: 0.05,
-            angle_tol_deg: 12.0,
-            min_len: 4.0,
+        let lsd_params = LsdOptions {
+            magnitude_threshold: 0.05,
+            angle_tolerance_deg: 12.0,
+            min_length_px: 4.0,
             enforce_polarity: false,
-            normal_span_limit: None,
+            normal_span_limit_px: None,
         };
         let segments = vec![seg_ok.clone(), seg_bad];
         let (filtered, diag) = filter_segments(segments, &h, &filter_params, &lsd_params);
@@ -307,12 +307,12 @@ mod tests {
             angle_margin_deg: 20.0,
             line_residual_thresh_px: 1.0,
         };
-        let lsd_params = LsdVpParams {
-            mag_thresh: 0.05,
-            angle_tol_deg: 10.0,
-            min_len: 4.0,
+        let lsd_params = LsdOptions {
+            magnitude_threshold: 0.05,
+            angle_tolerance_deg: 10.0,
+            min_length_px: 4.0,
             enforce_polarity: false,
-            normal_span_limit: None,
+            normal_span_limit_px: None,
         };
         let (filtered, diag) = filter_segments(vec![seg], &h, &filter_params, &lsd_params);
         assert!(
@@ -337,12 +337,12 @@ mod tests {
             angle_margin_deg: 0.0,
             line_residual_thresh_px: 10.0,
         };
-        let lsd_params = LsdVpParams {
-            mag_thresh: 0.05,
-            angle_tol_deg: 12.0,
-            min_len: 4.0,
+        let lsd_params = LsdOptions {
+            magnitude_threshold: 0.05,
+            angle_tolerance_deg: 12.0,
+            min_length_px: 4.0,
             enforce_polarity: false,
-            normal_span_limit: None,
+            normal_span_limit_px: None,
         };
         let segments = vec![seg_pos.clone(), seg_neg.clone()];
         let (filtered, diag) = filter_segments(segments, &h, &filter_params, &lsd_params);

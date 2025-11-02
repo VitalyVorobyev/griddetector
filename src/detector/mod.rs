@@ -38,8 +38,7 @@ mod scaling;
 mod workspace;
 
 pub use params::{
-    BundlingParams, BundlingScaleMode, GridParams, LsdVpParams, OutlierFilterParams,
-    RefinementSchedule,
+    BundlingParams, BundlingScaleMode, GridParams, OutlierFilterParams, RefinementSchedule,
 };
 pub use pipeline::GridDetector;
 pub use scaling::{rescale_bundle_to_full_res, LevelScaling};

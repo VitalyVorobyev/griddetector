@@ -1,6 +1,6 @@
 use crate::angle::{angle_between, angular_difference, normalize_half_pi, vp_direction};
 use crate::image::ImageF32;
-use crate::segments::{lsd_extract_segments_with_options, LsdOptions, Segment};
+use crate::segments::{lsd_extract_segments, LsdOptions, Segment};
 use log::debug;
 use nalgebra::{Matrix3, Vector3};
 use serde::Serialize;
@@ -40,52 +40,22 @@ pub struct Hypothesis {
 
 /// Lightweight engine that finds two dominant line families from LSD segments,
 /// estimates their vanishing points, and returns a coarse projective basis H0.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Engine {
-    /// Gradient magnitude threshold at the pyramid level (0..1)
-    pub mag_thresh: f32,
-    /// Angular tolerance (degrees) for clustering around histogram peaks
-    pub angle_tol_deg: f32,
-    /// Minimum accepted segment length in pixels (at that level)
-    pub min_len: f32,
-    /// Additional options controlling LSD region growth.
     pub options: LsdOptions,
-}
-
-impl Default for Engine {
-    fn default() -> Self {
-        Self {
-            mag_thresh: 0.05,
-            angle_tol_deg: 22.5,
-            min_len: 4.0,
-            options: LsdOptions::default(),
-        }
-    }
 }
 
 impl Engine {
     /// Run the engine on a single pyramid level image. Returns a coarse H0 if successful.
     pub fn infer(&self, l: &ImageF32) -> Option<Hypothesis> {
-        let segments = lsd_extract_segments_with_options(
-            l,
-            self.mag_thresh,
-            self.angle_tol_deg.to_radians(),
-            self.min_len,
-            self.options,
-        );
+        let segments = lsd_extract_segments(l, self.options);
         self.infer_with_segments_internal(l, segments)
             .map(|d| d.hypothesis)
     }
 
     /// Returns detailed inference with segment assignments.
     pub fn infer_detailed(&self, l: &ImageF32) -> Option<DetailedInference> {
-        let segments = lsd_extract_segments_with_options(
-            l,
-            self.mag_thresh,
-            self.angle_tol_deg.to_radians(),
-            self.min_len,
-            self.options,
-        );
+        let segments = lsd_extract_segments(l, self.options);
         self.infer_with_segments_internal(l, segments)
     }
 
@@ -127,7 +97,7 @@ impl Engine {
         hist.smooth_121();
 
         // Select two dominant peaks separated by at least ~ angle_tol*2
-        let min_sep = (self.angle_tol_deg * 2.0).to_radians();
+        let min_sep = (self.options.angle_tolerance_deg * 2.0).to_radians();
         let (first_idx, second_idx) = match hist.find_two_peaks(min_sep) {
             Some(peaks) => peaks,
             None => {
@@ -142,7 +112,7 @@ impl Engine {
         let theta_v = hist.refined_angle(second_idx, 1);
 
         // Soft-assign segments to the two families
-        let tol = self.angle_tol_deg.to_radians();
+        let tol = self.options.angle_tolerance_deg.to_radians();
         let mut u_idx: Vec<usize> = Vec::new();
         let mut v_idx: Vec<usize> = Vec::new();
         let mut families: Vec<Option<FamilyLabel>> = vec![None; segments.len()];

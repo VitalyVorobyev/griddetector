@@ -42,9 +42,7 @@ mod reporting;
 // - `refinement::homography`: IRLS-driven homography update and confidence blend.
 // - `refinement::indexing`: bundle-to-grid indexing in rectified space.
 
-use super::params::{
-    BundlingParams, GridParams, LsdVpParams, OutlierFilterParams, RefinementSchedule,
-};
+use super::params::{BundlingParams, GridParams, OutlierFilterParams, RefinementSchedule};
 use super::workspace::DetectorWorkspace;
 use crate::diagnostics::{
     BundlingStage, DetectionReport, InputDescriptor, PipelineTrace, PyramidStage, TimingBreakdown,
@@ -55,7 +53,7 @@ use crate::pyramid::{Pyramid, PyramidOptions};
 use crate::refine::segment::RefineParams as SegmentRefineParams;
 use crate::refine::RefineParams as HomographyRefineParams;
 use crate::refine::Refiner;
-use crate::segments::{Bundle, Segment};
+use crate::segments::{Bundle, LsdOptions, Segment};
 use crate::types::GridResult;
 use bundling::BundleStack;
 use log::debug;
@@ -85,7 +83,9 @@ impl GridDetector {
     /// Create a detector with the supplied parameters.
     pub fn new(params: GridParams) -> Self {
         let refiner = Refiner::new(params.refine_params.clone());
-        let lsd_engine = lsd::make_engine(&params.lsd_vp_params);
+        let lsd_engine = LsdVpEngine {
+            options: params.lsd_params,
+        };
         Self {
             params,
             last_hmtx: None,
@@ -146,7 +146,7 @@ impl GridDetector {
             &coarse_segments,
             coarse_h.as_ref(),
             &self.params.outlier_filter,
-            &self.params.lsd_vp_params,
+            &self.params.lsd_params,
         );
 
         let mut prepared_levels = PreparedLevels::empty();
@@ -283,12 +283,8 @@ impl GridDetector {
 
     fn build_pyramid(&self, gray: ImageU8) -> PyramidBuildResult {
         let pyr_start = Instant::now();
-        let pyramid_opts = match self.params.pyramid_blur_levels {
-            Some(blur_levels) => {
-                PyramidOptions::new(self.params.pyramid_levels).with_blur_levels(Some(blur_levels))
-            }
-            None => PyramidOptions::new(self.params.pyramid_levels),
-        };
+        let pyramid_opts = PyramidOptions::new(self.params.pyramid_levels)
+            .with_blur_levels(self.params.pyramid_blur_levels);
         let pyramid = Pyramid::build_u8(gray, pyramid_opts);
         let elapsed_ms = pyr_start.elapsed().as_secs_f64() * 1000.0;
         let stage = if pyramid.levels.is_empty() {
@@ -318,7 +314,6 @@ impl GridDetector {
             elapsed_ms: pyr_ms,
         } = self.build_pyramid(gray);
 
-        let bundler = BundleStack::new(&self.params.bundling_params);
         let LsdComputation {
             stage: mut lsd_stage,
             segments: coarse_segments,
@@ -341,9 +336,10 @@ impl GridDetector {
             &coarse_segments,
             coarse_h.as_ref(),
             &self.params.outlier_filter,
-            &self.params.lsd_vp_params,
+            &self.params.lsd_params,
         );
 
+        let bundler = BundleStack::new(&self.params.bundling_params);
         let mut bundling_stage = None;
         let mut coarse_bundles: Vec<Bundle> = Vec::new();
         if let Some((stage, bundles)) = bundling::bundle_coarsest(
@@ -489,10 +485,10 @@ impl GridDetector {
         self.params.segment_refine_params = params;
     }
 
-    /// Update LSD→VP coarse stage parameters.
-    pub fn set_lsd_vp_params(&mut self, params: LsdVpParams) {
-        self.params.lsd_vp_params = params.clone();
-        self.lsd_engine = lsd::make_engine(&params);
+    /// Update LSD coarse stage parameters.
+    pub fn set_lsd_params(&mut self, params: LsdOptions) {
+        self.params.lsd_params = params;
+        self.lsd_engine = LsdVpEngine { options: params }
     }
 
     /// Update bundling parameters (orientation/distance/scale mode).

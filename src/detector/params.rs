@@ -18,7 +18,7 @@ pub struct GridParams {
     pub pyramid_levels: usize,
     /// Optional number of levels that apply Gaussian blur before decimation.
     /// `None` falls back to legacy behaviour (blur at every step).
-    pub pyramid_blur_levels: Option<usize>,
+    pub pyramid_blur_levels: usize,
     /// Grid spacing used by downstream pose estimation (millimetres).
     pub spacing_mm: f32,
     /// Camera intrinsics used to derive the pose from the final homography.
@@ -36,7 +36,7 @@ pub struct GridParams {
     /// Gradient-driven segment refinement parameters.
     pub segment_refine_params: SegmentRefineParams,
     /// Parameters exposed by the coarse LSD→VP engine.
-    pub lsd_vp_params: LsdVpParams,
+    pub lsd_params: LsdOptions,
     /// Bundling configuration shared by the refinement stages.
     pub bundling_params: BundlingParams,
     /// Segment outlier rejection prior to refinement.
@@ -47,7 +47,7 @@ impl Default for GridParams {
     fn default() -> Self {
         Self {
             pyramid_levels: 4,
-            pyramid_blur_levels: None,
+            pyramid_blur_levels: 0,
             spacing_mm: 5.0,
             kmtx: Matrix3::identity(),
             min_cells: 6,
@@ -56,40 +56,9 @@ impl Default for GridParams {
             refinement_schedule: RefinementSchedule::default(),
             refine_params: HomographyRefineParams::default(),
             segment_refine_params: SegmentRefineParams::default(),
-            lsd_vp_params: LsdVpParams::default(),
+            lsd_params: LsdOptions::default(),
             bundling_params: BundlingParams::default(),
             outlier_filter: OutlierFilterParams::default(),
-        }
-    }
-}
-
-/// Parameters for the lightweight LSD→VP engine.
-#[derive(Clone, Debug)]
-pub struct LsdVpParams {
-    pub mag_thresh: f32,
-    pub angle_tol_deg: f32,
-    pub min_len: f32,
-    pub enforce_polarity: bool,
-    pub normal_span_limit: Option<f32>,
-}
-
-impl Default for LsdVpParams {
-    fn default() -> Self {
-        Self {
-            mag_thresh: 0.05,
-            angle_tol_deg: 22.5,
-            min_len: 4.0,
-            enforce_polarity: false,
-            normal_span_limit: None,
-        }
-    }
-}
-
-impl LsdVpParams {
-    pub fn to_lsd_options(&self) -> LsdOptions {
-        LsdOptions {
-            enforce_polarity: self.enforce_polarity,
-            normal_span_limit: self.normal_span_limit,
         }
     }
 }

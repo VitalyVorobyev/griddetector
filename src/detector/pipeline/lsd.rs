@@ -1,4 +1,3 @@
-use crate::detector::params::LsdVpParams;
 use crate::diagnostics::{FamilyCounts, LsdStage};
 use crate::lsd_vp::{DetailedInference, Engine as LsdVpEngine, FamilyLabel};
 use crate::pyramid::Pyramid;
@@ -15,15 +14,6 @@ pub struct LsdComputation {
     pub full_h: Option<Matrix3<f32>>,
     pub confidence: f32,
     pub elapsed_ms: f64,
-}
-
-pub fn make_engine(params: &LsdVpParams) -> LsdVpEngine {
-    LsdVpEngine {
-        mag_thresh: params.mag_thresh,
-        angle_tol_deg: params.angle_tol_deg,
-        min_len: params.min_len,
-        options: params.to_lsd_options(),
-    }
 }
 
 pub fn run_on_coarsest(

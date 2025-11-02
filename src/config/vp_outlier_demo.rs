@@ -1,9 +1,7 @@
 use super::edge::PyramidConfig;
-use super::segments::LsdConfig;
-use crate::detector::params::{
-    BundlingParams, BundlingScaleMode, LsdVpParams, OutlierFilterParams,
-};
+use crate::detector::params::{BundlingParams, BundlingScaleMode, OutlierFilterParams};
 use crate::refine::RefineParams as HomographyRefineParams;
+use crate::segments::LsdOptions;
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,7 +13,7 @@ pub struct VpOutlierDemoConfig {
     #[serde(default)]
     pub pyramid: PyramidConfig,
     #[serde(default)]
-    pub lsd: LsdConfig,
+    pub lsd: LsdOptions,
     #[serde(default)]
     pub outlier: OutlierConfig,
     #[serde(default)]
@@ -23,13 +21,6 @@ pub struct VpOutlierDemoConfig {
     #[serde(default)]
     pub refine: RefineConfig,
     pub output: DemoOutputConfig,
-}
-
-impl VpOutlierDemoConfig {
-    /// Convert resolved engine parameters into the detector's `LsdVpParams`.
-    pub fn resolve_lsd_vp_params(&self) -> LsdVpParams {
-        self.lsd.to_lsd_vp_params()
-    }
 }
 
 #[derive(Debug, Deserialize, Default)]

@@ -1,5 +1,5 @@
 use super::edge::PyramidConfig;
-use super::segments::LsdConfig;
+use crate::segments::LsdOptions;
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ pub struct LsdVpDemoConfig {
     #[serde(default)]
     pub pyramid: PyramidConfig,
     #[serde(default)]
-    pub lsd: LsdConfig,
+    pub lsd: LsdOptions,
     pub output: LsdVpOutputConfig,
 }
 

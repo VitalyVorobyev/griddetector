@@ -6,7 +6,6 @@
 //! quick visual inspection.
 
 use grid_detector::config::segment_refine_demo as seg_cfg;
-use grid_detector::config::segments::LsdConfig;
 use grid_detector::diagnostics::builders::convert_refined_segment;
 use grid_detector::diagnostics::{
     PyramidStage, SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage, TimingBreakdown,
@@ -18,8 +17,8 @@ use grid_detector::pyramid::{Pyramid, PyramidOptions};
 use grid_detector::refine::segment::{
     self, PyramidLevel as SegmentGradientLevel, ScaleMap, Segment as SegmentSeed,
 };
+use grid_detector::segments::lsd_extract_segments;
 use grid_detector::segments::Segment;
-use grid_detector::segments::{lsd_extract_segments_with_options, LsdOptions};
 use serde::Serialize;
 use std::env;
 use std::fs;
@@ -46,12 +45,7 @@ fn run() -> Result<(), String> {
     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
 
     let levels = config.pyramid.levels.max(1);
-    let pyramid_opts = if let Some(blur_levels_cfg) = config.pyramid.blur_levels {
-        let blur_levels = blur_levels_cfg.min(levels.saturating_sub(1));
-        PyramidOptions::new(levels).with_blur_levels(Some(blur_levels))
-    } else {
-        PyramidOptions::new(levels)
-    };
+    let pyramid_opts = PyramidOptions::new(levels).with_blur_levels(config.pyramid.blur_levels);
     let pyr_start = Instant::now();
     let pyramid = Pyramid::build_u8(gray.as_view(), pyramid_opts);
     let pyramid_ms = pyr_start.elapsed().as_secs_f64() * 1000.0;
@@ -66,7 +60,12 @@ fn run() -> Result<(), String> {
         .checked_sub(1)
         .ok_or_else(|| "Pyramid must contain at least one level".to_string())?;
     let lsd_start = Instant::now();
-    let lsd_segments = detect_coarse_segments(&pyramid.levels[coarsest_index], &config.lsd);
+
+    let scale = 1_f32 / (1 << pyramid.levels.len()) as f32;
+    let lsd_segments = lsd_extract_segments(
+        &pyramid.levels[coarsest_index],
+        config.lsd.with_scale(scale),
+    );
     let lsd_ms = lsd_start.elapsed().as_secs_f64() * 1000.0;
 
     let mut current_segments: Vec<Segment> = lsd_segments.clone();
@@ -218,24 +217,6 @@ fn usage() -> String {
 
 fn build_gradients(pyramid: &Pyramid) -> Vec<Grad> {
     pyramid.levels.iter().map(sobel_gradients).collect()
-}
-
-fn detect_coarse_segments(
-    level: &grid_detector::image::ImageF32,
-    lsd_cfg: &LsdConfig,
-) -> Vec<Segment> {
-    let options = LsdOptions {
-        enforce_polarity: lsd_cfg.enforce_polarity,
-        normal_span_limit: lsd_cfg.normal_span_limit_px,
-    };
-    let angle_tol = lsd_cfg.angle_tolerance_deg.to_radians();
-    lsd_extract_segments_with_options(
-        level,
-        lsd_cfg.magnitude_threshold,
-        angle_tol,
-        lsd_cfg.min_length,
-        options,
-    )
 }
 
 fn save_pyramid_images(pyramid: &Pyramid, out_dir: &Path) -> Result<(), String> {

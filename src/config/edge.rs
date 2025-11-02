@@ -19,17 +19,16 @@ pub struct PyramidConfig {
     pub levels: usize,
     /// How many downscale steps apply Gaussian blur before decimation.
     ///
-    /// - `None` (default): blur on all steps (legacy behavior).
     /// - `0`: never blur (fastest, may alias).
     /// - `1`: blur only before the first 2× downscale, etc.
-    pub blur_levels: Option<usize>,
+    pub blur_levels: usize,
 }
 
 impl Default for PyramidConfig {
     fn default() -> Self {
         Self {
             levels: 4,
-            blur_levels: None,
+            blur_levels: 0,
         }
     }
 }

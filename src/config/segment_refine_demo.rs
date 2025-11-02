@@ -1,6 +1,6 @@
 use super::edge::PyramidConfig;
-use super::segments::LsdConfig;
 use crate::refine::segment::RefineParams as SegmentRefineParams;
+use crate::segments::LsdOptions;
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,7 +12,7 @@ pub struct SegmentRefineDemoConfig {
     #[serde(default)]
     pub pyramid: PyramidConfig,
     #[serde(default)]
-    pub lsd: LsdConfig,
+    pub lsd: LsdOptions,
     #[serde(default)]
     pub refine: SegmentRefineConfig,
     pub output: SegmentRefineDemoOutputConfig,
