@@ -1,3 +1,4 @@
+use super::region_accumulator::RegionAccumulator;
 use super::types::{LsdOptions, Segment, SegmentId};
 use crate::angle::{angular_difference, normalize_half_pi};
 use crate::edges::{sobel_gradients, Grad};
@@ -15,92 +16,11 @@ const NEIGH_OFFSETS: [(isize, isize); 8] = [
     (1, 1),
 ];
 
-struct RegionAccumulator {
-    indices: Vec<usize>,
-    sum_x: f32,
-    sum_y: f32,
-    sum_xx: f32,
-    sum_yy: f32,
-    sum_xy: f32,
-    aligned: usize,
-    sum_mag: f32,
-}
-
-impl RegionAccumulator {
-    fn with_capacity(capacity: usize) -> Self {
-        Self {
-            indices: Vec::with_capacity(capacity),
-            sum_x: 0.0,
-            sum_y: 0.0,
-            sum_xx: 0.0,
-            sum_yy: 0.0,
-            sum_xy: 0.0,
-            aligned: 0,
-            sum_mag: 0.0,
-        }
-    }
-
-    fn reset(&mut self) {
-        self.indices.clear();
-        self.sum_x = 0.0;
-        self.sum_y = 0.0;
-        self.sum_xx = 0.0;
-        self.sum_yy = 0.0;
-        self.sum_xy = 0.0;
-        self.aligned = 0;
-        self.sum_mag = 0.0;
-    }
-
-    fn push(&mut self, idx: usize, x: usize, y: usize, mag: f32, aligned: bool) {
-        self.indices.push(idx);
-        let xf = x as f32;
-        let yf = y as f32;
-        self.sum_x += xf;
-        self.sum_y += yf;
-        self.sum_xx += xf * xf;
-        self.sum_yy += yf * yf;
-        self.sum_xy += xf * yf;
-        if aligned {
-            self.aligned += 1;
-        }
-        self.sum_mag += mag;
-    }
-
-    fn len(&self) -> usize {
-        self.indices.len()
-    }
-
-    fn aligned_fraction(&self) -> f32 {
-        if self.indices.is_empty() {
-            0.0
-        } else {
-            self.aligned as f32 / self.indices.len() as f32
-        }
-    }
-
-    fn avg_mag(&self) -> f32 {
-        if self.indices.is_empty() {
-            0.0
-        } else {
-            self.sum_mag / self.indices.len() as f32
-        }
-    }
-
-    fn release(&self, used: &mut [u8]) {
-        for &idx in &self.indices {
-            used[idx] = 0;
-        }
-    }
-}
-
 pub(super) struct LsdExtractor<'a> {
     grad: Grad,
     width: usize,
     height: usize,
-    mag_thresh: f32,
-    angle_tol: f32,
-    half_angle_tol: f32,
-    min_len: f32,
+    options: LsdOptions,
     used: Vec<u8>,
     angle_cache: Vec<f32>,
     stack: Vec<usize>,
@@ -113,14 +33,7 @@ pub(super) struct LsdExtractor<'a> {
 }
 
 impl<'a> LsdExtractor<'a> {
-    pub(super) fn new(
-        l: &ImageF32,
-        mag_thresh: f32,
-        angle_tol: f32,
-        min_len: f32,
-        mask: Option<&'a [u8]>,
-        options: LsdOptions,
-    ) -> Self {
+    pub(super) fn new(l: &ImageF32, options: LsdOptions, mask: Option<&'a [u8]>) -> Self {
         let grad = sobel_gradients(l);
         let width = l.w;
         let height = l.h;
@@ -139,10 +52,7 @@ impl<'a> LsdExtractor<'a> {
             grad,
             width,
             height,
-            mag_thresh,
-            angle_tol,
-            half_angle_tol: angle_tol * 0.5,
-            min_len,
+            options,
             used: vec![0u8; n],
             angle_cache: vec![f32::NAN; n],
             stack: Vec::with_capacity(64),
@@ -151,7 +61,7 @@ impl<'a> LsdExtractor<'a> {
             mask,
             enforce_polarity: options.enforce_polarity,
             normal_span_limit: options
-                .normal_span_limit
+                .normal_span_limit_px
                 .filter(|v| v.is_finite() && *v > 0.0),
             next_id: 0,
         }
@@ -175,7 +85,7 @@ impl<'a> LsdExtractor<'a> {
         }
         let x = idx % self.width;
         let y = idx / self.width;
-        if self.grad.mag.get(x, y) < self.mag_thresh {
+        if self.grad.mag.get(x, y) < self.options.magnitude_threshold {
             return;
         }
 
@@ -197,11 +107,12 @@ impl<'a> LsdExtractor<'a> {
     }
 
     fn grow_region(&mut self, seed_angle: f32) {
+        let angle_tol_rad = self.options.angle_tolerance_deg.to_radians();
         while let Some(idx) = self.stack.pop() {
             let x = idx % self.width;
             let y = idx / self.width;
             let angle = self.angle_at(idx);
-            let aligned = self.angle_difference(angle, seed_angle) <= self.half_angle_tol;
+            let aligned = self.angle_difference(angle, seed_angle) <= angle_tol_rad;
             let mag = self.grad.mag.get(x, y);
             self.region.push(idx, x, y, mag, aligned);
 
@@ -222,11 +133,11 @@ impl<'a> LsdExtractor<'a> {
                 }
                 let nx = xn as usize;
                 let ny = yn as usize;
-                if self.grad.mag.get(nx, ny) < self.mag_thresh {
+                if self.grad.mag.get(nx, ny) < self.options.magnitude_threshold {
                     continue;
                 }
                 let neighbor_angle = self.angle_at(neighbor_idx);
-                if self.angle_difference(neighbor_angle, seed_angle) <= self.angle_tol {
+                if self.angle_difference(neighbor_angle, seed_angle) <= angle_tol_rad {
                     self.used[neighbor_idx] = 1;
                     self.stack.push(neighbor_idx);
                 }
@@ -303,7 +214,7 @@ impl<'a> LsdExtractor<'a> {
         }
 
         let len = smax - smin;
-        if !len.is_finite() || len <= 0.0 || len < self.min_len {
+        if !len.is_finite() || len <= 0.0 || len < self.options.min_length_px {
             return None;
         }
 

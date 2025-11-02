@@ -82,7 +82,7 @@ fn grid_params_from_config(config: &VpOutlierDemoConfig, levels: usize) -> GridP
     GridParams {
         pyramid_levels: levels,
         pyramid_blur_levels: config.pyramid.blur_levels,
-        lsd_vp_params: config.resolve_lsd_vp_params(),
+        lsd_params: config.lsd,
         outlier_filter: config.outlier.resolve(),
         bundling_params: config.bundling.resolve(),
         refine_params: config.refine.resolve(),

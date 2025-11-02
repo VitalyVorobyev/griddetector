@@ -46,6 +46,7 @@
 
 pub mod bundling;
 mod extractor;
+mod region_accumulator;
 pub mod types;
 
 pub use bundling::{bundle_segments, Bundle};
@@ -54,54 +55,17 @@ pub use types::{LsdOptions, Segment, SegmentId};
 use crate::image::ImageF32;
 
 /// Lightweight LSD-like extractor (region growing on gradient orientation, PCA fit, simple significance test)
-pub fn lsd_extract_segments(
-    l: &ImageF32,
-    mag_thresh: f32, // min gradient magnitude (0..1 scale at this pyramid level)
-    angle_tol: f32,  // radians, tolerance around seed normal angle
-    min_len: f32,    // min length in pixels at this level
-) -> Vec<Segment> {
-    lsd_extract_segments_with_options(l, mag_thresh, angle_tol, min_len, LsdOptions::default())
-}
-
-/// Same as [`lsd_extract_segments`] but allows passing custom growth options.
-pub fn lsd_extract_segments_with_options(
-    l: &ImageF32,
-    mag_thresh: f32,
-    angle_tol: f32,
-    min_len: f32,
-    options: LsdOptions,
-) -> Vec<Segment> {
-    lsd_extract_segments_masked_with_options(l, mag_thresh, angle_tol, min_len, None, options)
-}
-
-/// Same as [`lsd_extract_segments`] but restricts seeds and region growth to pixels where `mask == 1`.
-pub fn lsd_extract_segments_masked(
-    l: &ImageF32,
-    mag_thresh: f32,
-    angle_tol: f32,
-    min_len: f32,
-    mask: Option<&[u8]>,
-) -> Vec<Segment> {
-    lsd_extract_segments_masked_with_options(
-        l,
-        mag_thresh,
-        angle_tol,
-        min_len,
-        mask,
-        LsdOptions::default(),
-    )
+pub fn lsd_extract_segments(l: &ImageF32, options: LsdOptions) -> Vec<Segment> {
+    lsd_extract_segments_masked(l, options, None)
 }
 
 /// Masked variant with explicit options.
-pub fn lsd_extract_segments_masked_with_options(
+pub fn lsd_extract_segments_masked(
     l: &ImageF32,
-    mag_thresh: f32,
-    angle_tol: f32,
-    min_len: f32,
-    mask: Option<&[u8]>,
     options: LsdOptions,
+    mask: Option<&[u8]>,
 ) -> Vec<Segment> {
-    extractor::LsdExtractor::new(l, mag_thresh, angle_tol, min_len, mask, options).extract()
+    extractor::LsdExtractor::new(l, options, mask).extract()
 }
 
 #[cfg(test)]

@@ -1,12 +1,10 @@
 use grid_detector::config::lsd_vp;
-use grid_detector::config::segments::LsdConfig;
-use grid_detector::detector::params::LsdVpParams;
 use grid_detector::diagnostics::builders::run_lsd_stage;
 use grid_detector::diagnostics::{LsdStage, PyramidStage};
 use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
 use grid_detector::lsd_vp::Engine;
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
-use grid_detector::segments::{lsd_extract_segments_with_options, LsdOptions, Segment};
+use grid_detector::segments::{lsd_extract_segments, LsdOptions, Segment};
 use nalgebra::Matrix3;
 use serde::Serialize;
 use std::env;
@@ -37,22 +35,10 @@ fn run() -> Result<(), String> {
 
     save_grayscale_f32(coarsest, &config.output.coarsest_image)?;
 
-    let lsd_options: LsdOptions = config.lsd.to_lsd_options();
-    let angle_tol_rad = config.lsd.angle_tolerance_deg.to_radians();
-    let initial_segments = lsd_extract_segments_with_options(
-        coarsest,
-        config.lsd.magnitude_threshold,
-        angle_tol_rad,
-        config.lsd.min_length,
-        lsd_options,
-    );
+    let initial_segments = lsd_extract_segments(coarsest, config.lsd);
 
-    let engine_params = config.lsd.to_lsd_vp_params();
     let engine = Engine {
-        mag_thresh: engine_params.mag_thresh,
-        angle_tol_deg: engine_params.angle_tol_deg,
-        min_len: engine_params.min_len,
-        options: lsd_options,
+        options: config.lsd,
     };
     let pyramid_stage = PyramidStage::from_pyramid(&pyramid, 0.0);
 
@@ -84,8 +70,7 @@ fn run() -> Result<(), String> {
         image_height: gray.height(),
         pyramid: pyramid_stage,
         lsd: lsd_stage,
-        lsd_config: LsdParamsOut::from(&config.lsd),
-        engine_config: EngineParamsOut::from(&engine_params),
+        lsd_config: config.lsd,
         coarse_h,
         full_h,
         segments,
@@ -119,58 +104,10 @@ struct LsdVpDemoOutput {
     pyramid: PyramidStage,
     #[serde(skip_serializing_if = "Option::is_none")]
     lsd: Option<LsdStage>,
-    lsd_config: LsdParamsOut,
-    engine_config: EngineParamsOut,
+    lsd_config: LsdOptions,
     #[serde(skip_serializing_if = "Option::is_none")]
     coarse_h: Option<Matrix3<f32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     full_h: Option<Matrix3<f32>>,
     segments: Vec<Segment>,
 }
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LsdParamsOut {
-    magnitude_threshold: f32,
-    angle_tolerance_deg: f32,
-    min_length: f32,
-    enforce_polarity: bool,
-    normal_span_limit_px: Option<f32>,
-}
-
-impl From<&LsdConfig> for LsdParamsOut {
-    fn from(cfg: &LsdConfig) -> Self {
-        Self {
-            magnitude_threshold: cfg.magnitude_threshold,
-            angle_tolerance_deg: cfg.angle_tolerance_deg,
-            min_length: cfg.min_length,
-            enforce_polarity: cfg.enforce_polarity,
-            normal_span_limit_px: cfg.normal_span_limit_px,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct EngineParamsOut {
-    magnitude_threshold: f32,
-    angle_tolerance_deg: f32,
-    min_length: f32,
-    enforce_polarity: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    normal_span_limit_px: Option<f32>,
-}
-
-impl From<&LsdVpParams> for EngineParamsOut {
-    fn from(params: &LsdVpParams) -> Self {
-        Self {
-            magnitude_threshold: params.mag_thresh,
-            angle_tolerance_deg: params.angle_tol_deg,
-            min_length: params.min_len,
-            enforce_polarity: params.enforce_polarity,
-            normal_span_limit_px: params.normal_span_limit,
-        }
-    }
-}
-
-// matrix_to_array removed: use nalgebra serde directly for Matrix3.

@@ -1,7 +1,7 @@
 use crate::detector::outliers::classify_segments_with_details;
-use crate::detector::params::{LsdVpParams, OutlierFilterParams};
+use crate::detector::params::OutlierFilterParams;
 use crate::diagnostics::{OutlierFilterStage, OutlierThresholds, SegmentSample};
-use crate::segments::Segment;
+use crate::segments::{LsdOptions, Segment};
 use log::debug;
 use nalgebra::Matrix3;
 use std::time::Instant;
@@ -17,7 +17,7 @@ pub fn filter_segments(
     segments: &[Segment],
     coarse_h: Option<&Matrix3<f32>>,
     params: &OutlierFilterParams,
-    lsd_params: &LsdVpParams,
+    lsd_params: &LsdOptions,
 ) -> OutlierComputation {
     let Some(h) = coarse_h else {
         return OutlierComputation {

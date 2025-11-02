@@ -1,8 +1,7 @@
-use crate::detector::{
-    BundlingParams, BundlingScaleMode, LsdVpParams, OutlierFilterParams, RefinementSchedule,
-};
+use crate::detector::{BundlingParams, BundlingScaleMode, OutlierFilterParams, RefinementSchedule};
 use crate::refine::segment::RefineParams as SegmentRefineParams;
 use crate::refine::RefineParams;
+use crate::segments::LsdOptions;
 use crate::GridParams;
 use nalgebra::Matrix3;
 use serde::Deserialize;
@@ -84,7 +83,7 @@ struct FileGridConfig {
     refine: Option<FileRefineConfig>,
     refinement_schedule: Option<FileRefinementScheduleConfig>,
     segment_refine: Option<FileSegmentRefineConfig>,
-    lsd_vp: Option<FileLsdVpConfig>,
+    lsd_vp: Option<FileLsdConfig>,
     bundling: Option<FileBundlingConfig>,
     outlier_filter: Option<FileOutlierFilterConfig>,
 }
@@ -121,7 +120,7 @@ struct FileSegmentRefineConfig {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
-struct FileLsdVpConfig {
+struct FileLsdConfig {
     mag_thresh: Option<f32>,
     angle_tol_deg: Option<f32>,
     min_len: Option<f32>,
@@ -198,7 +197,7 @@ fn apply_grid_file_config(params: &mut GridParams, cfg: &FileGridConfig) {
         apply_segment_refine_file_config(&mut params.segment_refine_params, seg_cfg);
     }
     if let Some(ref lsd_cfg) = cfg.lsd_vp {
-        apply_lsd_vp_file_config(&mut params.lsd_vp_params, lsd_cfg);
+        apply_lsd_file_config(&mut params.lsd_params, lsd_cfg);
     }
     if let Some(ref bundling_cfg) = cfg.bundling {
         apply_bundling_file_config(&mut params.bundling_params, bundling_cfg);
@@ -268,21 +267,21 @@ fn apply_segment_refine_file_config(
     }
 }
 
-fn apply_lsd_vp_file_config(params: &mut LsdVpParams, cfg: &FileLsdVpConfig) {
+fn apply_lsd_file_config(params: &mut LsdOptions, cfg: &FileLsdConfig) {
     if let Some(v) = cfg.mag_thresh {
-        params.mag_thresh = v;
+        params.magnitude_threshold = v;
     }
     if let Some(v) = cfg.angle_tol_deg {
-        params.angle_tol_deg = v;
+        params.angle_tolerance_deg = v;
     }
     if let Some(v) = cfg.min_len {
-        params.min_len = v;
+        params.min_length_px = v;
     }
     if let Some(flag) = cfg.enforce_polarity {
         params.enforce_polarity = flag;
     }
 
-    let mut normal_span = params.normal_span_limit;
+    let mut normal_span = params.normal_span_limit_px;
     if let Some(limit_px) = cfg.normal_span_limit_px {
         normal_span = Some(limit_px.max(0.0));
     }
@@ -296,7 +295,7 @@ fn apply_lsd_vp_file_config(params: &mut LsdVpParams, cfg: &FileLsdVpConfig) {
             normal_span = None;
         }
     }
-    params.normal_span_limit = normal_span;
+    params.normal_span_limit_px = normal_span;
 }
 
 fn apply_bundling_file_config(params: &mut BundlingParams, cfg: &FileBundlingConfig) {
