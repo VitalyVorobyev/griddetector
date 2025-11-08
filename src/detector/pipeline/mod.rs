@@ -45,7 +45,7 @@ mod reporting;
 use super::params::{BundlingParams, GridParams, OutlierFilterParams, RefinementSchedule};
 use super::workspace::DetectorWorkspace;
 use crate::diagnostics::{
-    BundlingStage, DetectionReport, InputDescriptor, PipelineTrace, PyramidStage, TimingBreakdown,
+    DetectionReport, InputDescriptor, PipelineTrace, PyramidStage, TimingBreakdown,
 };
 use crate::image::ImageU8;
 use crate::lsd_vp::Engine as LsdVpEngine;
@@ -53,7 +53,7 @@ use crate::pyramid::{Pyramid, PyramidOptions};
 use crate::refine::segment::RefineParams as SegmentRefineParams;
 use crate::refine::RefineParams as HomographyRefineParams;
 use crate::refine::Refiner;
-use crate::segments::{Bundle, LsdOptions, Segment};
+use crate::segments::{Bundle, LsdOptions};
 use crate::types::GridResult;
 use bundling::BundleStack;
 use log::debug;
@@ -444,26 +444,6 @@ impl GridDetector {
             grid: result,
             trace,
         }
-    }
-
-    /// Bundle coarse segments on the coarsest pyramid level and rescale bundles to full resolution.
-    pub fn bundle_coarsest(
-        &self,
-        pyramid: &Pyramid,
-        coarse_h: Option<&Matrix3<f32>>,
-        segments: &[Segment],
-        full_width: usize,
-        full_height: usize,
-    ) -> Option<(BundlingStage, Vec<Bundle>)> {
-        let bundler = BundleStack::new(&self.params.bundling_params);
-        bundling::bundle_coarsest(
-            &bundler,
-            pyramid,
-            coarse_h,
-            segments,
-            full_width,
-            full_height,
-        )
     }
 
     /// Update the camera intrinsics used for pose recovery.

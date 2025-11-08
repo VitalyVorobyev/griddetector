@@ -243,7 +243,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn thresholds_scale_with_mode() {
+    fn thresholds_scale() {
         let params = BundlingParams {
             orientation_tol_deg: 20.0,
             merge_dist_px: 2.0,
@@ -253,9 +253,5 @@ mod tests {
         let (dist, weight) = adapt_thresholds(&params, &scaling);
         assert!((dist - 0.5).abs() < 1e-6);
         assert!((weight - 1.0).abs() < 1e-6);
-
-        let (dist_fixed, weight_fixed) = adapt_thresholds(&params, &scaling);
-        assert!((dist_fixed - 2.0).abs() < 1e-6);
-        assert!((weight_fixed - 4.0).abs() < 1e-6);
     }
 }
