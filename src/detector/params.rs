@@ -75,7 +75,7 @@ impl Default for GridParams {
 pub struct BundlingParams {
     pub orientation_tol_deg: f32,
     pub merge_dist_px: f32,
-    pub min_weight: f32
+    pub min_weight: f32,
 }
 
 impl Default for BundlingParams {
@@ -83,7 +83,7 @@ impl Default for BundlingParams {
         Self {
             orientation_tol_deg: 22.5,
             merge_dist_px: 1.5,
-            min_weight: 3.0
+            min_weight: 3.0,
         }
     }
 }

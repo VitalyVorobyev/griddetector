@@ -1,7 +1,7 @@
 use crate::GridParams;
+use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
-use serde::Deserialize;
 
 #[derive(Clone, Default, Deserialize)]
 pub struct OutputConfig {
