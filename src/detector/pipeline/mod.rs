@@ -90,18 +90,8 @@ impl GridDetector {
         }
     }
 
-    /// Run the detector on a grayscale image, returning a compact result.
-    pub fn process(&mut self, gray: ImageU8) -> GridResult {
-        self.process_full_with_diagnostics(gray).grid
-    }
-
-    /// Run the detector and return both the result and a detailed report.
-    pub fn process_with_diagnostics(&mut self, gray: ImageU8) -> DetectionReport {
-        self.process_full_with_diagnostics(gray)
-    }
-
     /// Run the full coarse-to-fine pipeline and capture detailed diagnostics.
-    pub fn process_full_with_diagnostics(&mut self, gray: ImageU8) -> DetectionReport {
+    pub fn process(&mut self, gray: ImageU8) -> DetectionReport {
         let (width, height) = (gray.w, gray.h);
         debug!(
             "GridDetector::process start w={} h={} levels={}",
@@ -296,7 +286,7 @@ impl GridDetector {
     }
 
     /// Execute the coarse-only pipeline (pyramid → LSD → outlier filter → bundling) with diagnostics.
-    pub fn process_coarsest_with_diagnostics(&mut self, gray: ImageU8) -> DetectionReport {
+    pub fn process_coarsest(&mut self, gray: ImageU8) -> DetectionReport {
         let (width, height) = (gray.w, gray.h);
         debug!(
             "GridDetector::process_coarsest start w={} h={} levels={}",

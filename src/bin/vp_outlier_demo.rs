@@ -40,7 +40,7 @@ fn run() -> Result<(), String> {
     let params = grid_params_from_config(&config, levels);
     let mut detector = GridDetector::new(params);
 
-    let report = detector.process_coarsest_with_diagnostics(gray.as_view());
+    let report = detector.process_coarsest(gray.as_view());
     report.print_text_summary();
 
     write_json_file(&config.output.result_path(), &report)?;
