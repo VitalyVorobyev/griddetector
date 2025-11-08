@@ -1,28 +1,30 @@
 {
-  "input": "data/sample.png",
+  "input": "sample.png",
   "pyramid": {
     "levels": 4,
-    "blur_levels": null
+    "blur_levels": 0
   },
   "lsd": {
-    "magnitude_threshold": 0.1,
-    "angle_tolerance_deg": 12.0,
-    "min_length": 8.0,
-    "enforce_polarity": false
+    "magnitude_threshold": 1.5,
+    "angle_tolerance_deg": 12.5,
+    "min_length_px": 64.0,
+    "enforce_polarity": true,
+    "limit_normal_span": false,
+    "normal_span_limit_px": 2.0
   },
   "outlier": {
-    "angle_margin_deg": 8.0,
-    "residual_thresh_px": 1.5
+    "angle_margin_deg": 6.0,
+    "line_residual_thresh_px": 200.0
   },
   "bundling": {
-    "orientation_tol_deg": 22.5,
+    "orientation_tol_deg": 12.5,
     "merge_dist_px": 1.5,
     "min_weight": 3.0,
     "full_res_invariant": false
   },
   "refine": {
     "orientation_tol_deg": 22.5,
-    "huber_delta": 1.0,
+    "huber_delta": 4.0,
     "max_iterations": 6,
     "min_bundles_per_family": 4
   },
