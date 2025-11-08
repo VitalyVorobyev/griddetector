@@ -35,7 +35,7 @@ pub fn run_on_coarsest(
     };
 
     let lsd_start = Instant::now();
-    match engine.infer_detailed(coarse_level) {
+    match engine.infer(coarse_level) {
         Some(DetailedInference {
             hypothesis,
             dominant_angles_rad,
@@ -52,9 +52,8 @@ pub fn run_on_coarsest(
             } else {
                 1.0
             };
-            let scale = Matrix3::new(scale_x, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 1.0);
             let h_full = if coarse_level.w > 0 && coarse_level.h > 0 {
-                scale * hypothesis.hmtx0
+                hypothesis.scaled(scale_x, scale_y)
             } else {
                 hypothesis.hmtx0
             };

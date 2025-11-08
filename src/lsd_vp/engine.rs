@@ -38,6 +38,13 @@ pub struct Hypothesis {
     pub confidence: f32,
 }
 
+impl Hypothesis {
+    pub fn scaled(&self, scale_x: f32, scale_y: f32) -> Matrix3<f32> {
+        let scale = Matrix3::new(scale_x, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 1.0);
+        scale * self.hmtx0
+    }
+}
+
 /// Lightweight engine that finds two dominant line families from LSD segments,
 /// estimates their vanishing points, and returns a coarse projective basis H0.
 #[derive(Clone, Debug, Default)]
@@ -46,15 +53,8 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// Run the engine on a single pyramid level image. Returns a coarse H0 if successful.
-    pub fn infer(&self, l: &ImageF32) -> Option<Hypothesis> {
-        let segments = lsd_extract_segments(l, self.options);
-        self.infer_with_segments_internal(l, segments)
-            .map(|d| d.hypothesis)
-    }
-
     /// Returns detailed inference with segment assignments.
-    pub fn infer_detailed(&self, l: &ImageF32) -> Option<DetailedInference> {
+    pub fn infer(&self, l: &ImageF32) -> Option<DetailedInference> {
         let segments = lsd_extract_segments(l, self.options);
         self.infer_with_segments_internal(l, segments)
     }

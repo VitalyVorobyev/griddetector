@@ -50,7 +50,7 @@ fn refiner_improves_checkerboard_hypothesis() {
 
     let engine = LsdVpEngine::default();
     let detailed = engine
-        .infer_detailed(coarsest)
+        .infer(coarsest)
         .expect("coarse hypothesis should be available on synthetic checkerboard");
     let segments = detailed.segments;
     let hypothesis = detailed.hypothesis;

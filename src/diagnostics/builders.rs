@@ -42,7 +42,7 @@ pub fn run_lsd_stage(
         segments,
     } = match segments_override {
         Some(segs) => engine.infer_with_segments(level, segs)?,
-        None => engine.infer_detailed(level)?,
+        None => engine.infer(level)?,
     };
 
     let scale_x = if level.w > 0 {
