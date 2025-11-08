@@ -1,4 +1,4 @@
-use crate::detector::params::{BundlingParams, BundlingScaleMode};
+use crate::detector::params::BundlingParams;
 use crate::detector::scaling::{rescale_bundle_to_full_res, LevelScaling};
 use crate::segments::{self, Bundle, Segment};
 use nalgebra::Matrix3;
@@ -180,14 +180,9 @@ impl<'a> BundleStack<'a> {
 }
 
 pub fn adapt_thresholds(params: &BundlingParams, scaling: &LevelScaling) -> (f32, f32) {
-    match params.scale_mode {
-        BundlingScaleMode::FixedPixel => (params.merge_dist_px, params.min_weight),
-        BundlingScaleMode::FullResInvariant => {
-            let dist = params.merge_dist_px * scaling.mean_scale_from_full;
-            let weight = params.min_weight * scaling.mean_scale_from_full;
-            (dist.max(EPS), weight.max(EPS))
-        }
-    }
+    let dist = params.merge_dist_px * scaling.mean_scale_from_full;
+    let weight = params.min_weight * scaling.mean_scale_from_full;
+    (dist.max(EPS), weight.max(EPS))
 }
 
 /// Bundle coarse segments on the coarsest pyramid level and rescale to full resolution.
@@ -249,18 +244,16 @@ mod tests {
 
     #[test]
     fn thresholds_scale_with_mode() {
-        let mut params = BundlingParams {
+        let params = BundlingParams {
             orientation_tol_deg: 20.0,
             merge_dist_px: 2.0,
             min_weight: 4.0,
-            scale_mode: BundlingScaleMode::FullResInvariant,
         };
         let scaling = LevelScaling::from_dimensions(100, 100, 400, 400);
         let (dist, weight) = adapt_thresholds(&params, &scaling);
         assert!((dist - 0.5).abs() < 1e-6);
         assert!((weight - 1.0).abs() < 1e-6);
 
-        params.scale_mode = BundlingScaleMode::FixedPixel;
         let (dist_fixed, weight_fixed) = adapt_thresholds(&params, &scaling);
         assert!((dist_fixed - 2.0).abs() < 1e-6);
         assert!((weight_fixed - 4.0).abs() < 1e-6);

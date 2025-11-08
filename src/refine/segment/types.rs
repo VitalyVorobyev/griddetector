@@ -1,5 +1,7 @@
 //! Public types used by the gradient-driven segment refiner.
 
+use serde::Deserialize;
+
 /// Single pyramid level with precomputed Sobel/Scharr gradients.
 #[derive(Clone, Copy, Debug)]
 pub struct PyramidLevel<'a> {
@@ -36,7 +38,7 @@ impl Segment {
 }
 
 /// Parameters controlling the gradient-driven refinement.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct RefineParams {
     /// Along-segment sample spacing (px) used for normal probing.
     pub delta_s: f32,
