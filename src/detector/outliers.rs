@@ -285,7 +285,7 @@ mod tests {
         let seg_pos = make_segment(0, [1.0, 0.0], [0.0, 1.0, 0.0]);
         let seg_neg = make_segment(1, [-1.0, 0.0], [0.0, 1.0, 0.0]);
         let filter_params = OutlierFilterParams {
-            angle_margin_deg: 0.0o
+            angle_margin_deg: 0.0
         };
         let lsd_params = LsdOptions {
             magnitude_threshold: 0.05,
