@@ -122,7 +122,7 @@ fn build_outlier_stage(
         degenerate_segments: diag.skipped_degenerate,
         thresholds: OutlierThresholds {
             angle_threshold_deg: diag.angle_threshold_deg,
-            angle_margin_deg: filter_params.angle_margin_deg
+            angle_margin_deg: filter_params.angle_margin_deg,
         },
         classifications,
     };

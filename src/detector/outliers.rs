@@ -22,7 +22,7 @@ pub struct OutlierFilterDiagnostics {
     pub kept_u: usize,
     pub kept_v: usize,
     pub skipped_degenerate: usize,
-    pub angle_threshold_deg: f32
+    pub angle_threshold_deg: f32,
 }
 
 impl OutlierFilterDiagnostics {
@@ -97,33 +97,27 @@ pub fn classify_segments_with_details(
                 rejection: None,
             });
         }
-        let diag = aggregate_diagnostics(
-            &decisions,
-            angle_thresh_deg
-        );
+        let diag = aggregate_diagnostics(&decisions, angle_thresh_deg);
         return (decisions, diag);
     }
 
     let ctx = ClassificationContext {
         dir_u,
         dir_v,
-        angle_thresh_rad
+        angle_thresh_rad,
     };
     for (i, seg) in segments.iter().enumerate() {
         decisions.push(classify_one(i, seg, &ctx));
     }
 
-    let diag = aggregate_diagnostics(
-        &decisions,
-        angle_thresh_deg
-    );
+    let diag = aggregate_diagnostics(&decisions, angle_thresh_deg);
     (decisions, diag)
 }
 
 struct ClassificationContext {
     dir_u: Option<[f32; 2]>,
     dir_v: Option<[f32; 2]>,
-    angle_thresh_rad: f32
+    angle_thresh_rad: f32,
 }
 
 fn classify_one(index: usize, seg: &Segment, ctx: &ClassificationContext) -> SegmentDecision {
@@ -178,7 +172,7 @@ fn classify_one(index: usize, seg: &Segment, ctx: &ClassificationContext) -> Seg
 
 fn aggregate_diagnostics(
     decisions: &[SegmentDecision],
-    angle_threshold_deg: f32
+    angle_threshold_deg: f32,
 ) -> OutlierFilterDiagnostics {
     let mut diag = OutlierFilterDiagnostics::new(angle_threshold_deg);
     diag.total = decisions.len();
@@ -230,7 +224,7 @@ mod tests {
         let r2 = std::f32::consts::FRAC_1_SQRT_2;
         let seg_bad = make_segment(1, [r2, r2], [r2, -r2, 0.0]);
         let filter_params = OutlierFilterParams {
-            angle_margin_deg: 0.0
+            angle_margin_deg: 0.0,
         };
         let lsd_params = LsdOptions {
             magnitude_threshold: 0.05,
@@ -256,7 +250,7 @@ mod tests {
         ]);
         let seg = make_segment(0, [1.0, 0.0], [0.0, 1.0, -2.0]); // horizontal line y=2
         let filter_params = OutlierFilterParams {
-            angle_margin_deg: 20.0
+            angle_margin_deg: 20.0,
         };
         let lsd_params = LsdOptions {
             magnitude_threshold: 0.05,
@@ -285,7 +279,7 @@ mod tests {
         let seg_pos = make_segment(0, [1.0, 0.0], [0.0, 1.0, 0.0]);
         let seg_neg = make_segment(1, [-1.0, 0.0], [0.0, 1.0, 0.0]);
         let filter_params = OutlierFilterParams {
-            angle_margin_deg: 0.0
+            angle_margin_deg: 0.0,
         };
         let lsd_params = LsdOptions {
             magnitude_threshold: 0.05,

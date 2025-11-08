@@ -96,13 +96,13 @@ impl Default for BundlingParams {
 #[derive(Clone, Debug, Deserialize)]
 pub struct OutlierFilterParams {
     /// Additional angular margin (degrees) beyond the LSD tolerance.
-    pub angle_margin_deg: f32
+    pub angle_margin_deg: f32,
 }
 
 impl Default for OutlierFilterParams {
     fn default() -> Self {
         Self {
-            angle_margin_deg: 8.0
+            angle_margin_deg: 8.0,
         }
     }
 }
