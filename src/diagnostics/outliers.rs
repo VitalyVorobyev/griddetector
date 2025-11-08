@@ -5,8 +5,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct OutlierThresholds {
     pub angle_threshold_deg: f32,
-    pub angle_margin_deg: f32,
-    pub residual_threshold_px: f32,
+    pub angle_margin_deg: f32
 }
 
 /// Detailed report of the coarse outlier filter applied before refinement.

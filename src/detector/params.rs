@@ -96,16 +96,13 @@ impl Default for BundlingParams {
 #[derive(Clone, Debug, Deserialize)]
 pub struct OutlierFilterParams {
     /// Additional angular margin (degrees) beyond the LSD tolerance.
-    pub angle_margin_deg: f32,
-    /// Maximum |a·x + b·y + c| residual at the vanishing point (pixels).
-    pub line_residual_thresh_px: f32,
+    pub angle_margin_deg: f32
 }
 
 impl Default for OutlierFilterParams {
     fn default() -> Self {
         Self {
-            angle_margin_deg: 8.0,
-            line_residual_thresh_px: 1.5,
+            angle_margin_deg: 8.0
         }
     }
 }

@@ -65,8 +65,7 @@ pub fn filter_segments(
         degenerate_segments: diag.skipped_degenerate,
         thresholds: OutlierThresholds {
             angle_threshold_deg: diag.angle_threshold_deg,
-            angle_margin_deg: params.angle_margin_deg,
-            residual_threshold_px: diag.residual_threshold_px,
+            angle_margin_deg: params.angle_margin_deg
         },
         classifications,
     };

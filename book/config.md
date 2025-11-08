@@ -11,7 +11,7 @@ Detector is driven by a JSON config. Example:
     "enable_refine": true,
     "refinement_schedule": { "passes": 1, "improvement_thresh": 0.0005 },
     "lsd_vp": { "mag_thresh": 0.05, "angle_tol_deg": 22.5, "min_len": 4.0 },
-    "outlier_filter": { "angle_margin_deg": 8.0, "line_residual_thresh_px": 1.5 },
+    "outlier_filter": { "angle_margin_deg": 8.0 },
     "bundling": {
       "orientation_tol_deg": 22.5,
       "merge_dist_px": 1.5,
