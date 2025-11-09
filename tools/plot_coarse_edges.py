@@ -67,20 +67,21 @@ def plot_edges(
         f"Coarsest Level Edges\n{len(edges)} elements, threshold={thresh_text}"
     )
     if len(edges) > 0:
-        # ax.quiver(
-        #     xs,
-        #     ys,
-        #     dx,
-        #     dy,
-        #     mags,
-        #     cmap=cmap,
-        #     angles="xy",
-        #     scale_units="xy",
-        #     scale=10,
-        #     width=0.003,
-        #     alpha=alpha,
-        #     minlength=0,
-        # )
+        if False:
+            ax.quiver(
+                xs,
+                ys,
+                dx,
+                dy,
+                mags,
+                cmap=cmap,
+                angles="xy",
+                scale_units="xy",
+                scale=10,
+                width=0.003,
+                alpha=alpha,
+                minlength=0,
+            )
         ax.scatter(xs, ys, s=6, c=mags, cmap=cmap, alpha=alpha, linewidths=0)
 
     ax.axis("off")
@@ -88,7 +89,7 @@ def plot_edges(
 
     if save:
         save.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save, dpi=150, bbox_inches="tight", pad_inches=0)
+        fig.savefig(str(save), dpi=150, bbox_inches="tight", pad_inches=0)
         print(f"Saved visualization to {save}")
     else:
         plt.show()

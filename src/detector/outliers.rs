@@ -7,7 +7,7 @@
 //!
 //! The filter surfaces useful diagnostics (per-family counts, thresholds), and
 //! is lightweight enough to be applied on every frame before refinement.
-use crate::angle::{angle_between_dirless, vp_direction, VP_EPS};
+use crate::angle::{angle_between_dirless, vp_direction};
 use crate::detector::params::OutlierFilterParams;
 use crate::lsd_vp::FamilyLabel;
 use crate::segments::{LsdOptions, Segment};
@@ -23,14 +23,12 @@ pub struct OutlierFilterDiagnostics {
     pub kept_v: usize,
     pub skipped_degenerate: usize,
     pub angle_threshold_deg: f32,
-    pub residual_threshold_px: f32,
 }
 
 impl OutlierFilterDiagnostics {
-    fn new(angle_threshold_deg: f32, residual_threshold_px: f32) -> Self {
+    fn new(angle_threshold_deg: f32) -> Self {
         Self {
             angle_threshold_deg,
-            residual_threshold_px,
             ..Default::default()
         }
     }
@@ -60,7 +58,6 @@ pub struct SegmentDecision {
     pub index: usize,
     pub family: Option<FamilyLabel>,
     pub angle_diff_rad: Option<f32>,
-    pub residual_px: Option<f32>,
     pub inlier: bool,
     /// Rejection reason when `inlier == false` ("angle" | "residual").
     pub rejection: Option<&'static str>,
@@ -96,49 +93,34 @@ pub fn classify_segments_with_details(
                 index: i,
                 family: None,
                 angle_diff_rad: None,
-                residual_px: None,
                 inlier: true,
                 rejection: None,
             });
         }
-        let diag = aggregate_diagnostics(
-            &decisions,
-            angle_thresh_deg,
-            filter_params.line_residual_thresh_px,
-        );
+        let diag = aggregate_diagnostics(&decisions, angle_thresh_deg);
         return (decisions, diag);
     }
 
     let ctx = ClassificationContext {
-        vpu: &vpu,
-        vpv: &vpv,
         dir_u,
         dir_v,
         angle_thresh_rad,
-        residual_thresh_px: filter_params.line_residual_thresh_px,
     };
     for (i, seg) in segments.iter().enumerate() {
         decisions.push(classify_one(i, seg, &ctx));
     }
 
-    let diag = aggregate_diagnostics(
-        &decisions,
-        angle_thresh_deg,
-        filter_params.line_residual_thresh_px,
-    );
+    let diag = aggregate_diagnostics(&decisions, angle_thresh_deg);
     (decisions, diag)
 }
 
-struct ClassificationContext<'a> {
-    vpu: &'a nalgebra::Vector3<f32>,
-    vpv: &'a nalgebra::Vector3<f32>,
+struct ClassificationContext {
     dir_u: Option<[f32; 2]>,
     dir_v: Option<[f32; 2]>,
     angle_thresh_rad: f32,
-    residual_thresh_px: f32,
 }
 
-fn classify_one(index: usize, seg: &Segment, ctx: &ClassificationContext<'_>) -> SegmentDecision {
+fn classify_one(index: usize, seg: &Segment, ctx: &ClassificationContext) -> SegmentDecision {
     let tangent = seg.dir;
 
     // Compare orientation with direction-invariant angle.
@@ -163,7 +145,6 @@ fn classify_one(index: usize, seg: &Segment, ctx: &ClassificationContext<'_>) ->
             index,
             family: None,
             angle_diff_rad: None,
-            residual_px: None,
             inlier: true,
             rejection: None,
         };
@@ -175,28 +156,8 @@ fn classify_one(index: usize, seg: &Segment, ctx: &ClassificationContext<'_>) ->
             index,
             family,
             angle_diff_rad: Some(angle),
-            residual_px: None,
             inlier: false,
             rejection: Some("angle"),
-        };
-    }
-
-    let vp = match family.unwrap() {
-        FamilyLabel::U => ctx.vpu,
-        FamilyLabel::V => ctx.vpv,
-    };
-    let (residual_px, ok) = residual_to_vp_px(seg, vp)
-        .map(|r| (Some(r), r <= ctx.residual_thresh_px))
-        .unwrap_or((None, true));
-
-    if !ok {
-        return SegmentDecision {
-            index,
-            family,
-            angle_diff_rad: Some(angle),
-            residual_px,
-            inlier: false,
-            rejection: Some("residual"),
         };
     }
 
@@ -204,30 +165,16 @@ fn classify_one(index: usize, seg: &Segment, ctx: &ClassificationContext<'_>) ->
         index,
         family,
         angle_diff_rad: Some(angle),
-        residual_px,
         inlier: true,
         rejection: None,
-    }
-}
-
-fn residual_to_vp_px(seg: &Segment, vp: &nalgebra::Vector3<f32>) -> Option<f32> {
-    if vp[2].abs() <= VP_EPS {
-        // VP at infinity: residual undefined; treat as direction-only gate.
-        None
-    } else {
-        let x = vp[0] / vp[2];
-        let y = vp[1] / vp[2];
-        let r = seg.line[0] * x + seg.line[1] * y + seg.line[2];
-        Some(r.abs())
     }
 }
 
 fn aggregate_diagnostics(
     decisions: &[SegmentDecision],
     angle_threshold_deg: f32,
-    residual_threshold_px: f32,
 ) -> OutlierFilterDiagnostics {
-    let mut diag = OutlierFilterDiagnostics::new(angle_threshold_deg, residual_threshold_px);
+    let mut diag = OutlierFilterDiagnostics::new(angle_threshold_deg);
     diag.total = decisions.len();
     for d in decisions {
         if d.family.is_none() {
@@ -278,7 +225,6 @@ mod tests {
         let seg_bad = make_segment(1, [r2, r2], [r2, -r2, 0.0]);
         let filter_params = OutlierFilterParams {
             angle_margin_deg: 0.0,
-            line_residual_thresh_px: 10.0,
         };
         let lsd_params = LsdOptions {
             magnitude_threshold: 0.05,
@@ -296,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn filter_segments_residual_gate_rejects_outliers() {
+    fn filter_segments_residual_gate() {
         let h = Matrix3::from_columns(&[
             nalgebra::Vector3::new(10.0, 0.0, 1.0), // VPu at (10, 0)
             nalgebra::Vector3::new(0.0, 1.0, 0.0),  // VPv at infinity along y
@@ -305,7 +251,6 @@ mod tests {
         let seg = make_segment(0, [1.0, 0.0], [0.0, 1.0, -2.0]); // horizontal line y=2
         let filter_params = OutlierFilterParams {
             angle_margin_deg: 20.0,
-            line_residual_thresh_px: 1.0,
         };
         let lsd_params = LsdOptions {
             magnitude_threshold: 0.05,
@@ -315,11 +260,8 @@ mod tests {
             normal_span_limit_px: None,
         };
         let (filtered, diag) = filter_segments(vec![seg], &h, &filter_params, &lsd_params);
-        assert!(
-            filtered.is_empty(),
-            "expected residual gate to reject segment"
-        );
-        assert_eq!(diag.rejected, 1);
+        assert_eq!(filtered.len(), 1, "Segment should pass angle check");
+        assert_eq!(diag.rejected, 0, "Segment should not be rejected");
     }
 
     #[test]
@@ -335,7 +277,6 @@ mod tests {
         let seg_neg = make_segment(1, [-1.0, 0.0], [0.0, 1.0, 0.0]);
         let filter_params = OutlierFilterParams {
             angle_margin_deg: 0.0,
-            line_residual_thresh_px: 10.0,
         };
         let lsd_params = LsdOptions {
             magnitude_threshold: 0.05,

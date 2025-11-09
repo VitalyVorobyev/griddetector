@@ -37,8 +37,7 @@ mod pipeline;
 mod scaling;
 mod workspace;
 
-pub use params::{
-    BundlingParams, BundlingScaleMode, GridParams, OutlierFilterParams, RefinementSchedule,
-};
+pub use params::{BundlingParams, GridParams, OutlierFilterParams, RefinementSchedule};
 pub use pipeline::GridDetector;
-pub use scaling::{rescale_bundle_to_full_res, LevelScaling};
+pub use scaling::{rescale_bundle_to_full_res, LevelScaleMap, LevelScaling};
+pub use workspace::DetectorWorkspace;

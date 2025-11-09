@@ -1,11 +1,12 @@
 use crate::diagnostics::RefinementIteration;
 use crate::segments::bundling::Bundle;
 use nalgebra::Matrix3;
+use serde::Deserialize;
 
 /// Parameters controlling homography refinement from bundled constraints.
 ///
 /// The fields mirror the IRLS schedule used by [`homography::Refiner`](crate::refine::homography::Refiner).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct RefineParams {
     /// Orientation tolerance (degrees) for assigning bundles to the u/v families.
     pub orientation_tol_deg: f32,

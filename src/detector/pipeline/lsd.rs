@@ -1,5 +1,6 @@
-use crate::diagnostics::{FamilyCounts, LsdStage};
-use crate::lsd_vp::{DetailedInference, Engine as LsdVpEngine, FamilyLabel};
+use crate::diagnostics::builders::compute_family_counts;
+use crate::diagnostics::LsdStage;
+use crate::lsd_vp::{DetailedInference, Engine as LsdVpEngine};
 use crate::pyramid::Pyramid;
 use crate::segments::Segment;
 use log::debug;
@@ -35,7 +36,7 @@ pub fn run_on_coarsest(
     };
 
     let lsd_start = Instant::now();
-    match engine.infer_detailed(coarse_level) {
+    match engine.infer(coarse_level) {
         Some(DetailedInference {
             hypothesis,
             dominant_angles_rad,
@@ -52,9 +53,8 @@ pub fn run_on_coarsest(
             } else {
                 1.0
             };
-            let scale = Matrix3::new(scale_x, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 1.0);
             let h_full = if coarse_level.w > 0 && coarse_level.h > 0 {
-                scale * hypothesis.hmtx0
+                hypothesis.scaled(scale_x, scale_y)
             } else {
                 hypothesis.hmtx0
             };
@@ -94,20 +94,4 @@ pub fn run_on_coarsest(
             }
         }
     }
-}
-
-fn compute_family_counts(families: &[Option<FamilyLabel>]) -> FamilyCounts {
-    let mut counts = FamilyCounts {
-        family_u: 0,
-        family_v: 0,
-        unassigned: 0,
-    };
-    for fam in families {
-        match fam {
-            Some(FamilyLabel::U) => counts.family_u += 1,
-            Some(FamilyLabel::V) => counts.family_v += 1,
-            None => counts.unassigned += 1,
-        }
-    }
-    counts
 }

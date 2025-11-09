@@ -97,7 +97,7 @@ impl DetectionReport {
 
         if let Some(outlier) = &self.trace.outlier_filter {
             println!(
-                "\nSegment filter: kept={}/{} (fam_u={} fam_v={} degenerate={}) angle_thresh={:.1} margin={:.1} residual_thresh={:.2}px elapsed_ms={:.3}",
+                "\nSegment filter: kept={}/{} (fam_u={} fam_v={} degenerate={}) angle_thresh={:.1} margin={:.1} elapsed_ms={:.3}",
                 outlier.kept,
                 outlier.total,
                 outlier.kept_u,
@@ -105,7 +105,6 @@ impl DetectionReport {
                 outlier.degenerate_segments,
                 outlier.thresholds.angle_threshold_deg,
                 outlier.thresholds.angle_margin_deg,
-                outlier.thresholds.residual_threshold_px,
                 outlier.elapsed_ms
             );
         } else {

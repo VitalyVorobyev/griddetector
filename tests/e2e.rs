@@ -29,14 +29,14 @@ fn checkerboard_image_triggers_detection() {
     let result = detector.process(image);
 
     assert!(
-        result.found,
+        result.grid.found,
         "expected detector to find the grid, confidence={:.3}",
-        result.confidence
+        result.grid.confidence
     );
     assert!(
-        result.confidence >= 0.2,
+        result.grid.confidence >= 0.2,
         "confidence below configured threshold: {:.3}",
-        result.confidence
+        result.grid.confidence
     );
-    assert_eq!(result.pose.is_some(), result.found);
+    assert_eq!(result.grid.pose.is_some(), result.grid.found);
 }

@@ -23,7 +23,7 @@ fn run() -> Result<(), String> {
     let image = gray.as_view();
 
     let mut detector = GridDetector::new(config.grid_params.clone());
-    let detailed = detector.process_with_diagnostics(image);
+    let detailed = detector.process(image);
     detailed.print_text_summary();
 
     if let Some(path) = &config.output.json_out {

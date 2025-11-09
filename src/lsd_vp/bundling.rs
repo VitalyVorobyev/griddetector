@@ -118,6 +118,7 @@ pub fn bundle_rectified(
     }
 
     // Map image-space lines to rectified coordinates: l' ∝ H^{-T} l
+    let h_t = hmtx.transpose();
     let h_inv_t = hmtx
         .try_inverse()
         .unwrap_or_else(|| {
@@ -130,7 +131,7 @@ pub fn bundle_rectified(
     let mut v_obs: Vec<Obs> = Vec::new();
 
     for (i, seg) in segs.iter().enumerate() {
-        let rect = h_inv_t * seg.line;
+        let rect = h_t * seg.line;
         if !is_finite_vec3(&rect) {
             continue;
         }
@@ -216,7 +217,7 @@ pub fn bundle_rectified(
             'y' => Vector3::new(0.0, 1.0, -avg_param), // y = const
             _ => return None,
         };
-        let l_img = h.transpose() * l_rect;
+        let l_img = h * l_rect;
         let line = normalize_line(l_img)?;
 
         // Weighted center in image space from member segment centers.
@@ -238,12 +239,12 @@ pub fn bundle_rectified(
     };
 
     for cluster in cluster_1d(u_obs, eps_u, min_strength) {
-        if let Some(b) = to_bundle_with(cluster, 'x', hmtx, eps_u) {
+        if let Some(b) = to_bundle_with(cluster, 'x', &h_inv_t, eps_u) {
             bundles_out.push(b);
         }
     }
     for cluster in cluster_1d(v_obs, eps_v, min_strength) {
-        if let Some(b) = to_bundle_with(cluster, 'y', hmtx, eps_v) {
+        if let Some(b) = to_bundle_with(cluster, 'y', &h_inv_t, eps_v) {
             bundles_out.push(b);
         }
     }

@@ -2,8 +2,7 @@
 use log::warn;
 use nalgebra::Vector3;
 
-/// Small epsilon used to detect vanishing points at infinity (homogeneous z≈0).
-pub const VP_EPS: f32 = 1e-3;
+const VP_EPS: f32 = 1e-6;
 
 /// Normalizes an angle into the range [0, π).
 #[inline]

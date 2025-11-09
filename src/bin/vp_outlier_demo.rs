@@ -40,7 +40,7 @@ fn run() -> Result<(), String> {
     let params = grid_params_from_config(&config, levels);
     let mut detector = GridDetector::new(params);
 
-    let report = detector.process_coarsest_with_diagnostics(gray.as_view());
+    let report = detector.process_coarsest(gray.as_view());
     report.print_text_summary();
 
     write_json_file(&config.output.result_path(), &report)?;
@@ -83,9 +83,9 @@ fn grid_params_from_config(config: &VpOutlierDemoConfig, levels: usize) -> GridP
         pyramid_levels: levels,
         pyramid_blur_levels: config.pyramid.blur_levels,
         lsd_params: config.lsd,
-        outlier_filter: config.outlier.resolve(),
-        bundling_params: config.bundling.resolve(),
-        refine_params: config.refine.resolve(),
+        outlier_filter: config.outlier.clone(),
+        bundling_params: config.bundling.clone(),
+        refine_params: config.refine.clone(),
         ..GridParams::default()
     }
 }

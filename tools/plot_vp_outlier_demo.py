@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
@@ -26,6 +26,7 @@ from plot_utils import (  # type: ignore
 )
 from vp_outlier_result import VpOutlierReport  # type: ignore
 from utils import gather_segments_from_model, gather_bundle_lines_from_model
+from vp_utils import estimate_grid_vps, Segment, rectify_segments
 
 INLIER_COLOR = "#2ca02c"
 OUTLIER_COLOR = "#d62728"
@@ -261,26 +262,30 @@ def plot_vp_outlier_demo(
     # Build separate figures
     src_w = int(model.trace.input.width or width)
     src_h = int(model.trace.input.height or height)
-    m_coarse = model.trace.coarse_homography
-    m_refined = model.grid.hmtx
+    m_coarse = model.trace.coarse_homography.T if model.trace.coarse_homography is not None else None
+    m_refined = model.grid.hmtx.T if model.grid.hmtx is not None else None
     fig_overlay, _ = make_segments_figure(image, inlier_lines, outlier_lines, m_coarse, m_refined, src_w, src_h)
-    fig_bundles, _ = make_bundles_figure(image, bundle_lines, bundle_weights, bundle_centers, None)
+    if False:
+        fig_bundles, _ = make_bundles_figure(image, bundle_lines, bundle_weights, bundle_centers, None)
     rect_fig, _ = make_rectified_figure(inlier_lines, outlier_lines, m_refined, src_w, src_h, width, height, alpha)
 
-    # Save / show figures
-    if save_path:
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig_overlay.savefig(save_path, dpi=150, bbox_inches="tight", pad_inches=0.0)
-        print(f"Saved overlay to {save_path}")
-        if fig_bundles is not None:
-            bpath = save_path.with_name(save_path.stem + "_bundles" + save_path.suffix)
-            fig_bundles.savefig(bpath, dpi=150, bbox_inches="tight", pad_inches=0.0)
-            print(f"Saved bundles to {bpath}")
-        if rect_fig is not None:
-            rpath = save_path.with_name(save_path.stem + "_rectified" + save_path.suffix)
-            rect_fig.savefig(rpath, dpi=150, bbox_inches="tight", pad_inches=0.0)
-            print(f"Saved rectified visualization to {rpath}")
+def plot_segments(segments: list[Segment], family: list[str], color_u: str, color_v: str, img:Image.Image|None) -> None:
+    fig = plt.figure()
+    if img is not None:
+        plt.imshow(img, cmap="gray", origin="upper")
+        plt.xlim(0, img.size[0])
+        plt.ylim(img.size[1], 0)
 
+    for seg, fam in zip(segments, family):
+        color = color_u if fam == 'u' else color_v
+        plt.plot(
+            [seg.p0[0], seg.p1[0]],
+            [seg.p0[1], seg.p1[1]],
+            color=color,
+            linewidth=1.5,
+            alpha=0.8,
+        )
+    fig.tight_layout()
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -297,8 +302,25 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     model = VpOutlierReport.from_path(args.result)
-    plot_vp_outlier_demo(args.image, model, args.alpha, args.limit, args.save)
-    print_summary(model)
+
+    segs, fam = model.trace.segments, model.trace.lsd.segment_families
+
+    hmtx = estimate_grid_vps(segs, fam)
+    print(f"Estimated grid homography from segments:\n{hmtx}")
+
+    hmtx_coarse = model.trace.coarse_homography
+    if hmtx_coarse is None:
+        return
+    
+    hmtx_coarse /= 8
+    hmtx_coarse[-1] = 1.0
+    print(f"Original coarse homography:\n{hmtx_coarse}")
+    image = Image.open(args.image).convert("L")
+
+    rsegs = rectify_segments(model.trace.segments, hmtx)
+    plot_segments(rsegs, fam, color_u="#1f77b4", color_v="#ff7f0e", img=None)
+    plot_segments(segs, fam, color_u="#1f77b4", color_v="#ff7f0e", img=image)
+
     plt.show()
 
 if __name__ == "__main__":

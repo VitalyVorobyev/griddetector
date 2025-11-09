@@ -13,7 +13,7 @@
 //!
 //! # fn example(gray: ImageU8) {
 //! let mut detector = GridDetector::new(GridParams::default());
-//! let report = detector.process_with_diagnostics(gray);
+//! let report = detector.process(gray);
 //! if report.grid.found {
 //!     println!("confidence: {:.3}", report.grid.confidence);
 //! }
@@ -45,7 +45,7 @@ mod reporting;
 use super::params::{BundlingParams, GridParams, OutlierFilterParams, RefinementSchedule};
 use super::workspace::DetectorWorkspace;
 use crate::diagnostics::{
-    BundlingStage, DetectionReport, InputDescriptor, PipelineTrace, PyramidStage, TimingBreakdown,
+    DetectionReport, InputDescriptor, PipelineTrace, PyramidStage, TimingBreakdown,
 };
 use crate::image::ImageU8;
 use crate::lsd_vp::Engine as LsdVpEngine;
@@ -53,7 +53,7 @@ use crate::pyramid::{Pyramid, PyramidOptions};
 use crate::refine::segment::RefineParams as SegmentRefineParams;
 use crate::refine::RefineParams as HomographyRefineParams;
 use crate::refine::Refiner;
-use crate::segments::{Bundle, LsdOptions, Segment};
+use crate::segments::{Bundle, LsdOptions};
 use crate::types::GridResult;
 use bundling::BundleStack;
 use log::debug;
@@ -70,7 +70,6 @@ pub struct GridDetector {
     params: GridParams,
     last_hmtx: Option<Matrix3<f32>>,
     refiner: Refiner,
-    lsd_engine: LsdVpEngine,
     workspace: DetectorWorkspace,
 }
 struct PyramidBuildResult {
@@ -83,30 +82,16 @@ impl GridDetector {
     /// Create a detector with the supplied parameters.
     pub fn new(params: GridParams) -> Self {
         let refiner = Refiner::new(params.refine_params.clone());
-        let lsd_engine = LsdVpEngine {
-            options: params.lsd_params,
-        };
         Self {
             params,
             last_hmtx: None,
             refiner,
-            lsd_engine,
             workspace: DetectorWorkspace::new(),
         }
     }
 
-    /// Run the detector on a grayscale image, returning a compact result.
-    pub fn process(&mut self, gray: ImageU8) -> GridResult {
-        self.process_full_with_diagnostics(gray).grid
-    }
-
-    /// Run the detector and return both the result and a detailed report.
-    pub fn process_with_diagnostics(&mut self, gray: ImageU8) -> DetectionReport {
-        self.process_full_with_diagnostics(gray)
-    }
-
     /// Run the full coarse-to-fine pipeline and capture detailed diagnostics.
-    pub fn process_full_with_diagnostics(&mut self, gray: ImageU8) -> DetectionReport {
+    pub fn process(&mut self, gray: ImageU8) -> DetectionReport {
         let (width, height) = (gray.w, gray.h);
         debug!(
             "GridDetector::process start w={} h={} levels={}",
@@ -121,6 +106,9 @@ impl GridDetector {
         } = self.build_pyramid(gray);
 
         let bundler = BundleStack::new(&self.params.bundling_params);
+        let lsd_engine = LsdVpEngine {
+            options: self.params.lsd_params,
+        };
         let LsdComputation {
             stage: mut lsd_stage,
             segments: coarse_segments,
@@ -128,9 +116,7 @@ impl GridDetector {
             full_h,
             mut confidence,
             elapsed_ms: lsd_ms,
-        } = lsd::run_on_coarsest(&self.lsd_engine, &pyramid, width, height);
-        let segment_trace = coarse_segments.clone();
-
+        } = lsd::run_on_coarsest(&lsd_engine, &pyramid, width, height);
         let initial_h_full = full_h;
         let coarse_h_matrix = full_h;
 
@@ -264,7 +250,7 @@ impl GridDetector {
                 pyramid_levels: pyramid.levels.len(),
             },
             timings,
-            segments: segment_trace,
+            segments: coarse_segments,
             pyramid: pyramid_stage,
             lsd: lsd_stage,
             outlier_filter: outlier_stage,
@@ -300,7 +286,7 @@ impl GridDetector {
     }
 
     /// Execute the coarse-only pipeline (pyramid → LSD → outlier filter → bundling) with diagnostics.
-    pub fn process_coarsest_with_diagnostics(&mut self, gray: ImageU8) -> DetectionReport {
+    pub fn process_coarsest(&mut self, gray: ImageU8) -> DetectionReport {
         let (width, height) = (gray.w, gray.h);
         debug!(
             "GridDetector::process_coarsest start w={} h={} levels={}",
@@ -314,6 +300,10 @@ impl GridDetector {
             elapsed_ms: pyr_ms,
         } = self.build_pyramid(gray);
 
+        let scale = 1_f32 / (1 << pyramid.levels.len()) as f32;
+        let lsd_engine = LsdVpEngine {
+            options: self.params.lsd_params.with_scale(scale),
+        };
         let LsdComputation {
             stage: mut lsd_stage,
             segments: coarse_segments,
@@ -321,8 +311,10 @@ impl GridDetector {
             full_h,
             confidence,
             elapsed_ms: lsd_ms,
-        } = lsd::run_on_coarsest(&self.lsd_engine, &pyramid, width, height);
-        let segment_trace = coarse_segments.clone();
+        } = lsd::run_on_coarsest(&lsd_engine, &pyramid, width, height);
+
+        println!("Coarse hmtx:\n{coarse_h:?}");
+        println!("Full hmtx:\n{full_h:?}");
 
         if let Some(stage) = lsd_stage.as_mut() {
             stage.elapsed_ms = lsd_ms;
@@ -427,7 +419,7 @@ impl GridDetector {
                 pyramid_levels: pyramid.levels.len(),
             },
             timings,
-            segments: segment_trace,
+            segments: coarse_segments,
             pyramid: pyramid_stage,
             lsd: lsd_stage,
             outlier_filter: outlier_stage,
@@ -442,26 +434,6 @@ impl GridDetector {
             grid: result,
             trace,
         }
-    }
-
-    /// Bundle coarse segments on the coarsest pyramid level and rescale bundles to full resolution.
-    pub fn bundle_coarsest(
-        &self,
-        pyramid: &Pyramid,
-        coarse_h: Option<&Matrix3<f32>>,
-        segments: &[Segment],
-        full_width: usize,
-        full_height: usize,
-    ) -> Option<(BundlingStage, Vec<Bundle>)> {
-        let bundler = BundleStack::new(&self.params.bundling_params);
-        bundling::bundle_coarsest(
-            &bundler,
-            pyramid,
-            coarse_h,
-            segments,
-            full_width,
-            full_height,
-        )
     }
 
     /// Update the camera intrinsics used for pose recovery.
@@ -488,7 +460,6 @@ impl GridDetector {
     /// Update LSD coarse stage parameters.
     pub fn set_lsd_params(&mut self, params: LsdOptions) {
         self.params.lsd_params = params;
-        self.lsd_engine = LsdVpEngine { options: params }
     }
 
     /// Update bundling parameters (orientation/distance/scale mode).

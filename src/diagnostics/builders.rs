@@ -42,7 +42,7 @@ pub fn run_lsd_stage(
         segments,
     } = match segments_override {
         Some(segs) => engine.infer_with_segments(level, segs)?,
-        None => engine.infer_detailed(level)?,
+        None => engine.infer(level)?,
     };
 
     let scale_x = if level.w > 0 {
@@ -123,7 +123,6 @@ fn build_outlier_stage(
         thresholds: OutlierThresholds {
             angle_threshold_deg: diag.angle_threshold_deg,
             angle_margin_deg: filter_params.angle_margin_deg,
-            residual_threshold_px: diag.residual_threshold_px,
         },
         classifications,
     };
@@ -134,7 +133,8 @@ fn build_outlier_stage(
     }
 }
 
-fn compute_family_counts(families: &[Option<FamilyLabel>]) -> FamilyCounts {
+/// Count how many segments fall into each family (U/V) or remain unassigned.
+pub fn compute_family_counts(families: &[Option<FamilyLabel>]) -> FamilyCounts {
     let mut counts = FamilyCounts {
         family_u: 0,
         family_v: 0,

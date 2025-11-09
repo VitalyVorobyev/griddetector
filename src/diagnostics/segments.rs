@@ -12,8 +12,6 @@ pub struct SegmentSample {
     pub family: Option<FamilyLabel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub angle_diff_deg: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub residual_px: Option<f32>,
     pub class: SegmentClass,
 }
 
@@ -29,7 +27,6 @@ impl SegmentSample {
             segment,
             family: decision.family,
             angle_diff_deg: decision.angle_diff_rad.map(|a| a.to_degrees()),
-            residual_px: decision.residual_px,
             class,
         }
     }
