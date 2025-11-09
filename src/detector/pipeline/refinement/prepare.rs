@@ -2,13 +2,11 @@ use crate::detector::params::BundlingParams;
 use crate::detector::pipeline::bundling::BundleStack;
 use crate::detector::scaling::{LevelScaleMap, LevelScaling};
 use crate::detector::workspace::DetectorWorkspace;
-use crate::diagnostics::builders::convert_refined_segment;
 use crate::diagnostics::{BundleDescriptor, BundlingLevel, BundlingStage};
 use crate::image::traits::ImageView;
 use crate::pyramid::Pyramid;
 use crate::refine::segment::{
     self, PyramidLevel as SegmentGradientLevel, RefineParams as SegmentRefineParams,
-    Segment as SegmentSeed,
 };
 use crate::refine::RefineLevel;
 use crate::segments::{Bundle, Segment};
@@ -138,7 +136,7 @@ pub fn prepare_levels(
         };
         let scale_map = LevelScaleMap::new(sx, sy);
 
-        let grad = workspace.sobel_gradients(finer_idx, finer_lvl);
+        let grad = workspace.scharr_gradients(finer_idx, finer_lvl);
         let gx = grad.gx.as_slice().unwrap_or(&grad.gx.data[..]);
         let gy = grad.gy.as_slice().unwrap_or(&grad.gy.data[..]);
         let grad_level = SegmentGradientLevel {
@@ -151,13 +149,10 @@ pub fn prepare_levels(
         let refine_start = Instant::now();
         let mut refined_segments = Vec::with_capacity(current_segments.len());
         for seg in &current_segments {
-            let seed = SegmentSeed {
-                p0: seg.p0,
-                p1: seg.p1,
-            };
-            let result = segment::refine_segment(&grad_level, seed, &scale_map, segment_params);
-            let updated = convert_refined_segment(seg, result);
-            refined_segments.push(updated);
+            let result = segment::refine_segment(&grad_level, seg, &scale_map, segment_params);
+            if result.ok {
+                refined_segments.push(result.seg);
+            }
         }
         segment_refine_ms += refine_start.elapsed().as_secs_f64() * 1000.0;
         current_segments = refined_segments;

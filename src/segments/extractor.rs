@@ -233,22 +233,12 @@ impl<'a> LsdExtractor<'a> {
 
         let p0 = [cx + smin * tx, cy + smin * ty];
         let p1 = [cx + smax * tx, cy + smax * ty];
-        let c = -(nx * cx + ny * cy);
         let avg_mag = self.region.avg_mag();
         let strength = len * avg_mag.max(1e-3);
 
         let id = SegmentId(self.next_id);
         self.next_id = self.next_id.wrapping_add(1);
-        Some(Segment {
-            id,
-            p0,
-            p1,
-            dir: [tx, ty],
-            len,
-            line: nalgebra::Vector3::new(nx, ny, c),
-            avg_mag,
-            strength,
-        })
+        Some(Segment::new(id, p0, p1, avg_mag, strength))
     }
 
     fn angle_at(&mut self, idx: usize) -> f32 {

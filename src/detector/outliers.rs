@@ -121,7 +121,7 @@ struct ClassificationContext {
 }
 
 fn classify_one(index: usize, seg: &Segment, ctx: &ClassificationContext) -> SegmentDecision {
-    let tangent = seg.dir;
+    let tangent = seg.direction();
 
     // Compare orientation with direction-invariant angle.
     let du = ctx.dir_u.map(|d| angle_between_dirless(&tangent, &d));
@@ -200,17 +200,8 @@ mod tests {
     use crate::segments::SegmentId;
     use nalgebra::Matrix3;
 
-    fn make_segment(id: u32, dir: [f32; 2], line: [f32; 3]) -> Segment {
-        Segment {
-            id: SegmentId(id),
-            p0: [0.0, 0.0],
-            p1: [dir[0], dir[1]],
-            dir,
-            len: (dir[0] * dir[0] + dir[1] * dir[1]).sqrt().max(1e-3),
-            line: nalgebra::Vector3::new(line[0], line[1], line[2]),
-            avg_mag: 1.0,
-            strength: 1.0,
-        }
+    fn make_segment(id: u32, dir: [f32; 2]) -> Segment {
+        Segment::new(SegmentId(id), [0.0, 0.0], [dir[0], dir[1]], 1.0, 1.0)
     }
 
     #[test]
@@ -220,9 +211,9 @@ mod tests {
             0.0, 1.0, 0.0, // VPv at infinity along +y
             0.0, 0.0, 1.0,
         );
-        let seg_ok = make_segment(0, [1.0, 0.0], [0.0, 1.0, 0.0]); // horizontal line y=0
+        let seg_ok = make_segment(0, [1.0, 0.0]); // horizontal line y=0
         let r2 = std::f32::consts::FRAC_1_SQRT_2;
-        let seg_bad = make_segment(1, [r2, r2], [r2, -r2, 0.0]);
+        let seg_bad = make_segment(1, [r2, r2]);
         let filter_params = OutlierFilterParams {
             angle_margin_deg: 0.0,
         };
@@ -238,7 +229,7 @@ mod tests {
         assert_eq!(filtered.len(), 1);
         assert_eq!(diag.kept, 1);
         assert_eq!(diag.rejected, 1);
-        assert_eq!(filtered[0].dir, seg_ok.dir);
+        assert_eq!(filtered[0].direction(), seg_ok.direction());
     }
 
     #[test]
@@ -248,7 +239,7 @@ mod tests {
             nalgebra::Vector3::new(0.0, 1.0, 0.0),  // VPv at infinity along y
             nalgebra::Vector3::new(0.0, 0.0, 1.0),  // anchor at origin
         ]);
-        let seg = make_segment(0, [1.0, 0.0], [0.0, 1.0, -2.0]); // horizontal line y=2
+        let seg = make_segment(0, [1.0, 0.0]); // horizontal line y=2
         let filter_params = OutlierFilterParams {
             angle_margin_deg: 20.0,
         };
@@ -273,8 +264,8 @@ mod tests {
             0.0, 0.0, 1.0,
         );
         // Two segments with opposite tangents along x-axis; both should pass.
-        let seg_pos = make_segment(0, [1.0, 0.0], [0.0, 1.0, 0.0]);
-        let seg_neg = make_segment(1, [-1.0, 0.0], [0.0, 1.0, 0.0]);
+        let seg_pos = make_segment(0, [1.0, 0.0]);
+        let seg_neg = make_segment(1, [-1.0, 0.0]);
         let filter_params = OutlierFilterParams {
             angle_margin_deg: 0.0,
         };

@@ -71,7 +71,8 @@ pub fn bundle_segments(
         if s.strength < min_weight {
             continue;
         }
-        let idx = orient_bin(s.dir[0], s.dir[1]);
+        let dir = s.direction();
+        let idx = orient_bin(dir[0], dir[1]);
         seg_indices_per_bin[idx].push(i);
     }
 
@@ -134,7 +135,8 @@ pub fn bundle_segments(
                             let cb = &bundles[bid];
                             // Orientation gate: compare segment tangent with bundle tangent, dirless.
                             let bt = cb.tangent();
-                            let dot = s.dir[0] * bt[0] + s.dir[1] * bt[1];
+                            let s_dir = s.direction();
+                            let dot = s_dir[0] * bt[0] + s_dir[1] * bt[1];
                             if dot.abs() < cos_tol {
                                 continue;
                             }
@@ -152,7 +154,8 @@ pub fn bundle_segments(
             if let Some(bid) = best_id {
                 // Merge into the best bundle and update its offset bucket if needed.
                 let old_key = bundle_keys[bid];
-                let line_arr = [s.line[0], s.line[1], s.line[2]];
+                let line = s.line();
+                let line_arr = [line[0], line[1], line[2]];
                 merge_bundle(&mut bundles[bid], &line_arr, s, weight);
 
                 // Reindex bundle if its center moved across offset buckets.
@@ -175,8 +178,9 @@ pub fn bundle_segments(
             } else {
                 // Start a new bundle seeded by this segment.
                 let bundle_id = bundles.len();
+                let line = s.line();
                 bundles.push(Bundle {
-                    line: [s.line[0], s.line[1], s.line[2]],
+                    line: [line[0], line[1], line[2]],
                     center: seg_center,
                     weight,
                 });

@@ -275,6 +275,9 @@ def plot_segments(segments: list[Segment], family: list[str], color_u: str, colo
         plt.imshow(img, cmap="gray", origin="upper")
         plt.xlim(0, img.size[0])
         plt.ylim(img.size[1], 0)
+    else:
+        plt.axis('equal')
+        plt.grid(True, linestyle=':', linewidth=0.6, alpha=0.6)
 
     for seg, fam in zip(segments, family):
         color = color_u if fam == 'u' else color_v

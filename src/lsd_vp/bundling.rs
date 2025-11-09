@@ -131,7 +131,7 @@ pub fn bundle_rectified(
     let mut v_obs: Vec<Obs> = Vec::new();
 
     for (i, seg) in segs.iter().enumerate() {
-        let rect = h_t * seg.line;
+        let rect = h_t * seg.line();
         if !is_finite_vec3(&rect) {
             continue;
         }
@@ -254,22 +254,13 @@ pub fn bundle_rectified(
 
 #[cfg(test)]
 mod tests {
-    use crate::SegmentId;
+    use crate::stages::SegmentId;
 
     use super::*;
 
     fn make_vertical_segment(x: f32, y0: f32, y1: f32) -> Segment {
         let len = (y1 - y0).abs();
-        Segment {
-            id: SegmentId(0),
-            p0: [x, y0],
-            p1: [x, y1],
-            dir: [0.0, 1.0],
-            len,
-            line: Vector3::new(1.0, 0.0, -x),
-            avg_mag: 1.0,
-            strength: len.max(1.0),
-        }
+        Segment::new(SegmentId(0), [x, y0], [x, y1], 1.0, len.max(1.0))
     }
 
     #[test]

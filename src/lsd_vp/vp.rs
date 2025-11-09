@@ -20,9 +20,10 @@ pub(crate) fn estimate_vp(
     let mut by = 0.0f32;
     for &idx in indices {
         let s = &segs[idx];
-        let a = s.line[0];
-        let b = s.line[1];
-        let c = s.line[2];
+        let line = s.line();
+        let a = line[0];
+        let b = line[1];
+        let c = line[2];
         let w = s.strength.max(1.0);
         a11 += w * a * a;
         a12 += w * a * b;
@@ -54,17 +55,8 @@ mod tests {
     use crate::segments::{Segment, SegmentId};
     use nalgebra::Vector3;
 
-    fn make_segment(line: [f32; 3], dir: [f32; 2], strength: f32, id: u32) -> Segment {
-        Segment {
-            id: SegmentId(id),
-            p0: [0.0, 0.0],
-            p1: [dir[0], dir[1]],
-            dir,
-            len: strength,
-            line: nalgebra::Vector3::new(line[0], line[1], line[2]),
-            avg_mag: 1.0,
-            strength,
-        }
+    fn make_segment(p0: [f32; 2], p1: [f32; 2], strength: f32, id: u32) -> Segment {
+        Segment::new(SegmentId(id), p0, p1, 1.0, strength)
     }
 
     fn approx_vec(a: &Vector3<f32>, b: &Vector3<f32>) -> bool {
@@ -75,8 +67,8 @@ mod tests {
     fn finite_intersection() {
         // Lines x=10 and y=20 should intersect at (10,20,1)
         let segs = vec![
-            make_segment([1.0, 0.0, -10.0], [0.0, 1.0], 20.0, 0),
-            make_segment([0.0, 1.0, -20.0], [1.0, 0.0], 20.0, 1),
+            make_segment([10.0, 0.0], [10.0, 1.0], 20.0, 0),
+            make_segment([0.0, 20.0], [1.0, 20.0], 20.0, 1),
         ];
         let vp = estimate_vp(&segs, &[0, 1], 0.0).expect("vp");
         assert!(approx_vec(&vp, &Vector3::new(10.0, 20.0, 1.0)));
@@ -86,8 +78,8 @@ mod tests {
     fn fallback_direction_when_parallel() {
         // Parallel lines should trigger fallback direction (point at infinity)
         let segs = vec![
-            make_segment([1.0, 0.0, -5.0], [0.0, 1.0], 15.0, 0),
-            make_segment([1.0, 0.0, -15.0], [0.0, 1.0], 15.0, 1),
+            make_segment([11.0, 0.0], [11.0, 1.0], 15.0, 0),
+            make_segment([10.0, 0.0], [10.0, 1.0], 15.0, 1),
         ];
         let fallback = std::f32::consts::FRAC_PI_4;
         let vp = estimate_vp(&segs, &[0, 1], fallback).expect("vp");

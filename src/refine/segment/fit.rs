@@ -121,25 +121,3 @@ pub(crate) fn project_point_to_line(p: &[f32; 2], normal: &[f32; 2], rho: f32) -
 pub(crate) fn distance(a: &[f32; 2], b: &[f32; 2]) -> f32 {
     ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt()
 }
-
-#[inline]
-pub(crate) fn direction(p0: &[f32; 2], p1: &[f32; 2]) -> Option<[f32; 2]> {
-    let dx = p1[0] - p0[0];
-    let dy = p1[1] - p0[1];
-    let norm = (dx * dx + dy * dy).sqrt();
-    if norm <= EPS {
-        None
-    } else {
-        Some([dx / norm, dy / norm])
-    }
-}
-
-#[inline]
-pub(crate) fn normal_from_segment(p0: &[f32; 2], p1: &[f32; 2]) -> Option<[f32; 2]> {
-    direction(p0, p1).map(|d| [-d[1], d[0]])
-}
-
-#[inline]
-pub(crate) fn midpoint(a: &[f32; 2], b: &[f32; 2]) -> [f32; 2] {
-    [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5]
-}

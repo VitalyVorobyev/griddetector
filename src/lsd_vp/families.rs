@@ -114,7 +114,7 @@ fn build_orientation_histogram(segments: &[Segment]) -> (Vec<f32>, OrientationHi
     let mut hist = OrientationHistogram::new(DEFAULT_BINS);
     let mut angles = Vec::with_capacity(segments.len());
     for seg in segments.iter() {
-        let th = seg.dir[1].atan2(seg.dir[0]);
+        let th = seg.theta();
         let angle = normalize_half_pi(th);
         angles.push(angle);
         hist.accumulate(angle, seg.strength.max(1.0));
@@ -171,16 +171,13 @@ mod tests {
     use crate::segments::{Segment, SegmentId};
 
     fn make_segment(dir: [f32; 2], strength: f32, id: u32) -> Segment {
-        Segment {
-            id: SegmentId(id),
-            p0: [0.0, 0.0],
-            p1: [dir[0], dir[1]],
-            dir,
-            len: strength,
-            line: nalgebra::Vector3::new(dir[1], -dir[0], 0.0),
-            avg_mag: strength,
+        Segment::new(
+            SegmentId(id),
+            [0.0, 0.0],
+            [dir[0], dir[1]],
             strength,
-        }
+            strength,
+        )
     }
 
     #[test]

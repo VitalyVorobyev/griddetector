@@ -1,7 +1,6 @@
 use super::extractor::LsdExtractor;
 use super::*;
 use crate::image::ImageF32;
-use nalgebra::Vector3;
 
 fn step_image(width: usize, height: usize, split_x: usize) -> ImageF32 {
     let mut img = ImageF32::new(width, height);
@@ -20,21 +19,7 @@ fn make_test_segment(angle: f32) -> Segment {
     let half_len = 5.0f32;
     let p0 = [center[0] - dir[0] * half_len, center[1] - dir[1] * half_len];
     let p1 = [center[0] + dir[0] * half_len, center[1] + dir[1] * half_len];
-    let dx = p1[0] - p0[0];
-    let dy = p1[1] - p0[1];
-    let len = (dx * dx + dy * dy).sqrt();
-    let normal = [-dir[1], dir[0]];
-    let c = -(normal[0] * center[0] + normal[1] * center[1]);
-    Segment {
-        id: SegmentId(0),
-        p0,
-        p1,
-        dir,
-        len,
-        line: Vector3::new(normal[0], normal[1], c),
-        avg_mag: 1.0,
-        strength: 1.0,
-    }
+    Segment::new(SegmentId(0), p0, p1, 1.0, 1.0)
 }
 
 #[test]
@@ -47,17 +32,17 @@ fn lsd_extractor_finds_vertical_segment() {
     );
     let longest = segs
         .iter()
-        .max_by(|a, b| a.len.partial_cmp(&b.len).unwrap())
+        .max_by(|a, b| a.length_sq().partial_cmp(&b.length_sq()).unwrap())
         .unwrap();
     assert!(
-        longest.dir[1].abs() > longest.dir[0].abs(),
+        longest.direction()[1].abs() > longest.direction()[0].abs(),
         "expected vertical-oriented segment, got dir={:?}",
-        longest.dir
+        longest.direction()
     );
     assert!(
-        longest.len >= 8.0,
+        longest.length() >= 8.0,
         "expected a reasonably long segment, got len={}",
-        longest.len
+        longest.length()
     );
 }
 
