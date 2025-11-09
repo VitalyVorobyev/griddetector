@@ -12,30 +12,41 @@ pub(crate) fn search_along_normal(
 ) -> Option<SupportPoint> {
     let mut best: Option<(f32, f32, [f32; 2], f32)> = None; // (t, |g|, grad, proj)
     let tau_mag_sq = params.tau_mag * params.tau_mag;
+    let roi_x0 = roi.x0;
+    let roi_x1 = roi.x1;
+    let roi_y0 = roi.y0;
+    let roi_y1 = roi.y1;
+    let delta_t = params.delta_t;
+    if delta_t <= 0.0 {
+        return None;
+    }
+    let steps = ((2.0 * w_perp) / delta_t).ceil() as i32;
+    let mut px = center[0] - w_perp * normal[0];
+    let mut py = center[1] - w_perp * normal[1];
     let mut t = -w_perp;
-    while t <= w_perp + 1e-3 {
-        let p = [center[0] + t * normal[0], center[1] + t * normal[1]];
-        if !roi.contains(&p) {
-            t += params.delta_t;
-            continue;
-        }
-        if let Some((gx, gy)) = bilinear_grad(lvl, p[0], p[1]) {
-            let mag_sq = gx * gx + gy * gy;
-            if mag_sq < tau_mag_sq {
-                t += params.delta_t;
-                continue;
-            }
-            let proj = gx * normal[0] + gy * normal[1];
-            let val = proj.abs();
-            if let Some(ref mut current) = best {
-                if val > current.1 {
-                    *current = (t, val, [gx, gy], proj);
+    let step_x = normal[0] * delta_t;
+    let step_y = normal[1] * delta_t;
+
+    for _ in 0..=steps {
+        if px >= roi_x0 && px <= roi_x1 && py >= roi_y0 && py <= roi_y1 {
+            if let Some((gx, gy)) = bilinear_grad(lvl, px, py) {
+                let mag_sq = gx * gx + gy * gy;
+                if mag_sq >= tau_mag_sq {
+                    let proj = gx * normal[0] + gy * normal[1];
+                    let val = proj.abs();
+                    if let Some(ref mut current) = best {
+                        if val > current.1 {
+                            *current = (t, val, [gx, gy], proj);
+                        }
+                    } else {
+                        best = Some((t, val, [gx, gy], proj));
+                    }
                 }
-            } else {
-                best = Some((t, val, [gx, gy], proj));
             }
         }
-        t += params.delta_t;
+        px += step_x;
+        py += step_y;
+        t += delta_t;
     }
 
     let (t_best, mut peak, _, _) = best?;

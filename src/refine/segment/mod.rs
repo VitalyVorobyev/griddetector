@@ -20,7 +20,7 @@ use crate::angle::angle_between;
 
 use crate::segments::Segment;
 use endpoints::refine_endpoints;
-use fit::{distance, project_point_to_line, weighted_line_fit};
+use fit::{distance, project_point_to_line, weighted_line_fit, SupportPoint};
 use sampling::search_along_normal;
 pub use profiling::{NoopProfiler, ProfileStage, RefineProfiler};
 pub use types::{PyramidLevel, RefineParams, RefineResult, ScaleMap};
@@ -233,6 +233,7 @@ fn run_iterations(
     let mut total_centers = 0usize;
     let mut support_ms = 0.0f32;
     let mut fit_ms = 0.0f32;
+    let mut supports_buf: Vec<SupportPoint> = Vec::new();
 
     for _ in 0..params.max_iters.max(1) {
         let dir = seg0.direction();
@@ -244,7 +245,8 @@ fn run_iterations(
             n_centers = 1;
         }
         total_centers = n_centers;
-        let mut supports = Vec::with_capacity(n_centers);
+        supports_buf.clear();
+        supports_buf.reserve(n_centers);
         let gather_start = Instant::now();
         for i in 0..n_centers {
             let t = if n_centers <= 1 {
@@ -254,17 +256,17 @@ fn run_iterations(
             };
             let center = [p0[0] + dir[0] * t * length, p0[1] + dir[1] * t * length];
             if let Some(support) = search_along_normal(lvl, roi, &center, &normal, params, w_perp) {
-                supports.push(support);
+                supports_buf.push(support);
             }
         }
         support_ms += elapsed_ms(gather_start);
         let supports_needed = usize::min(3, n_centers);
-        if supports.len() < supports_needed {
+        if supports_buf.len() < supports_needed {
             return RunAttempt::failure(support_ms, fit_ms);
         }
 
         let fit_start = Instant::now();
-        let fit_result = weighted_line_fit(&supports, params);
+        let fit_result = weighted_line_fit(&supports_buf, params);
         fit_ms += elapsed_ms(fit_start);
         let (d_final, n_final, rho, mu) = match fit_result {
             Some(values) => values,
