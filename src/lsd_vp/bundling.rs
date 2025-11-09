@@ -254,7 +254,7 @@ pub fn bundle_rectified(
 
 #[cfg(test)]
 mod tests {
-    use crate::SegmentId;
+    use crate::stages::SegmentId;
 
     use super::*;
 

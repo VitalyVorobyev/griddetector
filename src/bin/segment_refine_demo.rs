@@ -27,11 +27,37 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
+/// Run a closure while timing its execution and reporting the elapsed time. Should return the same
+/// result as the closure.
+fn run_with_timer<R, F: FnOnce() -> Result<R, String>>(f: F) -> Result<ResultWithTime<R>, String> {
+    let start = Instant::now();
+    let result = f();
+    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    println!("Completed in {:.2} ms", elapsed_ms);
+    Ok(ResultWithTime { result, elapsed_ms })
+}
+
 fn main() {
-    if let Err(err) = run() {
-        eprintln!("Error: {err}");
-        std::process::exit(1);
-    }
+    let run_perf = run_with_timer(|| {
+        if let Err(err) = run() {
+            eprintln!("Error: {err}");
+            std::process::exit(1);
+        } else {
+            Ok(())
+        }
+    });
+    println!(
+        "Total execution time: {:.2} ms",
+        match run_perf {
+            Ok(r) => r.elapsed_ms,
+            Err(_) => 0.0,
+        }
+    );
+}
+
+struct ResultWithTime<R> {
+    result: Result<R, String>,
+    elapsed_ms: f64,
 }
 
 fn run() -> Result<(), String> {
@@ -42,9 +68,8 @@ fn run() -> Result<(), String> {
         .map_err(|e| format!("Failed to create {}: {e}", config.output.dir.display()))?;
 
     let total_start = Instant::now();
-    let load_start = Instant::now();
-    let gray = load_grayscale_image(&config.input)?;
-    let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
+    let gray_perf = run_with_timer(|| load_grayscale_image(&config.input))?;
+    let gray = gray_perf.result?;
 
     let levels = config.pyramid.levels.max(1);
     let pyramid_opts = PyramidOptions::new(levels).with_blur_levels(config.pyramid.blur_levels);
@@ -181,8 +206,8 @@ fn run() -> Result<(), String> {
 
     let total_ms = total_start.elapsed().as_secs_f64() * 1000.0;
     let mut timings = TimingBreakdown::with_total(total_ms);
-    if load_ms > 0.0 {
-        timings.push("load", load_ms);
+    if gray_perf.elapsed_ms > 0.0 {
+        timings.push("load", gray_perf.elapsed_ms);
     }
     if pyramid_ms > 0.0 {
         timings.push("pyramid", pyramid_ms);

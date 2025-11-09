@@ -30,3 +30,5 @@ config/vp_outlier_demo.json
 
 *.pyc
 *.pdf
+
+.DS_Store
