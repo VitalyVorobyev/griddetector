@@ -12,7 +12,7 @@ use grid_detector::detector::{DetectorWorkspace, LevelScaleMap};
 use grid_detector::diagnostics::builders::compute_family_counts;
 use grid_detector::diagnostics::{
     LsdStage, PyramidStage, SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage,
-    TimingBreakdown,
+    StageTiming, TimingBreakdown,
 };
 use grid_detector::image::io::{
     load_grayscale_image, save_grayscale_f32, write_json_file, GrayImageU8,
@@ -20,7 +20,7 @@ use grid_detector::image::io::{
 use grid_detector::image::{ImageF32, ImageView};
 use grid_detector::lsd_vp::{analyze_families, FamilyAssignments};
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
-use grid_detector::refine::segment::{self, PyramidLevel as SegmentGradientLevel};
+use grid_detector::refine::segment::{self, PyramidLevel as SegmentGradientLevel, RefineProfiler};
 use grid_detector::segments::{lsd_extract_segments, Segment};
 use std::env;
 use std::fs;
@@ -215,7 +215,9 @@ fn run_refinement_levels(
         let mut score_sum = 0.0f32;
 
         for seg in &current_segments {
-            let result = segment::refine_segment(&grad_level, seg, &scale_map, refine_params);
+            let mut profiler = SampleProfiler::default();
+            let result =
+                segment::refine_segment(&grad_level, seg, &scale_map, refine_params, &mut profiler);
             let ok = result.ok;
             if ok {
                 accepted += 1;
@@ -233,6 +235,7 @@ fn run_refinement_levels(
                 ok: Some(ok),
                 inliers,
                 total,
+                timings: profiler.into_timings(),
             });
             refined_segments.push(updated);
         }
@@ -273,6 +276,28 @@ fn build_lsd_stage(assignments: &FamilyAssignments, elapsed_ms: f64) -> LsdStage
         family_counts,
         segment_families: assignments.families.clone(),
         sample_ids: Vec::new(),
+    }
+}
+
+#[derive(Default)]
+struct SampleProfiler {
+    timings: Vec<StageTiming>,
+}
+
+impl SampleProfiler {
+    fn into_timings(self) -> Option<Vec<StageTiming>> {
+        if self.timings.is_empty() {
+            None
+        } else {
+            Some(self.timings)
+        }
+    }
+}
+
+impl RefineProfiler for SampleProfiler {
+    fn record(&mut self, stage: segment::ProfileStage, elapsed_ms: f32) {
+        self.timings
+            .push(StageTiming::new(stage.label(), elapsed_ms as f64));
     }
 }
 

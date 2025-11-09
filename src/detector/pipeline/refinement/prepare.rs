@@ -6,7 +6,7 @@ use crate::diagnostics::{BundleDescriptor, BundlingLevel, BundlingStage};
 use crate::image::traits::ImageView;
 use crate::pyramid::Pyramid;
 use crate::refine::segment::{
-    self, PyramidLevel as SegmentGradientLevel, RefineParams as SegmentRefineParams,
+    self, NoopProfiler, PyramidLevel as SegmentGradientLevel, RefineParams as SegmentRefineParams,
 };
 use crate::refine::RefineLevel;
 use crate::segments::{Bundle, Segment};
@@ -149,7 +149,14 @@ pub fn prepare_levels(
         let refine_start = Instant::now();
         let mut refined_segments = Vec::with_capacity(current_segments.len());
         for seg in &current_segments {
-            let result = segment::refine_segment(&grad_level, seg, &scale_map, segment_params);
+            let mut profiler = NoopProfiler::default();
+            let result = segment::refine_segment(
+                &grad_level,
+                seg,
+                &scale_map,
+                segment_params,
+                &mut profiler,
+            );
             if result.ok {
                 refined_segments.push(result.seg);
             }

@@ -10,8 +10,11 @@
 
 mod endpoints;
 mod fit;
+mod profiling;
 mod sampling;
 pub mod types;
+
+use std::time::Instant;
 
 use crate::angle::angle_between;
 
@@ -19,6 +22,7 @@ use crate::segments::Segment;
 use endpoints::refine_endpoints;
 use fit::{distance, project_point_to_line, weighted_line_fit};
 use sampling::search_along_normal;
+pub use profiling::{NoopProfiler, ProfileStage, RefineProfiler};
 pub use types::{PyramidLevel, RefineParams, RefineResult, ScaleMap};
 
 const EPS: f32 = 1e-6;
@@ -54,6 +58,35 @@ struct IterationSnapshot {
     roi: Roi,
 }
 
+struct RunAttempt {
+    snapshot: Option<IterationSnapshot>,
+    support_ms: f32,
+    fit_ms: f32,
+}
+
+impl RunAttempt {
+    fn success(snapshot: IterationSnapshot, support_ms: f32, fit_ms: f32) -> Self {
+        Self {
+            snapshot: Some(snapshot),
+            support_ms,
+            fit_ms,
+        }
+    }
+
+    fn failure(support_ms: f32, fit_ms: f32) -> Self {
+        Self {
+            snapshot: None,
+            support_ms,
+            fit_ms,
+        }
+    }
+}
+
+#[inline]
+fn elapsed_ms(start: Instant) -> f32 {
+    start.elapsed().as_secs_f32() * 1000.0
+}
+
 /// Refine a coarse-level segment using gradient support on the finer level.
 ///
 /// The routine upsamples the coarse endpoints, iteratively fits a robust line
@@ -64,11 +97,26 @@ pub fn refine_segment(
     seg_coarse: &Segment,
     scale: &dyn ScaleMap,
     params: &RefineParams,
+    profiler: &mut dyn RefineProfiler,
+) -> RefineResult {
+    let total_start = Instant::now();
+    let result = refine_segment_inner(lvl, seg_coarse, scale, params, profiler);
+    profiler.record(ProfileStage::Total, elapsed_ms(total_start));
+    result
+}
+
+fn refine_segment_inner(
+    lvl: &PyramidLevel<'_>,
+    seg_coarse: &Segment,
+    scale: &dyn ScaleMap,
+    params: &RefineParams,
+    profiler: &mut dyn RefineProfiler,
 ) -> RefineResult {
     if lvl.width == 0 || lvl.height == 0 {
         return RefineResult::failed(seg_coarse.clone());
     }
 
+    let upsample_start = Instant::now();
     let seg = Segment::new(
         seg_coarse.id,
         scale.up(seg_coarse.p0),
@@ -76,16 +124,24 @@ pub fn refine_segment(
         seg_coarse.avg_mag,
         seg_coarse.strength,
     );
+    profiler.record(ProfileStage::Upsample, elapsed_ms(upsample_start));
     let fallback = seg.clone();
 
     if seg.length_sq() < 1e-3 {
         return RefineResult::failed(fallback);
     }
 
-    let Some(roi) = compute_roi(&seg, params.pad, lvl.width, lvl.height) else {
+    let roi_start = Instant::now();
+    let roi_opt = compute_roi(&seg, params.pad, lvl.width, lvl.height);
+    let roi_elapsed = elapsed_ms(roi_start);
+    let Some(roi) = roi_opt else {
+        profiler.record(ProfileStage::Roi, roi_elapsed);
         return RefineResult::failed(fallback);
     };
+    profiler.record(ProfileStage::Roi, roi_elapsed);
 
+    let mut sampling_ms = 0.0f32;
+    let mut fit_ms = 0.0f32;
     let mut snapshot = None;
     for attempt in 0..2 {
         let w_perp = if attempt == 0 {
@@ -93,17 +149,26 @@ pub fn refine_segment(
         } else {
             (params.w_perp * 0.5).max(1.0)
         };
-        if let Some(iter) = run_iterations(lvl, &seg, &roi, params, w_perp) {
+        let attempt_result = run_iterations(lvl, &seg, &roi, params, w_perp);
+        sampling_ms += attempt_result.support_ms;
+        fit_ms += attempt_result.fit_ms;
+        if let Some(iter) = attempt_result.snapshot {
             snapshot = Some(iter);
             break;
         }
     }
 
     let Some(snapshot) = snapshot else {
+        profiler.record(ProfileStage::SupportSampling, sampling_ms);
+        profiler.record(ProfileStage::LineFit, fit_ms);
         return RefineResult::failed(fallback);
     };
+    profiler.record(ProfileStage::SupportSampling, sampling_ms);
+    profiler.record(ProfileStage::LineFit, fit_ms);
 
+    let endpoints_start = Instant::now();
     let (p0_f, p1_f, support_count, score) = refine_endpoints(&snapshot, lvl, params);
+    profiler.record(ProfileStage::Endpoints, elapsed_ms(endpoints_start));
     let refined_segment = Segment::new(
         snapshot.seg.id,
         p0_f,
@@ -160,12 +225,14 @@ fn run_iterations(
     roi: &Roi,
     params: &RefineParams,
     w_perp: f32,
-) -> Option<IterationSnapshot> {
+) -> RunAttempt {
     let mut p0 = seg0.p0;
     let mut p1 = seg0.p1;
     let mut last_mu = seg0.midpoint();
     let mut last_normal = seg0.normal();
     let mut total_centers = 0usize;
+    let mut support_ms = 0.0f32;
+    let mut fit_ms = 0.0f32;
 
     for _ in 0..params.max_iters.max(1) {
         let dir = seg0.direction();
@@ -178,6 +245,7 @@ fn run_iterations(
         }
         total_centers = n_centers;
         let mut supports = Vec::with_capacity(n_centers);
+        let gather_start = Instant::now();
         for i in 0..n_centers {
             let t = if n_centers <= 1 {
                 0.0
@@ -189,12 +257,19 @@ fn run_iterations(
                 supports.push(support);
             }
         }
+        support_ms += elapsed_ms(gather_start);
         let supports_needed = usize::min(3, n_centers);
         if supports.len() < supports_needed {
-            return None;
+            return RunAttempt::failure(support_ms, fit_ms);
         }
 
-        let (d_final, n_final, rho, mu) = weighted_line_fit(&supports, params)?;
+        let fit_start = Instant::now();
+        let fit_result = weighted_line_fit(&supports, params);
+        fit_ms += elapsed_ms(fit_start);
+        let (d_final, n_final, rho, mu) = match fit_result {
+            Some(values) => values,
+            None => return RunAttempt::failure(support_ms, fit_ms),
+        };
         last_mu = mu;
         last_normal = n_final;
 
@@ -210,13 +285,17 @@ fn run_iterations(
         }
     }
 
-    Some(IterationSnapshot {
-        seg: Segment::new(seg0.id, p0, p1, seg0.avg_mag, seg0.strength),
-        mu: last_mu,
-        normal: last_normal,
-        total_centers,
-        roi: *roi,
-    })
+    RunAttempt::success(
+        IterationSnapshot {
+            seg: Segment::new(seg0.id, p0, p1, seg0.avg_mag, seg0.strength),
+            mu: last_mu,
+            normal: last_normal,
+            total_centers,
+            roi: *roi,
+        },
+        support_ms,
+        fit_ms,
+    )
 }
 
 #[cfg(test)]
