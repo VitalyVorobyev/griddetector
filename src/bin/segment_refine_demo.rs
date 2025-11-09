@@ -14,7 +14,9 @@ use grid_detector::diagnostics::{
     LsdStage, PyramidStage, SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage,
     TimingBreakdown,
 };
-use grid_detector::image::io::{GrayImageU8, load_grayscale_image, save_grayscale_f32, write_json_file};
+use grid_detector::image::io::{
+    load_grayscale_image, save_grayscale_f32, write_json_file, GrayImageU8,
+};
 use grid_detector::image::{ImageF32, ImageView};
 use grid_detector::lsd_vp::{analyze_families, FamilyAssignments};
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
@@ -74,13 +76,7 @@ fn run() -> Result<(), String> {
     workspace.reset(pyramid.levels.len());
 
     let (lsd_segments, lsd_stage) = run_lsd_demo(&pyramid, &config)?;
-    let mut refine_params = config.refine.resolve();
-    if refine_params.delta_s <= 0.0 {
-        refine_params.delta_s = 0.5;
-    }
-    if refine_params.delta_t <= 0.0 {
-        refine_params.delta_t = 0.25;
-    }
+    let refine_params = config.refine.resolve();
     let (levels_report, refine_total_ms) =
         run_refinement_levels(&pyramid, &mut workspace, &lsd_segments, &refine_params)?;
 

@@ -238,13 +238,7 @@ impl<'a> LsdExtractor<'a> {
 
         let id = SegmentId(self.next_id);
         self.next_id = self.next_id.wrapping_add(1);
-        Some(Segment {
-            id,
-            p0,
-            p1,
-            avg_mag,
-            strength,
-        })
+        Some(Segment::new(id, p0, p1, avg_mag, strength))
     }
 
     fn angle_at(&mut self, idx: usize) -> f32 {

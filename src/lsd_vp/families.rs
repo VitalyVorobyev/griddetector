@@ -171,13 +171,13 @@ mod tests {
     use crate::segments::{Segment, SegmentId};
 
     fn make_segment(dir: [f32; 2], strength: f32, id: u32) -> Segment {
-        Segment {
-            id: SegmentId(id),
-            p0: [0.0, 0.0],
-            p1: [dir[0], dir[1]],
-            avg_mag: strength,
+        Segment::new(
+            SegmentId(id),
+            [0.0, 0.0],
+            [dir[0], dir[1]],
             strength,
-        }
+            strength,
+        )
     }
 
     #[test]

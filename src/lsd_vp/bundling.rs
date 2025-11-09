@@ -260,13 +260,7 @@ mod tests {
 
     fn make_vertical_segment(x: f32, y0: f32, y1: f32) -> Segment {
         let len = (y1 - y0).abs();
-        Segment {
-            id: SegmentId(0),
-            p0: [x, y0],
-            p1: [x, y1],
-            avg_mag: 1.0,
-            strength: len.max(1.0),
-        }
+        Segment::new(SegmentId(0), [x, y0], [x, y1], 1.0, len.max(1.0))
     }
 
     #[test]

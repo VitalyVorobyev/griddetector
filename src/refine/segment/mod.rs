@@ -17,9 +17,7 @@ use crate::angle::angle_between;
 
 use crate::segments::Segment;
 use endpoints::refine_endpoints;
-use fit::{
-    direction, distance, midpoint, normal_from_segment, project_point_to_line, weighted_line_fit,
-};
+use fit::{distance, project_point_to_line, weighted_line_fit};
 use sampling::search_along_normal;
 pub use types::{PyramidLevel, RefineParams, RefineResult, ScaleMap};
 
@@ -71,13 +69,13 @@ pub fn refine_segment(
         return RefineResult::failed(seg_coarse.clone());
     }
 
-    let seg = Segment {
-        id: seg_coarse.id,
-        p0: scale.up(seg_coarse.p0),
-        p1: scale.up(seg_coarse.p1),
-        avg_mag: seg_coarse.avg_mag,
-        strength: seg_coarse.strength,
-    };
+    let seg = Segment::new(
+        seg_coarse.id,
+        scale.up(seg_coarse.p0),
+        scale.up(seg_coarse.p1),
+        seg_coarse.avg_mag,
+        seg_coarse.strength,
+    );
     let fallback = seg.clone();
 
     if seg.length_sq() < 1e-3 {
@@ -106,11 +104,13 @@ pub fn refine_segment(
     };
 
     let (p0_f, p1_f, support_count, score) = refine_endpoints(&snapshot, lvl, params);
-    let refined_segment = Segment {
-        p0: p0_f,
-        p1: p1_f,
-        ..snapshot.seg
-    };
+    let refined_segment = Segment::new(
+        snapshot.seg.id,
+        p0_f,
+        p1_f,
+        snapshot.seg.avg_mag,
+        snapshot.seg.strength,
+    );
     let total_centers = snapshot.total_centers;
     let seed_len = fallback.length().max(EPS);
     let refined_len = refined_segment.length();
@@ -163,13 +163,13 @@ fn run_iterations(
 ) -> Option<IterationSnapshot> {
     let mut p0 = seg0.p0;
     let mut p1 = seg0.p1;
-    let mut last_mu = midpoint(&p0, &p1);
-    let mut last_normal = normal_from_segment(&p0, &p1)?;
+    let mut last_mu = seg0.midpoint();
+    let mut last_normal = seg0.normal();
     let mut total_centers = 0usize;
 
     for _ in 0..params.max_iters.max(1) {
-        let dir = direction(&p0, &p1)?;
-        let normal = [-dir[1], dir[0]];
+        let dir = seg0.direction();
+        let normal = seg0.normal();
         let length = distance(&p0, &p1);
         let samples = (length / params.delta_s).floor() as usize;
         let mut n_centers = samples.max(4) + 1;
@@ -211,7 +211,7 @@ fn run_iterations(
     }
 
     Some(IterationSnapshot {
-        seg: Segment { p0, p1, ..*seg0 },
+        seg: Segment::new(seg0.id, p0, p1, seg0.avg_mag, seg0.strength),
         mu: last_mu,
         normal: last_normal,
         total_centers,
@@ -226,13 +226,7 @@ mod tests {
 
     #[test]
     fn roi_rejects_degenerate_segments() {
-        let seg = Segment {
-            id: SegmentId(1),
-            p0: [10.0, 10.0],
-            p1: [10.1, 10.1],
-            avg_mag: 1.0,
-            strength: 1.0,
-        };
+        let seg = Segment::new(SegmentId(1), [10.0, 10.0], [10.1, 10.1], 1.0, 1.0);
         assert!(compute_roi(&seg, 0.0, 32, 32).is_some());
         assert!(compute_roi(&seg, 0.0, 1, 1).is_none());
     }

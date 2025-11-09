@@ -1,7 +1,6 @@
 //! Endpoint refinement along the carrier direction.
 
 use super::{
-    fit::direction,
     sampling::bilinear_grad,
     types::{PyramidLevel, RefineParams},
     IterationSnapshot, Roi, EPS,
@@ -16,10 +15,7 @@ pub(super) fn refine_endpoints(
     let mut p0 = seg.p0;
     let mut p1 = seg.p1;
     let normal = snapshot.normal;
-    let d = match direction(&p0, &p1) {
-        Some(v) => v,
-        None => return (p0, p1, 0, 0.0),
-    };
+    let d = seg.direction();
     let mu = snapshot.mu;
     let seg_r0 = (p0[0] - mu[0]) * d[0] + (p0[1] - mu[1]) * d[1];
     let seg_r1 = (p1[0] - mu[0]) * d[0] + (p1[1] - mu[1]) * d[1];

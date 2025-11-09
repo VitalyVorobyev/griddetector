@@ -19,13 +19,7 @@ fn make_test_segment(angle: f32) -> Segment {
     let half_len = 5.0f32;
     let p0 = [center[0] - dir[0] * half_len, center[1] - dir[1] * half_len];
     let p1 = [center[0] + dir[0] * half_len, center[1] + dir[1] * half_len];
-    Segment {
-        id: SegmentId(0),
-        p0,
-        p1,
-        avg_mag: 1.0,
-        strength: 1.0,
-    }
+    Segment::new(SegmentId(0), p0, p1, 1.0, 1.0)
 }
 
 #[test]

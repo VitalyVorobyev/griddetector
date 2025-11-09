@@ -201,13 +201,7 @@ mod tests {
     use nalgebra::Matrix3;
 
     fn make_segment(id: u32, dir: [f32; 2]) -> Segment {
-        Segment {
-            id: SegmentId(id),
-            p0: [0.0, 0.0],
-            p1: [dir[0], dir[1]],
-            avg_mag: 1.0,
-            strength: 1.0,
-        }
+        Segment::new(SegmentId(id), [0.0, 0.0], [dir[0], dir[1]], 1.0, 1.0)
     }
 
     #[test]

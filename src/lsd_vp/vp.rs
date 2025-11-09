@@ -56,13 +56,7 @@ mod tests {
     use nalgebra::Vector3;
 
     fn make_segment(p0: [f32; 2], p1: [f32; 2], strength: f32, id: u32) -> Segment {
-        Segment {
-            id: SegmentId(id),
-            p0,
-            p1,
-            avg_mag: 1.0,
-            strength,
-        }
+        Segment::new(SegmentId(id), p0, p1, 1.0, strength)
     }
 
     fn approx_vec(a: &Vector3<f32>, b: &Vector3<f32>) -> bool {
