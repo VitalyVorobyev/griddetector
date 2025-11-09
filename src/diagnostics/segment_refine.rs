@@ -44,7 +44,7 @@ pub struct SegmentRefineSample {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub support_points: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tangent_steps: Option<usize>,
+    pub region_pixels: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub normal_refinements: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]

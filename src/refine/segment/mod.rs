@@ -9,17 +9,28 @@
 
 mod types;
 
+use crate::angle::{angular_difference, normalize_half_pi};
 use crate::edges::grad::{GradientLevel, GradientSample};
-use crate::segments::Segment;
+use crate::segments::{RegionAccumulator, Segment};
+use nalgebra::{Matrix2, SymmetricEigen};
 
 pub use types::{RefineDiagnostics, RefineResult, ScaleMap, SegmentRefineParams};
 
 const EPS: f32 = 1e-6;
+const NEIGH_OFFSETS: [(isize, isize); 8] = [
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+    (-1, 0),
+    (1, 0),
+    (-1, 1),
+    (0, 1),
+    (1, 1),
+];
 
 #[derive(Clone, Debug)]
 struct SamplePoint {
     pos: [f32; 2],
-    grad: [f32; 2],
     normal: [f32; 2],
     mag: f32,
     offset: f32,
@@ -62,9 +73,9 @@ pub fn refine_segment(
         return RefineResult::failed(fallback);
     };
 
-    let accept = result.support >= params.min_support_points
+    let accept = result.support >= params.region_min_pixels
         && result.score >= params.gradient_threshold
-        && result.seg.length_sq() > EPS;
+        && result.seg.length() >= params.min_length_px;
 
     if !accept {
         return RefineResult {
@@ -92,7 +103,6 @@ pub(crate) fn refine_segment_coarse_to_fine(
     params: &SegmentRefineParams,
 ) -> Option<RefinedSegment> {
     let mut diagnostics = RefineDiagnostics::default();
-    let direction = pred_segment.direction();
     let mut best_anchor: Option<SamplePoint> = None;
     let mut best_mag = params.gradient_threshold;
 
@@ -125,36 +135,22 @@ pub(crate) fn refine_segment_coarse_to_fine(
         return None;
     };
 
-    let mut points = Vec::new();
-    let mut tangent = normalize([-anchor.normal[1], anchor.normal[0]]).unwrap_or(direction);
-    if dot(tangent, direction) < 0.0 {
-        tangent = [-tangent[0], -tangent[1]];
-    }
-
     let mut anchor_point = anchor.clone();
     anchor_point.offset = 0.0;
 
-    let forward = grow_from_anchor(grad, &anchor_point, tangent, params, &mut diagnostics);
-    let backward = grow_from_anchor(
-        grad,
-        &anchor_point,
-        [-tangent[0], -tangent[1]],
-        params,
-        &mut diagnostics,
-    );
+    let region =
+        grow_region_from_anchor(grad, pred_segment, &anchor_point, params, &mut diagnostics)?;
+    let support = region.len();
+    diagnostics.region_pixels = support;
 
-    for p in backward.into_iter().rev() {
-        points.push(p);
+    if support < params.region_min_pixels {
+        return None;
     }
-    points.push(anchor_point);
-    points.extend(forward.into_iter());
-
-    if points.len() < params.min_support_points {
+    if region.aligned_fraction() < params.region_min_alignment {
         return None;
     }
 
-    let (segment, avg_mag) = fit_segment(pred_segment, &points)?;
-    let support = points.len();
+    let (segment, avg_mag) = fit_segment_from_region(pred_segment, &region, grad.width, params)?;
 
     Some(RefinedSegment {
         seg: segment,
@@ -194,58 +190,174 @@ fn initial_normal(
     }
 }
 
-fn grow_from_anchor(
+fn grow_region_from_anchor(
     grad: &GradientLevel<'_>,
+    pred_segment: &Segment,
     anchor: &SamplePoint,
-    tangent_seed: [f32; 2],
     params: &SegmentRefineParams,
     diagnostics: &mut RefineDiagnostics,
-) -> Vec<SamplePoint> {
-    let mut current = anchor.clone();
-    let mut tangent = normalize(tangent_seed).unwrap_or([1.0, 0.0]);
-    let mut normal = current.normal;
-    let mut points = Vec::new();
-
-    for _ in 0..params.max_grow_steps {
-        let predicted = [
-            current.pos[0] + tangent[0] * params.tangent_step,
-            current.pos[1] + tangent[1] * params.tangent_step,
-        ];
-        let Some(mut refined) = refine_along_normal(
-            grad,
-            predicted,
-            normal,
-            params.anchor_search_radius,
-            params,
-            diagnostics,
-        ) else {
-            break;
-        };
-        if refined.mag < params.gradient_threshold {
-            break;
-        }
-        if refined.offset.abs() > params.max_normal_shift {
-            break;
-        }
-        let dist = distance(refined.pos, current.pos);
-        if dist > params.max_point_dist {
-            break;
-        }
-        if dot(refined.normal, normal) < 0.0 {
-            refined.normal = [-refined.normal[0], -refined.normal[1]];
-            refined.grad = [-refined.grad[0], -refined.grad[1]];
-        }
-        diagnostics.tangent_steps += 1;
-        tangent = normalize([-refined.normal[1], refined.normal[0]]).unwrap_or(tangent);
-        if dot(tangent, [-normal[1], normal[0]]) < 0.0 {
-            tangent = [-tangent[0], -tangent[1]];
-        }
-        normal = refined.normal;
-        current = refined.clone();
-        points.push(refined);
+) -> Option<RegionAccumulator> {
+    if grad.width == 0 || grad.height == 0 {
+        return None;
+    }
+    let pad = params
+        .region_padding_px
+        .max(params.anchor_search_radius)
+        .max(params.anchor_step);
+    let bounds = compute_region_bounds(grad, pred_segment, anchor.pos, pad)?;
+    let area = bounds.area();
+    if area == 0 {
+        return None;
     }
 
-    points
+    let mut used = vec![0u8; area];
+    let mut stack = Vec::with_capacity(params.region_max_pixels.min(512).max(32));
+    let capacity = params.region_max_pixels.max(8);
+    let mut region = RegionAccumulator::with_capacity(capacity);
+
+    let anchor_x = clamp_coord(anchor.pos[0], grad.width);
+    let anchor_y = clamp_coord(anchor.pos[1], grad.height);
+    if !bounds.contains(anchor_x, anchor_y) {
+        return None;
+    }
+    let seed_angle = normalize_half_pi(anchor.normal[1].atan2(anchor.normal[0]));
+    let idx = pixel_index(grad.width, anchor_x, anchor_y);
+    stack.push(idx);
+    used[bounds.offset(anchor_x, anchor_y)] = 1;
+
+    let angle_tol = params.region_angle_tolerance_deg.to_radians();
+    while let Some(pixel_idx) = stack.pop() {
+        let x = pixel_idx % grad.width;
+        let y = pixel_idx / grad.width;
+        let sample = pixel_sample(grad, x, y, diagnostics);
+        if sample.mag < params.gradient_threshold {
+            continue;
+        }
+        let angle = normalize_half_pi(sample.gy.atan2(sample.gx));
+        let aligned = angular_difference(angle, seed_angle) <= angle_tol;
+        region.push(pixel_idx, x, y, sample.mag, aligned);
+        if region.len() >= params.region_max_pixels {
+            break;
+        }
+
+        for (dx, dy) in NEIGH_OFFSETS {
+            let xn = match x as isize + dx {
+                v if v < 0 || v >= grad.width as isize => continue,
+                v => v as usize,
+            };
+            let yn = match y as isize + dy {
+                v if v < 0 || v >= grad.height as isize => continue,
+                v => v as usize,
+            };
+            if !bounds.contains(xn, yn) {
+                continue;
+            }
+            let local_idx = bounds.offset(xn, yn);
+            if used[local_idx] != 0 {
+                continue;
+            }
+            let neighbor = pixel_sample(grad, xn, yn, diagnostics);
+            if neighbor.mag < params.gradient_threshold {
+                continue;
+            }
+            let neighbor_angle = normalize_half_pi(neighbor.gy.atan2(neighbor.gx));
+            if angular_difference(neighbor_angle, seed_angle) > angle_tol {
+                continue;
+            }
+            used[local_idx] = 1;
+            stack.push(pixel_index(grad.width, xn, yn));
+        }
+    }
+
+    if region.len() < 2 {
+        None
+    } else {
+        Some(region)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RegionBounds {
+    x0: usize,
+    y0: usize,
+    width: usize,
+    height: usize,
+}
+
+impl RegionBounds {
+    fn contains(&self, x: usize, y: usize) -> bool {
+        x >= self.x0 && x < self.x0 + self.width && y >= self.y0 && y < self.y0 + self.height
+    }
+
+    fn offset(&self, x: usize, y: usize) -> usize {
+        (y - self.y0) * self.width + (x - self.x0)
+    }
+
+    fn area(&self) -> usize {
+        self.width * self.height
+    }
+}
+
+fn compute_region_bounds(
+    grad: &GradientLevel<'_>,
+    pred_segment: &Segment,
+    anchor: [f32; 2],
+    padding: f32,
+) -> Option<RegionBounds> {
+    if grad.width == 0 || grad.height == 0 {
+        return None;
+    }
+    let min_x = pred_segment.p0[0].min(pred_segment.p1[0]).min(anchor[0]) - padding;
+    let max_x = pred_segment.p0[0].max(pred_segment.p1[0]).max(anchor[0]) + padding;
+    let min_y = pred_segment.p0[1].min(pred_segment.p1[1]).min(anchor[1]) - padding;
+    let max_y = pred_segment.p0[1].max(pred_segment.p1[1]).max(anchor[1]) + padding;
+
+    let clamp = |v: f32, upper: usize| -> usize {
+        let max_v = (upper.saturating_sub(1)) as f32;
+        v.floor().clamp(0.0, max_v) as usize
+    };
+
+    let x0 = clamp(min_x, grad.width);
+    let y0 = clamp(min_y, grad.height);
+    let x1 = clamp(max_x, grad.width);
+    let y1 = clamp(max_y, grad.height);
+    if x0 > x1 || y0 > y1 {
+        return None;
+    }
+
+    Some(RegionBounds {
+        x0,
+        y0,
+        width: x1 - x0 + 1,
+        height: y1 - y0 + 1,
+    })
+}
+
+fn pixel_sample(
+    grad: &GradientLevel<'_>,
+    x: usize,
+    y: usize,
+    diagnostics: &mut RefineDiagnostics,
+) -> GradientSample {
+    let idx = pixel_index(grad.width, x, y);
+    diagnostics.gradient_samples += 1;
+    GradientSample {
+        gx: grad.gx[idx],
+        gy: grad.gy[idx],
+        mag: grad.mag[idx],
+    }
+}
+
+fn pixel_index(width: usize, x: usize, y: usize) -> usize {
+    y * width + x
+}
+
+fn clamp_coord(value: f32, upper: usize) -> usize {
+    if upper == 0 {
+        return 0;
+    }
+    let max_v = (upper - 1) as f32;
+    value.round().clamp(0.0, max_v) as usize
 }
 
 fn refine_along_normal(
@@ -260,7 +372,7 @@ fn refine_along_normal(
     if radius <= 0.0 {
         return None;
     }
-    let step = params.normal_step.max(0.1);
+    let step = params.anchor_step.max(0.1);
     let steps = (radius / step).ceil() as i32;
     let mut best: Option<(GradientSample, [f32; 2], f32)> = None;
 
@@ -287,82 +399,113 @@ fn refine_along_normal(
 
     Some(SamplePoint {
         pos,
-        grad: [sample.gx, sample.gy],
         normal: normal_vec,
         mag: sample.mag,
         offset,
     })
 }
 
-fn fit_segment(pred: &Segment, points: &[SamplePoint]) -> Option<(Segment, f32)> {
-    let count = points.len();
+fn fit_segment_from_region(
+    pred: &Segment,
+    region: &RegionAccumulator,
+    width: usize,
+    params: &SegmentRefineParams,
+) -> Option<(Segment, f32)> {
+    let count = region.len();
     if count < 2 {
         return None;
     }
     let inv = 1.0 / count as f32;
-    let mut mean = [0.0f32, 0.0f32];
-    let mut mag_sum = 0.0f32;
-    for p in points {
-        mean[0] += p.pos[0];
-        mean[1] += p.pos[1];
-        mag_sum += p.mag;
-    }
-    mean[0] *= inv;
-    mean[1] *= inv;
-
-    let mut cov_xx = 0.0f32;
-    let mut cov_xy = 0.0f32;
-    let mut cov_yy = 0.0f32;
-    for p in points {
-        let dx = p.pos[0] - mean[0];
-        let dy = p.pos[1] - mean[1];
-        cov_xx += dx * dx;
-        cov_xy += dx * dy;
-        cov_yy += dy * dy;
-    }
-    cov_xx *= inv;
-    cov_xy *= inv;
-    cov_yy *= inv;
-
-    let trace = cov_xx + cov_yy;
-    let det = (cov_xx - cov_yy) * (cov_xx - cov_yy) + 4.0 * cov_xy * cov_xy;
-    let lambda = 0.5 * (trace + det.max(0.0).sqrt());
-    let mut dir = [cov_xy, lambda - cov_xx];
-    if length(dir) <= EPS {
-        dir = pred.direction();
-    }
-    dir = normalize(dir).unwrap_or([1.0, 0.0]);
-    let pred_dir = normalize(pred.direction()).unwrap_or(dir);
-    if dot(dir, pred_dir) < 0.0 {
-        dir = [-dir[0], -dir[1]];
-    }
-
-    let mut min_proj = f32::MAX;
-    let mut max_proj = f32::MIN;
-    for p in points {
-        let rel = [p.pos[0] - mean[0], p.pos[1] - mean[1]];
-        let proj = rel[0] * dir[0] + rel[1] * dir[1];
-        if proj < min_proj {
-            min_proj = proj;
-        }
-        if proj > max_proj {
-            max_proj = proj;
-        }
-    }
-
-    if !min_proj.is_finite() || !max_proj.is_finite() {
+    let cx = region.sum_x * inv;
+    let cy = region.sum_y * inv;
+    if !cx.is_finite() || !cy.is_finite() {
         return None;
     }
 
-    let p0 = [mean[0] + dir[0] * min_proj, mean[1] + dir[1] * min_proj];
-    let p1 = [mean[0] + dir[0] * max_proj, mean[1] + dir[1] * max_proj];
-    let len_sq = (p0[0] - p1[0]).powi(2) + (p0[1] - p1[1]).powi(2);
-    if len_sq <= EPS {
+    let cxx = region.sum_xx * inv - cx * cx;
+    let cyy = region.sum_yy * inv - cy * cy;
+    let cxy = region.sum_xy * inv - cx * cy;
+    let cov = Matrix2::new(cxx, cxy, cxy, cyy);
+    let eig = SymmetricEigen::new(cov);
+    let (vmax, lambda_max) = if eig.eigenvalues[0] >= eig.eigenvalues[1] {
+        (eig.eigenvectors.column(0), eig.eigenvalues[0])
+    } else {
+        (eig.eigenvectors.column(1), eig.eigenvalues[1])
+    };
+    if !lambda_max.is_finite() || lambda_max <= 0.0 {
         return None;
     }
-    let len = len_sq.sqrt();
-    let avg_mag = mag_sum * inv;
-    let segment = Segment::new(pred.id, p0, p1, avg_mag, avg_mag * len);
+
+    let mut tx = vmax[0];
+    let mut ty = vmax[1];
+    let mut norm = (tx * tx + ty * ty).sqrt();
+    if !norm.is_finite() || norm < EPS {
+        let fallback = pred.direction();
+        tx = fallback[0];
+        ty = fallback[1];
+        norm = (tx * tx + ty * ty).sqrt();
+        if norm < EPS {
+            return None;
+        }
+    }
+    tx /= norm;
+    ty /= norm;
+
+    let pred_dir = normalize(pred.direction()).unwrap_or([tx, ty]);
+    if dot([tx, ty], pred_dir) < 0.0 {
+        tx = -tx;
+        ty = -ty;
+    }
+
+    let mut smin = f32::INFINITY;
+    let mut smax = f32::NEG_INFINITY;
+    let nx = -ty;
+    let ny = tx;
+    let mut nmin = f32::INFINITY;
+    let mut nmax = f32::NEG_INFINITY;
+    for &idx in &region.indices {
+        let x = (idx % width) as f32;
+        let y = (idx / width) as f32;
+        let dx = x - cx;
+        let dy = y - cy;
+        let s = dx * tx + dy * ty;
+        if s < smin {
+            smin = s;
+        }
+        if s > smax {
+            smax = s;
+        }
+        let n = dx * nx + dy * ny;
+        if n < nmin {
+            nmin = n;
+        }
+        if n > nmax {
+            nmax = n;
+        }
+    }
+
+    if !smin.is_finite() || !smax.is_finite() {
+        return None;
+    }
+    let len = smax - smin;
+    if !len.is_finite() || len <= 0.0 || len < params.min_length_px {
+        return None;
+    }
+
+    if let Some(limit) = params.normal_span_limit_px {
+        if nmin.is_finite() && nmax.is_finite() {
+            let span = nmax - nmin;
+            if !span.is_finite() || span > limit {
+                return None;
+            }
+        }
+    }
+
+    let p0 = [cx + smin * tx, cy + smin * ty];
+    let p1 = [cx + smax * tx, cy + smax * ty];
+    let avg_mag = region.avg_mag();
+    let strength = len * avg_mag.max(1e-3);
+    let segment = Segment::new(pred.id, p0, p1, avg_mag, strength);
 
     Some((segment, avg_mag))
 }
@@ -394,10 +537,6 @@ fn dot(a: [f32; 2], b: [f32; 2]) -> f32 {
 
 fn length(v: [f32; 2]) -> f32 {
     (v[0] * v[0] + v[1] * v[1]).sqrt()
-}
-
-fn distance(a: [f32; 2], b: [f32; 2]) -> f32 {
-    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt()
 }
 
 fn lerp_points(a: [f32; 2], b: [f32; 2], t: f32) -> [f32; 2] {
@@ -450,8 +589,10 @@ mod tests {
         let grad_data = dummy_grad();
         let grad = GradientLevel::from_grad(&grad_data);
         let mut params = SegmentRefineParams::default();
-        params.max_grow_steps = 1;
-        params.min_support_points = 1;
+        params.region_min_pixels = 1;
+        params.region_max_pixels = 16;
+        params.region_min_alignment = 0.0;
+        params.min_length_px = 1.0;
         let seg = Segment::new(SegmentId(1), [2.0, 3.0], [6.0, 3.0], 1.0, 4.0);
         let result = refine_segment_coarse_to_fine(&grad, &seg, &params);
         assert!(result.is_some());

@@ -43,7 +43,7 @@ pub fn refine_coarsest_with_gradients(
     let mut accepted = 0usize;
     let mut score_acc = 0.0f32;
     let mut movement_acc = 0.0f32;
-    let mut tangent_steps_acc = 0usize;
+    let mut region_pixels_acc = 0usize;
     let mut normal_refine_acc = 0usize;
     let mut gradient_samples_acc = 0usize;
     let mut support_acc = 0usize;
@@ -55,7 +55,7 @@ pub fn refine_coarsest_with_gradients(
             accepted += 1;
             score_acc += result.score;
             movement_acc += movement;
-            tangent_steps_acc += result.diagnostics.tangent_steps;
+            region_pixels_acc += result.diagnostics.region_pixels;
             normal_refine_acc += result.diagnostics.normal_refinements;
             gradient_samples_acc += result.diagnostics.gradient_samples;
             support_acc += result.support_points;
@@ -87,8 +87,8 @@ pub fn refine_coarsest_with_gradients(
         } else {
             None
         },
-        avg_tangent_steps: if accepted > 0 {
-            Some(tangent_steps_acc as f32 / accepted as f32)
+        avg_region_pixels: if accepted > 0 {
+            Some(region_pixels_acc as f32 / accepted as f32)
         } else {
             None
         },

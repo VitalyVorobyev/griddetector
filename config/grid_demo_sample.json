@@ -30,13 +30,15 @@
         },
         "segment_refine": {
             "anchor_search_radius": 3.0,
-            "normal_step": 0.5,
-            "tangent_step": 0.75,
-            "max_grow_steps": 48,
             "gradient_threshold": 0.08,
-            "max_normal_shift": 2.0,
-            "max_point_dist": 3.5,
-            "min_support_points": 4,
+            "anchor_step": 0.5,
+            "region_padding_px": 6.0,
+            "region_angle_tolerance_deg": 18.0,
+            "region_min_pixels": 16,
+            "region_max_pixels": 512,
+            "region_min_alignment": 0.55,
+            "min_length_px": 4.0,
+            "normal_span_limit_px": null,
             "max_seeds": 3
         },
         "lsd_vp": {

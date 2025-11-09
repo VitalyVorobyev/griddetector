@@ -76,7 +76,7 @@ fn run() -> Result<(), String> {
     workspace.reset(pyramid.levels.len());
 
     let (lsd_segments, lsd_stage) = run_lsd_demo(&pyramid, &config)?;
-    let refine_params = config.refine.resolve();
+    let refine_params = config.refine;
     let (levels_report, refine_total_ms) =
         run_refinement_levels(&pyramid, &mut workspace, &lsd_segments, &refine_params)?;
 
@@ -216,8 +216,8 @@ fn run_refinement_levels(
                 score,
                 ok: Some(ok),
                 support_points: (result.support_points > 0).then_some(result.support_points),
-                tangent_steps: (result.diagnostics.tangent_steps > 0)
-                    .then_some(result.diagnostics.tangent_steps),
+                region_pixels: (result.diagnostics.region_pixels > 0)
+                    .then_some(result.diagnostics.region_pixels),
                 normal_refinements: (result.diagnostics.normal_refinements > 0)
                     .then_some(result.diagnostics.normal_refinements),
                 gradient_samples: (result.diagnostics.gradient_samples > 0)

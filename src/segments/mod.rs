@@ -49,6 +49,8 @@ mod extractor;
 mod region_accumulator;
 pub mod types;
 
+pub(crate) use region_accumulator::RegionAccumulator;
+
 pub use bundling::{bundle_segments, Bundle};
 pub use types::{LsdOptions, Segment, SegmentId};
 

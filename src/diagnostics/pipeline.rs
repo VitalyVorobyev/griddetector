@@ -131,8 +131,8 @@ impl DetectionReport {
             if let Some(movement) = grad.avg_movement_px {
                 println!("  avg_movement_px={:.3}", movement);
             }
-            if let Some(steps) = grad.avg_tangent_steps {
-                println!("  avg_tangent_steps={:.2}", steps);
+            if let Some(pixels) = grad.avg_region_pixels {
+                println!("  avg_region_pixels={:.2}", pixels);
             }
             if let Some(normal_refine) = grad.avg_normal_refinements {
                 println!("  avg_normal_refinements={:.2}", normal_refine);
