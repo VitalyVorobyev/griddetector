@@ -26,4 +26,5 @@ pub struct LsdStage {
     /// are part of the report.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub sample_ids: Vec<SegmentId>,
+    pub used_gradient_refinement: bool,
 }

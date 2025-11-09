@@ -20,6 +20,7 @@
 //! # }
 //! ```
 mod bundling;
+mod gradient_refine;
 mod lsd;
 mod outliers;
 mod refinement;
@@ -113,15 +114,16 @@ impl GridDetector {
             stage: mut lsd_stage,
             segments: coarse_segments,
             coarse_h,
-            full_h,
+            mut full_h,
             mut confidence,
             elapsed_ms: lsd_ms,
+            ..
         } = lsd::run_on_coarsest(&lsd_engine, &pyramid, width, height);
-        let initial_h_full = full_h;
-        let coarse_h_matrix = full_h;
+        let mut lsd_ms_total = lsd_ms;
 
         if let Some(stage) = lsd_stage.as_mut() {
             stage.elapsed_ms = lsd_ms;
+            stage.used_gradient_refinement = false;
         }
 
         let OutlierComputation {
@@ -135,16 +137,63 @@ impl GridDetector {
             &self.params.lsd_params,
         );
 
+        self.workspace.reset(pyramid.levels.len());
+        let gradient_outcome = if filtered_segments.is_empty() {
+            gradient_refine::GradientRefineComputation {
+                stage: None,
+                segments: Vec::new(),
+                elapsed_ms: 0.0,
+            }
+        } else {
+            gradient_refine::refine_coarsest_with_gradients(
+                &mut self.workspace,
+                &pyramid,
+                &filtered_segments,
+                &self.params.segment_refine_params,
+            )
+        };
+        let gradient_refine_stage = gradient_outcome.stage.clone();
+        let gradient_refine_ms = gradient_outcome.elapsed_ms;
+        let mut coarse_segments_final = if filtered_segments.is_empty() {
+            Vec::new()
+        } else {
+            gradient_outcome.segments
+        };
+
+        if !coarse_segments_final.is_empty() {
+            let mut vp_outcome = lsd::refit_with_segments(
+                &lsd_engine,
+                &pyramid,
+                width,
+                height,
+                coarse_segments_final.clone(),
+            );
+            lsd_ms_total += vp_outcome.elapsed_ms;
+            if let Some(mut stage) = vp_outcome.stage.take() {
+                stage.elapsed_ms += lsd_ms;
+                confidence = vp_outcome.confidence;
+                lsd_stage = Some(stage);
+            }
+            if let Some(h) = vp_outcome.full_h {
+                full_h = Some(h);
+            }
+            if !vp_outcome.segments.is_empty() {
+                coarse_segments_final = vp_outcome.segments;
+            }
+        }
+
+        let initial_h_full = full_h;
+        let coarse_h_matrix = full_h;
+
         let mut prepared_levels = PreparedLevels::empty();
-        if !filtered_segments.is_empty() && !pyramid.levels.is_empty() {
-            self.workspace.reset(pyramid.levels.len());
+        if !coarse_segments_final.is_empty() && !pyramid.levels.is_empty() {
             prepared_levels = refinement::prepare_levels(
                 &mut self.workspace,
                 &bundler,
                 &self.params.segment_refine_params,
                 &pyramid,
                 full_h.as_ref(),
-                filtered_segments.clone(),
+                coarse_segments_final.clone(),
                 width,
                 height,
             );
@@ -153,7 +202,7 @@ impl GridDetector {
         let bundling_stage = refinement::build_bundling_stage(
             &self.params.bundling_params,
             &prepared_levels,
-            filtered_segments.len(),
+            coarse_segments_final.len(),
         );
 
         let RefinementComputation {
@@ -222,11 +271,14 @@ impl GridDetector {
         if pyr_ms > 0.0 {
             timings.push("pyramid", pyr_ms);
         }
-        if lsd_ms > 0.0 {
-            timings.push("lsd_vp", lsd_ms);
+        if lsd_ms_total > 0.0 {
+            timings.push("lsd_vp", lsd_ms_total);
         }
         if outlier_filter_ms > 0.0 {
             timings.push("outlier_filter", outlier_filter_ms);
+        }
+        if gradient_refine_ms > 0.0 {
+            timings.push("gradient_refine", gradient_refine_ms);
         }
         if prepared_levels.segment_refine_ms > 0.0 {
             timings.push("segment_refine", prepared_levels.segment_refine_ms);
@@ -250,10 +302,11 @@ impl GridDetector {
                 pyramid_levels: pyramid.levels.len(),
             },
             timings,
-            segments: coarse_segments,
+            segments: coarse_segments_final,
             pyramid: pyramid_stage,
             lsd: lsd_stage,
             outlier_filter: outlier_stage,
+            gradient_refine: gradient_refine_stage,
             bundling: bundling_stage,
             grid_indexing: grid_indexing_stage,
             refinement: refinement_stage,
@@ -307,17 +360,20 @@ impl GridDetector {
         let LsdComputation {
             stage: mut lsd_stage,
             segments: coarse_segments,
-            coarse_h,
-            full_h,
-            confidence,
+            mut coarse_h,
+            mut full_h,
+            mut confidence,
             elapsed_ms: lsd_ms,
+            ..
         } = lsd::run_on_coarsest(&lsd_engine, &pyramid, width, height);
+        let mut lsd_ms_total = lsd_ms;
 
         println!("Coarse hmtx:\n{coarse_h:?}");
         println!("Full hmtx:\n{full_h:?}");
 
         if let Some(stage) = lsd_stage.as_mut() {
             stage.elapsed_ms = lsd_ms;
+            stage.used_gradient_refinement = false;
         }
 
         let OutlierComputation {
@@ -331,6 +387,57 @@ impl GridDetector {
             &self.params.lsd_params,
         );
 
+        self.workspace.reset(pyramid.levels.len());
+        let gradient_outcome = if filtered_segments.is_empty() {
+            gradient_refine::GradientRefineComputation {
+                stage: None,
+                segments: Vec::new(),
+                elapsed_ms: 0.0,
+            }
+        } else {
+            gradient_refine::refine_coarsest_with_gradients(
+                &mut self.workspace,
+                &pyramid,
+                &filtered_segments,
+                &self.params.segment_refine_params,
+            )
+        };
+        let gradient_refine_stage = gradient_outcome.stage.clone();
+        let gradient_refine_ms = gradient_outcome.elapsed_ms;
+        let mut coarse_segments_final = if filtered_segments.is_empty() {
+            Vec::new()
+        } else {
+            gradient_outcome.segments
+        };
+
+        if !coarse_segments_final.is_empty() {
+            let mut vp_outcome = lsd::refit_with_segments(
+                &lsd_engine,
+                &pyramid,
+                width,
+                height,
+                coarse_segments_final.clone(),
+            );
+            lsd_ms_total += vp_outcome.elapsed_ms;
+            if let Some(mut stage) = vp_outcome.stage.take() {
+                stage.elapsed_ms += lsd_ms;
+                confidence = vp_outcome.confidence;
+                lsd_stage = Some(stage);
+            }
+            if let Some(h) = vp_outcome.coarse_h {
+                coarse_h = Some(h);
+            }
+            if let Some(h) = vp_outcome.full_h {
+                full_h = Some(h);
+            }
+            if !vp_outcome.segments.is_empty() {
+                coarse_segments_final = vp_outcome.segments;
+            }
+        }
+
+        println!("Refit coarse hmtx:\n{coarse_h:?}");
+        println!("Refit full hmtx:\n{full_h:?}");
+
         let bundler = BundleStack::new(&self.params.bundling_params);
         let mut bundling_stage = None;
         let mut coarse_bundles: Vec<Bundle> = Vec::new();
@@ -338,7 +445,7 @@ impl GridDetector {
             &bundler,
             &pyramid,
             coarse_h.as_ref(),
-            &filtered_segments,
+            &coarse_segments_final,
             width,
             height,
         ) {
@@ -397,11 +504,14 @@ impl GridDetector {
         if pyr_ms > 0.0 {
             timings.push("pyramid", pyr_ms);
         }
-        if lsd_ms > 0.0 {
-            timings.push("lsd_vp", lsd_ms);
+        if lsd_ms_total > 0.0 {
+            timings.push("lsd_vp", lsd_ms_total);
         }
         if outlier_filter_ms > 0.0 {
             timings.push("outlier_filter", outlier_filter_ms);
+        }
+        if gradient_refine_ms > 0.0 {
+            timings.push("gradient_refine", gradient_refine_ms);
         }
         if bundling_ms > 0.0 {
             timings.push("bundling", bundling_ms);
@@ -419,10 +529,11 @@ impl GridDetector {
                 pyramid_levels: pyramid.levels.len(),
             },
             timings,
-            segments: coarse_segments,
+            segments: coarse_segments_final,
             pyramid: pyramid_stage,
             lsd: lsd_stage,
             outlier_filter: outlier_stage,
+            gradient_refine: gradient_refine_stage,
             bundling: bundling_stage,
             grid_indexing: grid_indexing_stage,
             refinement: None,

@@ -66,10 +66,10 @@ pub mod stages {
 
     // Structured diagnostics types.
     pub use crate::diagnostics::{
-        BundlingLevel, BundlingStage, FamilyIndexing, GridIndexingStage, GridLineIndex,
-        InputDescriptor, LsdStage, OutlierFilterStage, PyramidLevelReport, PyramidStage,
-        RefinementIteration, RefinementOutcome, RefinementStage, SegmentClass, SegmentId,
-        SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage, SegmentSample, StageTiming,
-        TimingBreakdown,
+        BundlingLevel, BundlingStage, FamilyIndexing, GradientRefineStage, GridIndexingStage,
+        GridLineIndex, InputDescriptor, LsdStage, OutlierFilterStage, PyramidLevelReport,
+        PyramidStage, RefinementIteration, RefinementOutcome, RefinementStage, SegmentClass,
+        SegmentId, SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage, SegmentSample,
+        StageTiming, TimingBreakdown,
     };
 }

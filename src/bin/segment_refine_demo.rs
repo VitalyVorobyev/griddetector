@@ -273,6 +273,7 @@ fn build_lsd_stage(assignments: &FamilyAssignments, elapsed_ms: f64) -> LsdStage
         family_counts,
         segment_families: assignments.families.clone(),
         sample_ids: Vec::new(),
+        used_gradient_refinement: false,
     }
 }
 

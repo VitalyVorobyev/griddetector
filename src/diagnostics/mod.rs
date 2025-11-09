@@ -7,6 +7,7 @@
 
 pub mod builders;
 pub mod bundles;
+pub mod gradient_refine;
 pub mod grid_indexing;
 pub mod lsd;
 pub mod outliers;
@@ -19,6 +20,7 @@ pub mod timing;
 
 pub use crate::segments::SegmentId;
 pub use bundles::{BundleDescriptor, BundlingLevel, BundlingStage};
+pub use gradient_refine::GradientRefineStage;
 pub use grid_indexing::{FamilyIndexing, GridIndexingStage, GridLineIndex};
 pub use lsd::{FamilyCounts, LsdStage};
 pub use outliers::{OutlierFilterStage, OutlierThresholds};
