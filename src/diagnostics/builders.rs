@@ -34,14 +34,16 @@ pub fn run_lsd_stage(
     full_width: usize,
     full_height: usize,
 ) -> Option<LsdStageOutput> {
+    let used_override = segments_override.is_some();
     let DetailedInference {
         hypothesis,
         dominant_angles_rad,
         families,
         segments,
-    } = match segments_override {
-        Some(segs) => engine.infer_with_segments(level, segs)?,
-        None => engine.infer(level)?,
+    } = if let Some(segs) = segments_override {
+        engine.infer_with_segments(level, segs)?
+    } else {
+        engine.infer(level)?
     };
 
     let scale_x = if level.w > 0 {
@@ -73,6 +75,7 @@ pub fn run_lsd_stage(
         family_counts,
         segment_families: families.clone(),
         sample_ids: Vec::new(),
+        used_gradient_refinement: used_override,
     };
 
     Some(LsdStageOutput {

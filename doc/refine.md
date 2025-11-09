@@ -71,11 +71,14 @@ vanishing points across the pyramid.
 ### Detector Integration
 
 `GridDetector::process_with_diagnostics` now drives both refinement stages across
-all pyramid levels: the LSD output at the coarsest level is bundled, segments
-are refined level-by-level toward full resolution, and the resulting bundles are
-fed to the homography IRLS cascade (fine → coarse). The CLI accepts
-`--save-debug <dir>` to dump the generated pyramid levels, per-level bundles, and
-refinement diagnostics for inspection.
+all pyramid levels. After the LSD+outlier stage, the coarsest-level segments are
+refined purely from image gradients (no homography prior) using
+`segment::refine_segment`. Vanishing points and the coarse homography are then
+re-estimated from these gradient-tightened segments before continuing with the
+coarse→fine bundling cascade. Subsequent levels refine segments toward full
+resolution and feed the resulting bundles to the homography IRLS pass (fine →
+coarse). The CLI accepts `--save-debug <dir>` to dump the generated pyramid
+levels, per-level bundles, and refinement diagnostics for inspection.
 
 ### Module Layout
 

@@ -1,6 +1,6 @@
 use crate::diagnostics::{
-    BundlingStage, GridIndexingStage, LsdStage, OutlierFilterStage, PyramidStage, RefinementStage,
-    TimingBreakdown,
+    BundlingStage, GradientRefineStage, GridIndexingStage, LsdStage, OutlierFilterStage,
+    PyramidStage, RefinementStage, TimingBreakdown,
 };
 use crate::segments::Segment;
 use crate::types::{GridResult, Pose};
@@ -91,6 +91,10 @@ impl DetectionReport {
                 "  dominant_angles_deg=[{:.1}, {:.1}]",
                 lsd.dominant_angles_deg[0], lsd.dominant_angles_deg[1]
             );
+            println!(
+                "  used_gradient_refinement={}",
+                lsd.used_gradient_refinement
+            );
         } else {
             println!("\nLSD stage: no viable hypothesis");
         }
@@ -109,6 +113,26 @@ impl DetectionReport {
             );
         } else {
             println!("\nSegment filter: skipped");
+        }
+
+        if let Some(grad) = &self.trace.gradient_refine {
+            println!(
+                "\nGradient refine: level=L{} segments_in={} accepted={} rejected={} fallback={} elapsed_ms={:.3}",
+                grad.level_index,
+                grad.segments_in,
+                grad.accepted,
+                grad.rejected,
+                grad.fallback_to_input,
+                grad.elapsed_ms
+            );
+            if let Some(score) = grad.avg_score {
+                println!("  avg_score={:.3}", score);
+            }
+            if let Some(movement) = grad.avg_movement_px {
+                println!("  avg_movement_px={:.3}", movement);
+            }
+        } else {
+            println!("\nGradient refine: skipped");
         }
 
         if let Some(bundling) = &self.trace.bundling {
@@ -216,6 +240,8 @@ pub struct PipelineTrace {
     pub lsd: Option<LsdStage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outlier_filter: Option<OutlierFilterStage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gradient_refine: Option<GradientRefineStage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bundling: Option<BundlingStage>,
     #[serde(skip_serializing_if = "Option::is_none")]
