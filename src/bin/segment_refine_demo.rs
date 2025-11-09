@@ -9,7 +9,7 @@
 
 use grid_detector::config::segment_refine_demo as seg_cfg;
 use grid_detector::detector::{DetectorWorkspace, LevelScaleMap};
-use grid_detector::diagnostics::builders::{compute_family_counts, convert_refined_segment};
+use grid_detector::diagnostics::builders::compute_family_counts;
 use grid_detector::diagnostics::{
     LsdStage, PyramidStage, SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage,
     TimingBreakdown,
@@ -18,9 +18,7 @@ use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_j
 use grid_detector::image::{ImageF32, ImageView};
 use grid_detector::lsd_vp::{analyze_families, FamilyAssignments};
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
-use grid_detector::refine::segment::{
-    self, PyramidLevel as SegmentGradientLevel, Segment as SegmentSeed,
-};
+use grid_detector::refine::segment::{self, PyramidLevel as SegmentGradientLevel};
 use grid_detector::segments::{lsd_extract_segments, Segment};
 use std::env;
 use std::fs;
@@ -31,9 +29,8 @@ use std::time::Instant;
 /// result as the closure.
 fn run_with_timer<R, F: FnOnce() -> Result<R, String>>(f: F) -> Result<ResultWithTime<R>, String> {
     let start = Instant::now();
-    let result = f();
+    let result = f()?;
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-    println!("Completed in {:.2} ms", elapsed_ms);
     Ok(ResultWithTime { result, elapsed_ms })
 }
 
@@ -56,7 +53,7 @@ fn main() {
 }
 
 struct ResultWithTime<R> {
-    result: Result<R, String>,
+    result: R,
     elapsed_ms: f64,
 }
 
@@ -69,15 +66,19 @@ fn run() -> Result<(), String> {
 
     let total_start = Instant::now();
     let gray_perf = run_with_timer(|| load_grayscale_image(&config.input))?;
-    let gray = gray_perf.result?;
+    let gray = gray_perf.result;
 
     let levels = config.pyramid.levels.max(1);
     let pyramid_opts = PyramidOptions::new(levels).with_blur_levels(config.pyramid.blur_levels);
-    let pyr_start = Instant::now();
-    let pyramid = Pyramid::build_u8(gray.as_view(), pyramid_opts);
-    let pyramid_ms = pyr_start.elapsed().as_secs_f64() * 1000.0;
+
+    let pyramid_perf = run_with_timer(|| {
+        let pyramid = Pyramid::build_u8(gray.as_view(), pyramid_opts);
+        Ok(pyramid)
+    })?;
+
+    let pyramid = pyramid_perf.result;
+    let pyramid_stage = PyramidStage::from_pyramid(&pyramid, pyramid_perf.elapsed_ms);
     save_pyramid_images(&pyramid, &config.output.dir)?;
-    let pyramid_stage = PyramidStage::from_pyramid(&pyramid, pyramid_ms);
 
     let mut workspace = DetectorWorkspace::new();
     workspace.reset(pyramid.levels.len());
@@ -87,8 +88,8 @@ fn run() -> Result<(), String> {
         .len()
         .checked_sub(1)
         .ok_or_else(|| "Pyramid must contain at least one level".to_string())?;
-    let lsd_start = Instant::now();
 
+    let lsd_start = Instant::now();
     let scale = 1_f32 / (1 << pyramid.levels.len()) as f32;
     let coarse_level = &pyramid.levels[coarsest_index];
     let lsd_segments = lsd_extract_segments(coarse_level, config.lsd.with_scale(scale));
@@ -100,14 +101,7 @@ fn run() -> Result<(), String> {
     let mut current_segments: Vec<Segment> = lsd_segments.clone();
     let initial_segments = current_segments.clone();
 
-    let mut refine_params = config.refine.resolve();
-    if refine_params.delta_s <= 0.0 {
-        refine_params.delta_s = 0.5;
-    }
-    if refine_params.delta_t <= 0.0 {
-        refine_params.delta_t = 0.25;
-    }
-
+    let refine_params = config.refine.resolve();
     let mut levels_report: Vec<SegmentRefineLevel> = Vec::new();
     let mut refine_total_ms = 0.0f64;
 
@@ -139,11 +133,7 @@ fn run() -> Result<(), String> {
         let mut score_sum = 0.0f32;
 
         for seg in &current_segments {
-            let seed = SegmentSeed {
-                p0: seg.p0,
-                p1: seg.p1,
-            };
-            let result = segment::refine_segment(&grad_level, seed, &scale_map, &refine_params);
+            let result = segment::refine_segment(&grad_level, seg, &scale_map, &refine_params);
             let ok = result.ok;
             if ok {
                 accepted += 1;
@@ -166,7 +156,7 @@ fn run() -> Result<(), String> {
             } else {
                 None
             };
-            let updated = convert_refined_segment(seg, result);
+            let updated = result.seg;
             samples.push(SegmentRefineSample {
                 segment: updated.clone(),
                 score,
@@ -209,8 +199,8 @@ fn run() -> Result<(), String> {
     if gray_perf.elapsed_ms > 0.0 {
         timings.push("load", gray_perf.elapsed_ms);
     }
-    if pyramid_ms > 0.0 {
-        timings.push("pyramid", pyramid_ms);
+    if pyramid_perf.elapsed_ms > 0.0 {
+        timings.push("pyramid", pyramid_perf.elapsed_ms);
     }
     if lsd_ms > 0.0 {
         timings.push("lsd", lsd_ms);

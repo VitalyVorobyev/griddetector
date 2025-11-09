@@ -1,5 +1,6 @@
 //! Public types used by the gradient-driven segment refiner.
 
+use crate::segments::Segment;
 use serde::Deserialize;
 
 /// Single pyramid level with precomputed Sobel/Scharr gradients.
@@ -9,32 +10,6 @@ pub struct PyramidLevel<'a> {
     pub height: usize,
     pub gx: &'a [f32],
     pub gy: &'a [f32],
-}
-
-/// Seed line segment expressed via two subpixel endpoints.
-#[derive(Clone, Copy, Debug)]
-pub struct Segment {
-    pub p0: [f32; 2],
-    pub p1: [f32; 2],
-}
-
-impl Segment {
-    /// Returns the unit direction vector from `p0` to `p1`.
-    #[inline]
-    pub fn dir(&self) -> [f32; 2] {
-        let dx = self.p1[0] - self.p0[0];
-        let dy = self.p1[1] - self.p0[1];
-        let len = (dx * dx + dy * dy).sqrt().max(super::EPS);
-        [dx / len, dy / len]
-    }
-
-    /// Returns the Euclidean length of the segment.
-    #[inline]
-    pub fn length(&self) -> f32 {
-        let dx = self.p1[0] - self.p0[0];
-        let dy = self.p1[1] - self.p0[1];
-        (dx * dx + dy * dy).sqrt()
-    }
 }
 
 /// Parameters controlling the gradient-driven refinement.

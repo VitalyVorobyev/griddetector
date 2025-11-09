@@ -15,12 +15,13 @@ pub mod types;
 
 use crate::angle::angle_between;
 
+use crate::segments::Segment;
 use endpoints::refine_endpoints;
 use fit::{
     direction, distance, midpoint, normal_from_segment, project_point_to_line, weighted_line_fit,
 };
 use sampling::search_along_normal;
-pub use types::{PyramidLevel, RefineParams, RefineResult, ScaleMap, Segment};
+pub use types::{PyramidLevel, RefineParams, RefineResult, ScaleMap};
 
 const EPS: f32 = 1e-6;
 
@@ -62,21 +63,24 @@ struct IterationSnapshot {
 /// for the strongest contiguous inlier run along the carrier.
 pub fn refine_segment(
     lvl: &PyramidLevel<'_>,
-    seg_coarse: Segment,
+    seg_coarse: &Segment,
     scale: &dyn ScaleMap,
     params: &RefineParams,
 ) -> RefineResult {
     if lvl.width == 0 || lvl.height == 0 {
-        return RefineResult::failed(seg_coarse);
+        return RefineResult::failed(seg_coarse.clone());
     }
 
     let seg = Segment {
+        id: seg_coarse.id,
         p0: scale.up(seg_coarse.p0),
         p1: scale.up(seg_coarse.p1),
+        avg_mag: seg_coarse.avg_mag,
+        strength: seg_coarse.strength,
     };
-    let fallback = seg;
+    let fallback = seg.clone();
 
-    if seg.length() < 1e-3 {
+    if seg.length_sq() < 1e-3 {
         return RefineResult::failed(fallback);
     }
 
@@ -91,7 +95,7 @@ pub fn refine_segment(
         } else {
             (params.w_perp * 0.5).max(1.0)
         };
-        if let Some(iter) = run_iterations(lvl, seg, &roi, params, w_perp) {
+        if let Some(iter) = run_iterations(lvl, &seg, &roi, params, w_perp) {
             snapshot = Some(iter);
             break;
         }
@@ -102,7 +106,11 @@ pub fn refine_segment(
     };
 
     let (p0_f, p1_f, support_count, score) = refine_endpoints(&snapshot, lvl, params);
-    let refined_segment = Segment { p0: p0_f, p1: p1_f };
+    let refined_segment = Segment {
+        p0: p0_f,
+        p1: p1_f,
+        ..snapshot.seg
+    };
     let total_centers = snapshot.total_centers;
     let seed_len = fallback.length().max(EPS);
     let refined_len = refined_segment.length();
@@ -148,7 +156,7 @@ fn compute_roi(seg: &Segment, pad: f32, width: usize, height: usize) -> Option<R
 
 fn run_iterations(
     lvl: &PyramidLevel<'_>,
-    seg0: Segment,
+    seg0: &Segment,
     roi: &Roi,
     params: &RefineParams,
     w_perp: f32,
@@ -203,7 +211,7 @@ fn run_iterations(
     }
 
     Some(IterationSnapshot {
-        seg: Segment { p0, p1 },
+        seg: Segment { p0, p1, ..*seg0 },
         mu: last_mu,
         normal: last_normal,
         total_centers,
@@ -214,12 +222,16 @@ fn run_iterations(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::segments::SegmentId;
 
     #[test]
     fn roi_rejects_degenerate_segments() {
         let seg = Segment {
+            id: SegmentId(1),
             p0: [10.0, 10.0],
             p1: [10.1, 10.1],
+            avg_mag: 1.0,
+            strength: 1.0,
         };
         assert!(compute_roi(&seg, 0.0, 32, 32).is_some());
         assert!(compute_roi(&seg, 0.0, 1, 1).is_none());

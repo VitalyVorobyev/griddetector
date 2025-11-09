@@ -131,7 +131,7 @@ pub fn bundle_rectified(
     let mut v_obs: Vec<Obs> = Vec::new();
 
     for (i, seg) in segs.iter().enumerate() {
-        let rect = h_t * seg.line;
+        let rect = h_t * seg.line();
         if !is_finite_vec3(&rect) {
             continue;
         }
@@ -264,9 +264,6 @@ mod tests {
             id: SegmentId(0),
             p0: [x, y0],
             p1: [x, y1],
-            dir: [0.0, 1.0],
-            len,
-            line: Vector3::new(1.0, 0.0, -x),
             avg_mag: 1.0,
             strength: len.max(1.0),
         }
