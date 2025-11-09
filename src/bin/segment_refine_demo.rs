@@ -14,7 +14,7 @@ use grid_detector::diagnostics::{
     LsdStage, PyramidStage, SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage,
     TimingBreakdown,
 };
-use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
+use grid_detector::image::io::{GrayImageU8, load_grayscale_image, save_grayscale_f32, write_json_file};
 use grid_detector::image::{ImageF32, ImageView};
 use grid_detector::lsd_vp::{analyze_families, FamilyAssignments};
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
@@ -58,58 +58,144 @@ struct ResultWithTime<R> {
 }
 
 fn run() -> Result<(), String> {
-    let config_path = env::args().nth(1).ok_or_else(usage)?;
-    let config = seg_cfg::load_config(Path::new(&config_path))?;
-
-    fs::create_dir_all(&config.output.dir)
-        .map_err(|e| format!("Failed to create {}: {e}", config.output.dir.display()))?;
-
+    let config = load_config_from_args()?;
+    ensure_output_dir(&config)?;
     let total_start = Instant::now();
-    let gray_perf = run_with_timer(|| load_grayscale_image(&config.input))?;
-    let gray = gray_perf.result;
 
-    let levels = config.pyramid.levels.max(1);
-    let pyramid_opts = PyramidOptions::new(levels).with_blur_levels(config.pyramid.blur_levels);
+    let ResultWithTime {
+        result: gray,
+        elapsed_ms: load_ms,
+    } = run_with_timer(|| load_grayscale_image(&config.input))?;
 
-    let pyramid_perf = run_with_timer(|| {
-        let pyramid = Pyramid::build_u8(gray.as_view(), pyramid_opts);
-        Ok(pyramid)
-    })?;
-
-    let pyramid = pyramid_perf.result;
-    let pyramid_stage = PyramidStage::from_pyramid(&pyramid, pyramid_perf.elapsed_ms);
+    let (pyramid, pyramid_stage, pyramid_ms) = build_pyramid_stage(&gray, &config)?;
     save_pyramid_images(&pyramid, &config.output.dir)?;
 
     let mut workspace = DetectorWorkspace::new();
     workspace.reset(pyramid.levels.len());
 
+    let (lsd_segments, lsd_stage) = run_lsd_demo(&pyramid, &config)?;
+    let mut refine_params = config.refine.resolve();
+    if refine_params.delta_s <= 0.0 {
+        refine_params.delta_s = 0.5;
+    }
+    if refine_params.delta_t <= 0.0 {
+        refine_params.delta_t = 0.25;
+    }
+    let (levels_report, refine_total_ms) =
+        run_refinement_levels(&pyramid, &mut workspace, &lsd_segments, &refine_params)?;
+
+    let total_ms = total_start.elapsed().as_secs_f64() * 1000.0;
+    let mut timings = TimingBreakdown::with_total(total_ms);
+    if load_ms > 0.0 {
+        timings.push("load", load_ms);
+    }
+    if pyramid_ms > 0.0 {
+        timings.push("pyramid", pyramid_ms);
+    }
+    if lsd_stage.elapsed_ms > 0.0 {
+        timings.push("lsd", lsd_stage.elapsed_ms);
+    }
+    if refine_total_ms > 0.0 {
+        timings.push("segment_refine", refine_total_ms);
+    }
+
+    let stage = SegmentRefineStage {
+        pyramid: pyramid_stage,
+        lsd: Some(lsd_stage),
+        lsd_segments: Some(lsd_segments.clone()),
+        levels: levels_report,
+        timings,
+    };
+
+    let report_path = config.output.dir.join("report.json");
+    write_json_file(&report_path, &stage)?;
+
+    println!(
+        "Segment refinement report written to {}",
+        report_path.display()
+    );
+
+    Ok(())
+}
+
+fn usage() -> String {
+    "Usage: segment_refine_demo <config.json>".to_string()
+}
+
+fn load_config_from_args() -> Result<seg_cfg::SegmentRefineDemoConfig, String> {
+    let config_path = env::args().nth(1).ok_or_else(usage)?;
+    seg_cfg::load_config(Path::new(&config_path))
+}
+
+fn ensure_output_dir(config: &seg_cfg::SegmentRefineDemoConfig) -> Result<(), String> {
+    fs::create_dir_all(&config.output.dir)
+        .map_err(|e| format!("Failed to create {}: {e}", config.output.dir.display()))
+}
+
+fn build_pyramid_stage(
+    gray: &GrayImageU8,
+    config: &seg_cfg::SegmentRefineDemoConfig,
+) -> Result<(Pyramid, PyramidStage, f64), String> {
+    let levels = config.pyramid.levels.max(1);
+    let pyramid_opts = PyramidOptions::new(levels).with_blur_levels(config.pyramid.blur_levels);
+    let ResultWithTime {
+        result: pyramid,
+        elapsed_ms,
+    } = run_with_timer(|| {
+        let pyramid = Pyramid::build_u8(gray.as_view(), pyramid_opts);
+        Ok(pyramid)
+    })?;
+    let stage = PyramidStage::from_pyramid(&pyramid, elapsed_ms);
+    Ok((pyramid, stage, elapsed_ms))
+}
+
+fn save_pyramid_images(pyramid: &Pyramid, out_dir: &Path) -> Result<(), String> {
+    for (idx, level) in pyramid.levels.iter().enumerate() {
+        let path = out_dir.join(format!("pyramid_L{idx}.png"));
+        save_grayscale_f32(level, &path)?;
+    }
+    Ok(())
+}
+
+fn run_lsd_demo(
+    pyramid: &Pyramid,
+    config: &seg_cfg::SegmentRefineDemoConfig,
+) -> Result<(Vec<Segment>, LsdStage), String> {
     let coarsest_index = pyramid
         .levels
         .len()
         .checked_sub(1)
         .ok_or_else(|| "Pyramid must contain at least one level".to_string())?;
-
-    let lsd_start = Instant::now();
     let scale = 1_f32 / (1 << pyramid.levels.len()) as f32;
     let coarse_level = &pyramid.levels[coarsest_index];
-    let lsd_segments = lsd_extract_segments(coarse_level, config.lsd.with_scale(scale));
-    let assignments = analyze_families(&lsd_segments, config.lsd.angle_tolerance_deg)
-        .map_err(|err| format!("Orientation analysis failed: {err}"))?;
-    let lsd_ms = lsd_start.elapsed().as_secs_f64() * 1000.0;
-    let lsd_stage = build_lsd_stage(&assignments, lsd_ms);
+    let ResultWithTime {
+        result: (segments, assignments),
+        elapsed_ms,
+    } = run_with_timer(|| {
+        let segments = lsd_extract_segments(coarse_level, config.lsd.with_scale(scale));
+        let assignments = analyze_families(&segments, config.lsd.angle_tolerance_deg)
+            .map_err(|err| format!("Orientation analysis failed: {err}"))?;
+        Ok((segments, assignments))
+    })?;
+    let lsd_stage = build_lsd_stage(&assignments, elapsed_ms);
+    Ok((segments, lsd_stage))
+}
 
-    let mut current_segments: Vec<Segment> = lsd_segments.clone();
-    let initial_segments = current_segments.clone();
-
-    let refine_params = config.refine.resolve();
+fn run_refinement_levels(
+    pyramid: &Pyramid,
+    workspace: &mut DetectorWorkspace,
+    source_segments: &[Segment],
+    refine_params: &segment::RefineParams,
+) -> Result<(Vec<SegmentRefineLevel>, f64), String> {
     let mut levels_report: Vec<SegmentRefineLevel> = Vec::new();
     let mut refine_total_ms = 0.0f64;
+    let mut current_segments: Vec<Segment> = source_segments.to_vec();
 
     for coarse_idx in (1..pyramid.levels.len()).rev() {
         let finer_idx = coarse_idx - 1;
         let refine_start = Instant::now();
         let finer_level = &pyramid.levels[finer_idx];
-        let grad = workspace.sobel_gradients(finer_idx, finer_level);
+        let grad = workspace.scharr_gradients(finer_idx, finer_level);
         let gx = grad
             .gx
             .as_slice()
@@ -133,7 +219,7 @@ fn run() -> Result<(), String> {
         let mut score_sum = 0.0f32;
 
         for seg in &current_segments {
-            let result = segment::refine_segment(&grad_level, seg, &scale_map, &refine_params);
+            let result = segment::refine_segment(&grad_level, seg, &scale_map, refine_params);
             let ok = result.ok;
             if ok {
                 accepted += 1;
@@ -141,21 +227,9 @@ fn run() -> Result<(), String> {
                     score_sum += result.score;
                 }
             }
-            let score = if result.score.is_finite() {
-                Some(result.score)
-            } else {
-                None
-            };
-            let inliers = if result.inliers > 0 {
-                Some(result.inliers)
-            } else {
-                None
-            };
-            let total = if result.total > 0 {
-                Some(result.total)
-            } else {
-                None
-            };
+            let score = result.score.is_finite().then_some(result.score);
+            let inliers = (result.inliers > 0).then_some(result.inliers);
+            let total = (result.total > 0).then_some(result.total);
             let updated = result.seg;
             samples.push(SegmentRefineSample {
                 segment: updated.clone(),
@@ -169,16 +243,9 @@ fn run() -> Result<(), String> {
 
         let elapsed_ms = refine_start.elapsed().as_secs_f64() * 1000.0;
         refine_total_ms += elapsed_ms;
-        let acceptance_ratio = if current_segments.is_empty() {
-            None
-        } else {
-            Some(accepted as f32 / current_segments.len() as f32)
-        };
-        let avg_score = if accepted > 0 {
-            Some(score_sum / accepted as f32)
-        } else {
-            None
-        };
+        let acceptance_ratio = (!current_segments.is_empty())
+            .then_some(accepted as f32 / current_segments.len() as f32);
+        let avg_score = (accepted > 0).then_some(score_sum / accepted as f32);
 
         levels_report.push(SegmentRefineLevel {
             coarse_level: coarse_idx,
@@ -194,50 +261,7 @@ fn run() -> Result<(), String> {
         current_segments = refined_segments;
     }
 
-    let total_ms = total_start.elapsed().as_secs_f64() * 1000.0;
-    let mut timings = TimingBreakdown::with_total(total_ms);
-    if gray_perf.elapsed_ms > 0.0 {
-        timings.push("load", gray_perf.elapsed_ms);
-    }
-    if pyramid_perf.elapsed_ms > 0.0 {
-        timings.push("pyramid", pyramid_perf.elapsed_ms);
-    }
-    if lsd_ms > 0.0 {
-        timings.push("lsd", lsd_ms);
-    }
-    if refine_total_ms > 0.0 {
-        timings.push("segment_refine", refine_total_ms);
-    }
-
-    let stage = SegmentRefineStage {
-        pyramid: pyramid_stage,
-        lsd: Some(lsd_stage),
-        lsd_segments: Some(initial_segments),
-        levels: levels_report,
-        timings,
-    };
-
-    let report_path = config.output.dir.join("report.json");
-    write_json_file(&report_path, &stage)?;
-
-    println!(
-        "Segment refinement report written to {}",
-        report_path.display()
-    );
-
-    Ok(())
-}
-
-fn usage() -> String {
-    "Usage: segment_refine_demo <config.json>".to_string()
-}
-
-fn save_pyramid_images(pyramid: &Pyramid, out_dir: &Path) -> Result<(), String> {
-    for (idx, level) in pyramid.levels.iter().enumerate() {
-        let path = out_dir.join(format!("pyramid_L{idx}.png"));
-        save_grayscale_f32(level, &path)?;
-    }
-    Ok(())
+    Ok((levels_report, refine_total_ms))
 }
 
 fn build_lsd_stage(assignments: &FamilyAssignments, elapsed_ms: f64) -> LsdStage {

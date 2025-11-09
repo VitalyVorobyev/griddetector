@@ -136,7 +136,7 @@ pub fn prepare_levels(
         };
         let scale_map = LevelScaleMap::new(sx, sy);
 
-        let grad = workspace.sobel_gradients(finer_idx, finer_lvl);
+        let grad = workspace.scharr_gradients(finer_idx, finer_lvl);
         let gx = grad.gx.as_slice().unwrap_or(&grad.gx.data[..]);
         let gy = grad.gy.as_slice().unwrap_or(&grad.gy.data[..]);
         let grad_level = SegmentGradientLevel {
