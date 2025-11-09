@@ -56,6 +56,7 @@ pub(crate) fn search_along_normal(
     })
 }
 
+#[inline]
 pub(crate) fn bilinear_grad(lvl: &PyramidLevel<'_>, x: f32, y: f32) -> Option<(f32, f32)> {
     if !x.is_finite() || !y.is_finite() {
         return None;
@@ -63,37 +64,44 @@ pub(crate) fn bilinear_grad(lvl: &PyramidLevel<'_>, x: f32, y: f32) -> Option<(f
     if x < 0.0 || y < 0.0 {
         return None;
     }
-    let w = lvl.width as isize;
-    let h = lvl.height as isize;
-    let xf = x.floor();
-    let yf = y.floor();
-    let x0 = xf as isize;
-    let y0 = yf as isize;
+    let width = lvl.width as isize;
+    let height = lvl.height as isize;
+    let x0f = x.floor();
+    let y0f = y.floor();
+    let x0 = x0f as isize;
+    let y0 = y0f as isize;
     let x1 = x0 + 1;
     let y1 = y0 + 1;
-    if x1 >= w || y1 >= h {
+    if x0 < 0 || y0 < 0 || x1 >= width || y1 >= height {
         return None;
     }
-    let tx = x - xf;
-    let ty = y - yf;
-    let idx = |xx: isize, yy: isize| -> usize { (yy as usize) * lvl.width + (xx as usize) };
-    let gx00 = lvl.gx[idx(x0, y0)];
-    let gx10 = lvl.gx[idx(x1, y0)];
-    let gx01 = lvl.gx[idx(x0, y1)];
-    let gx11 = lvl.gx[idx(x1, y1)];
-    let gy00 = lvl.gy[idx(x0, y0)];
-    let gy10 = lvl.gy[idx(x1, y0)];
-    let gy01 = lvl.gy[idx(x0, y1)];
-    let gy11 = lvl.gy[idx(x1, y1)];
+    let tx = x - x0f;
+    let ty = y - y0f;
+    let row_stride = lvl.width;
+    let row0 = (y0 as usize) * row_stride;
+    let row1 = (y1 as usize) * row_stride;
+    let col0 = x0 as usize;
+    let col1 = x1 as usize;
+    // Safety: indices validated above.
+    unsafe {
+        let gx00 = *lvl.gx.get_unchecked(row0 + col0);
+        let gx10 = *lvl.gx.get_unchecked(row0 + col1);
+        let gx01 = *lvl.gx.get_unchecked(row1 + col0);
+        let gx11 = *lvl.gx.get_unchecked(row1 + col1);
+        let gy00 = *lvl.gy.get_unchecked(row0 + col0);
+        let gy10 = *lvl.gy.get_unchecked(row0 + col1);
+        let gy01 = *lvl.gy.get_unchecked(row1 + col0);
+        let gy11 = *lvl.gy.get_unchecked(row1 + col1);
 
-    let gx0 = gx00 * (1.0 - tx) + gx10 * tx;
-    let gx1 = gx01 * (1.0 - tx) + gx11 * tx;
-    let gx = gx0 * (1.0 - ty) + gx1 * ty;
+        let gx0 = gx00 + (gx10 - gx00) * tx;
+        let gx1 = gx01 + (gx11 - gx01) * tx;
+        let gx = gx0 + (gx1 - gx0) * ty;
 
-    let gy0 = gy00 * (1.0 - tx) + gy10 * tx;
-    let gy1 = gy01 * (1.0 - tx) + gy11 * tx;
-    let gy = gy0 * (1.0 - ty) + gy1 * ty;
-    Some((gx, gy))
+        let gy0 = gy00 + (gy10 - gy00) * tx;
+        let gy1 = gy01 + (gy11 - gy01) * tx;
+        let gy = gy0 + (gy1 - gy0) * ty;
+        Some((gx, gy))
+    }
 }
 
 fn quadratic_refine(
