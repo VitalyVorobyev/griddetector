@@ -133,7 +133,8 @@ fn build_outlier_stage(
     }
 }
 
-fn compute_family_counts(families: &[Option<FamilyLabel>]) -> FamilyCounts {
+/// Count how many segments fall into each family (U/V) or remain unassigned.
+pub fn compute_family_counts(families: &[Option<FamilyLabel>]) -> FamilyCounts {
     let mut counts = FamilyCounts {
         family_u: 0,
         family_v: 0,

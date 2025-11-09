@@ -1,25 +1,27 @@
 //! Demonstration binary for the gradient-based segment refiner.
 //!
-//! The tool loads a grayscale image, builds a pyramid, extracts coarse-level LSD
-//! segments, refines them down the hierarchy, and emits a single JSON report
-//! describing the refinement stages. Pyramid levels are saved as PNG files for
-//! quick visual inspection.
+//! The demo mirrors the early detector pipeline stages:
+//! 1. Build an image pyramid.
+//! 2. Run LSD on the coarsest level.
+//! 3. Build an orientation histogram and assign segment families.
+//! 4. Refine the segments down the pyramid using only local gradients.
+//! 5. Emit diagnostics identical to the pipeline (pyramid, LSD stage, refinement levels).
 
 use grid_detector::config::segment_refine_demo as seg_cfg;
-use grid_detector::diagnostics::builders::convert_refined_segment;
+use grid_detector::detector::{DetectorWorkspace, LevelScaleMap};
+use grid_detector::diagnostics::builders::{compute_family_counts, convert_refined_segment};
 use grid_detector::diagnostics::{
-    PyramidStage, SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage, TimingBreakdown,
+    LsdStage, PyramidStage, SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage,
+    TimingBreakdown,
 };
-use grid_detector::edges::grad::{sobel_gradients, Grad};
 use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
-use grid_detector::image::ImageView;
+use grid_detector::image::{ImageF32, ImageView};
+use grid_detector::lsd_vp::{analyze_families, FamilyAssignments};
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
 use grid_detector::refine::segment::{
-    self, PyramidLevel as SegmentGradientLevel, ScaleMap, Segment as SegmentSeed,
+    self, PyramidLevel as SegmentGradientLevel, Segment as SegmentSeed,
 };
-use grid_detector::segments::lsd_extract_segments;
-use grid_detector::segments::Segment;
-use serde::Serialize;
+use grid_detector::segments::{lsd_extract_segments, Segment};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -52,7 +54,8 @@ fn run() -> Result<(), String> {
     save_pyramid_images(&pyramid, &config.output.dir)?;
     let pyramid_stage = PyramidStage::from_pyramid(&pyramid, pyramid_ms);
 
-    let gradients = build_gradients(&pyramid);
+    let mut workspace = DetectorWorkspace::new();
+    workspace.reset(pyramid.levels.len());
 
     let coarsest_index = pyramid
         .levels
@@ -62,11 +65,12 @@ fn run() -> Result<(), String> {
     let lsd_start = Instant::now();
 
     let scale = 1_f32 / (1 << pyramid.levels.len()) as f32;
-    let lsd_segments = lsd_extract_segments(
-        &pyramid.levels[coarsest_index],
-        config.lsd.with_scale(scale),
-    );
+    let coarse_level = &pyramid.levels[coarsest_index];
+    let lsd_segments = lsd_extract_segments(coarse_level, config.lsd.with_scale(scale));
+    let assignments = analyze_families(&lsd_segments, config.lsd.angle_tolerance_deg)
+        .map_err(|err| format!("Orientation analysis failed: {err}"))?;
     let lsd_ms = lsd_start.elapsed().as_secs_f64() * 1000.0;
+    let lsd_stage = build_lsd_stage(&assignments, lsd_ms);
 
     let mut current_segments: Vec<Segment> = lsd_segments.clone();
     let initial_segments = current_segments.clone();
@@ -86,7 +90,7 @@ fn run() -> Result<(), String> {
         let finer_idx = coarse_idx - 1;
         let refine_start = Instant::now();
         let finer_level = &pyramid.levels[finer_idx];
-        let grad = &gradients[finer_idx];
+        let grad = workspace.sobel_gradients(finer_idx, finer_level);
         let gx = grad
             .gx
             .as_slice()
@@ -101,7 +105,8 @@ fn run() -> Result<(), String> {
             gx,
             gy,
         };
-        let scale_map = LevelScaleMap::from_levels(&pyramid.levels[coarse_idx], finer_level);
+        let coarse_level = &pyramid.levels[coarse_idx];
+        let scale_map = level_scale_map(coarse_level, finer_level);
 
         let mut refined_segments = Vec::with_capacity(current_segments.len());
         let mut samples = Vec::with_capacity(current_segments.len());
@@ -191,21 +196,18 @@ fn run() -> Result<(), String> {
 
     let stage = SegmentRefineStage {
         pyramid: pyramid_stage,
+        lsd: Some(lsd_stage),
         lsd_segments: Some(initial_segments),
         levels: levels_report,
         timings,
     };
 
-    let output = SegmentRefineDemoOutput {
-        image_width: gray.width(),
-        image_height: gray.height(),
-        stage,
-    };
-    write_json_file(&config.output.dir.join("report.json"), &output)?;
+    let report_path = config.output.dir.join("report.json");
+    write_json_file(&report_path, &stage)?;
 
     println!(
         "Segment refinement report written to {}",
-        config.output.dir.join("report.json").display()
+        report_path.display()
     );
 
     Ok(())
@@ -213,10 +215,6 @@ fn run() -> Result<(), String> {
 
 fn usage() -> String {
     "Usage: segment_refine_demo <config.json>".to_string()
-}
-
-fn build_gradients(pyramid: &Pyramid) -> Vec<Grad> {
-    pyramid.levels.iter().map(sobel_gradients).collect()
 }
 
 fn save_pyramid_images(pyramid: &Pyramid, out_dir: &Path) -> Result<(), String> {
@@ -227,41 +225,32 @@ fn save_pyramid_images(pyramid: &Pyramid, out_dir: &Path) -> Result<(), String> 
     Ok(())
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SegmentRefineDemoOutput {
-    image_width: usize,
-    image_height: usize,
-    stage: SegmentRefineStage,
-}
-
-#[derive(Clone, Debug)]
-struct LevelScaleMap {
-    sx: f32,
-    sy: f32,
-}
-
-impl LevelScaleMap {
-    fn from_levels(
-        coarse: &grid_detector::image::ImageF32,
-        fine: &grid_detector::image::ImageF32,
-    ) -> Self {
-        let sx = if coarse.w == 0 {
-            1.0
-        } else {
-            fine.w as f32 / coarse.w as f32
-        };
-        let sy = if coarse.h == 0 {
-            1.0
-        } else {
-            fine.h as f32 / coarse.h as f32
-        };
-        Self { sx, sy }
+fn build_lsd_stage(assignments: &FamilyAssignments, elapsed_ms: f64) -> LsdStage {
+    let dominant_angles_deg = [
+        assignments.dominant_angles_rad[0].to_degrees(),
+        assignments.dominant_angles_rad[1].to_degrees(),
+    ];
+    let family_counts = compute_family_counts(&assignments.families);
+    LsdStage {
+        elapsed_ms,
+        confidence: assignments.confidence(),
+        dominant_angles_deg,
+        family_counts,
+        segment_families: assignments.families.clone(),
+        sample_ids: Vec::new(),
     }
 }
 
-impl ScaleMap for LevelScaleMap {
-    fn up(&self, p_coarse: [f32; 2]) -> [f32; 2] {
-        [p_coarse[0] * self.sx, p_coarse[1] * self.sy]
-    }
+fn level_scale_map(coarse: &ImageF32, fine: &ImageF32) -> LevelScaleMap {
+    let sx = if coarse.w == 0 {
+        2.0
+    } else {
+        fine.w as f32 / coarse.w as f32
+    };
+    let sy = if coarse.h == 0 {
+        2.0
+    } else {
+        fine.h as f32 / coarse.h as f32
+    };
+    LevelScaleMap::new(sx, sy)
 }

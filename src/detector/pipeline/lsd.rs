@@ -1,5 +1,6 @@
-use crate::diagnostics::{FamilyCounts, LsdStage};
-use crate::lsd_vp::{DetailedInference, Engine as LsdVpEngine, FamilyLabel};
+use crate::diagnostics::builders::compute_family_counts;
+use crate::diagnostics::LsdStage;
+use crate::lsd_vp::{DetailedInference, Engine as LsdVpEngine};
 use crate::pyramid::Pyramid;
 use crate::segments::Segment;
 use log::debug;
@@ -93,20 +94,4 @@ pub fn run_on_coarsest(
             }
         }
     }
-}
-
-fn compute_family_counts(families: &[Option<FamilyLabel>]) -> FamilyCounts {
-    let mut counts = FamilyCounts {
-        family_u: 0,
-        family_v: 0,
-        unassigned: 0,
-    };
-    for fam in families {
-        match fam {
-            Some(FamilyLabel::U) => counts.family_u += 1,
-            Some(FamilyLabel::V) => counts.family_v += 1,
-            None => counts.unassigned += 1,
-        }
-    }
-    counts
 }

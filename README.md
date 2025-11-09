@@ -122,7 +122,7 @@ let img = ImageU8 { w, h, stride: w, data: &gray };
 // Configure detector (set your camera intrinsics)
 let mut det = GridDetector::new(GridParams { kmtx: Matrix3::identity(), ..Default::default() });
 let res = det.process(img);
-println!("found={} latency_ms={:.3}", res.found, res.latency_ms);
+println!("found={} latency_ms={:.3}", res.grid.found, res.grid.latency_ms);
 ```
 
 To enable optional parallelism:

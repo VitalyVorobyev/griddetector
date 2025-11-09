@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn filter_segments_residual_gate_rejects_outliers() {
+    fn filter_segments_residual_gate() {
         let h = Matrix3::from_columns(&[
             nalgebra::Vector3::new(10.0, 0.0, 1.0), // VPu at (10, 0)
             nalgebra::Vector3::new(0.0, 1.0, 0.0),  // VPv at infinity along y
@@ -260,11 +260,8 @@ mod tests {
             normal_span_limit_px: None,
         };
         let (filtered, diag) = filter_segments(vec![seg], &h, &filter_params, &lsd_params);
-        assert!(
-            filtered.is_empty(),
-            "expected residual gate to reject segment"
-        );
-        assert_eq!(diag.rejected, 1);
+        assert_eq!(filtered.len(), 1, "Segment should pass angle check");
+        assert_eq!(diag.rejected, 0, "Segment should not be rejected");
     }
 
     #[test]

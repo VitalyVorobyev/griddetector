@@ -108,12 +108,11 @@ class Segment:
     id: int
     p0: np.ndarray
     p1: np.ndarray
-    direction: Optional[np.ndarray] = None
-    length: Optional[float] = None
+    dir: Optional[np.ndarray] = None
+    len: Optional[float] = None
     line: Optional[np.ndarray] = None
-    average_magnitude: Optional[float] = None
+    avg_mag: Optional[float] = None
     strength: Optional[float] = None
-    family: Optional[str] = None
 
     @staticmethod
     def from_json(d: dict) -> Optional["Segment"]:
@@ -126,17 +125,15 @@ class Segment:
         if p0 is None or p1 is None:
             return None
         return Segment(
-            id=int(d.get("id")),
+            id=int(d.get("id", 0)),
             p0=p0,
             p1=p1,
-            direction=_to_vec2(d.get("direction")),
-            length=float(d.get("length", 0.0)) if d.get("length") is not None else None,
+            dir=_to_vec2(d.get("dir")),
+            len=float(d.get("len", 0.0)) if d.get("length") is not None else None,
             line=_to_vec3(d.get("line")),
-            average_magnitude=float(d.get("averageMagnitude", 0.0)) if d.get("averageMagnitude") is not None else None,
-            strength=float(d.get("strength", 0.0)) if d.get("strength") is not None else None,
-            family=d.get("family"),
+            avg_mag=float(d.get("avg_mag", 0.0)) if d.get("averageMagnitude") is not None else None,
+            strength=float(d.get("strength", 0.0)) if d.get("strength") is not None else None
         )
-
 
 @dataclass
 class OutlierClassification:
@@ -299,6 +296,35 @@ class Timings:
     def from_json(d: dict) -> "Timings":
         return Timings(total_ms=float(d.get("totalMs", 0.0) or 0.0))
 
+@dataclass
+class FamilyCounts:
+    family_u: int
+    family_v: int
+    unassigned: int
+
+@dataclass
+class LsdVp:
+    elapsed_ms: float
+    confidence: float
+    dominant_angles_deg: List[float]
+    family_counts: FamilyCounts
+    segment_families: List[str]
+
+    @staticmethod
+    def from_json(d: dict) -> "LsdVp":
+        fc = d.get("family_counts") or d.get("familyCounts") or {}
+        family_counts = FamilyCounts(
+            family_u=int(fc.get("family_u", fc.get("familyU", 0)) or 0),
+            family_v=int(fc.get("family_v", fc.get("familyV", 0)) or 0),
+            unassigned=int(fc.get("unassigned", 0) or 0),
+        )
+        return LsdVp(
+            elapsed_ms=float(d.get("elapsed_ms", d.get("elapsedMs", 0.0)) or 0.0),
+            confidence=float(d.get("confidence", 0.0) or 0.0),
+            dominant_angles_deg=[float(a) for a in d.get("dominant_angles_deg", d.get("dominantAnglesDeg", [])) or [] if isinstance(a, (int, float))],
+            family_counts=family_counts,
+            segment_families=[str(fam) for fam in d.get("segmentFamilies", []) or [] if isinstance(fam, str)],
+        )
 
 @dataclass
 class Trace:
@@ -308,6 +334,7 @@ class Trace:
     outlier_filter: OutlierFilterStage
     bundling: BundlingStage
     coarse_homography: Optional[np.ndarray]
+    lsd: LsdVp
 
     @staticmethod
     def from_json(d: dict) -> "Trace":
@@ -318,10 +345,13 @@ class Trace:
             ss = Segment.from_json(s)
             if ss is not None:
                 segs.append(ss)
+
         outlier = OutlierFilterStage.from_json(d.get("outlierFilter", {}) if isinstance(d.get("outlierFilter"), dict) else {})
         bundling = BundlingStage.from_json(d.get("bundling", {}) if isinstance(d.get("bundling"), dict) else {})
         Hc = _to_mat3(d.get("coarseHomography"))
-        return Trace(input=inp, timings=tim, segments=segs, outlier_filter=outlier, bundling=bundling, coarse_homography=Hc)
+
+        lsd = LsdVp.from_json(d.get("lsd", {}) if isinstance(d.get("lsd"), dict) else {})
+        return Trace(input=inp, timings=tim, segments=segs, outlier_filter=outlier, bundling=bundling, coarse_homography=Hc, lsd=lsd)
 
 
 @dataclass

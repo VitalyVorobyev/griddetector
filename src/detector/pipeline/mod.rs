@@ -13,7 +13,7 @@
 //!
 //! # fn example(gray: ImageU8) {
 //! let mut detector = GridDetector::new(GridParams::default());
-//! let report = detector.process_with_diagnostics(gray);
+//! let report = detector.process(gray);
 //! if report.grid.found {
 //!     println!("confidence: {:.3}", report.grid.confidence);
 //! }

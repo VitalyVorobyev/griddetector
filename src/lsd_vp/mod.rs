@@ -6,6 +6,9 @@
 //! center. It trades completeness for speed and stability to seed downstream
 //! coarse-to-fine refinement.
 //!
+//! Convention: H0 maps rectified grid coordinates (u, v, 1)ᵀ → image pixels x.
+//! i.e. H0 * (1,0,0)ᵀ ∼ vpu, H0 * (0,1,0)ᵀ ∼ vpv, H0 * (0,0,1)ᵀ ∼ x0.
+//!
 //! Pipeline
 //! - Segment extraction: calls `segments::lsd_extract_segments` at a single
 //!   pyramid level (typically the coarsest).
@@ -29,7 +32,9 @@
 
 pub mod bundling;
 mod engine;
+mod families;
 mod histogram;
 mod vp;
 
 pub use engine::{DetailedInference, Engine, FamilyLabel, Hypothesis};
+pub use families::{analyze_families, FamilyAnalysisError, FamilyAssignments};

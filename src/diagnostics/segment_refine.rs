@@ -1,13 +1,15 @@
 use crate::segments::Segment;
 use serde::Serialize;
 
-use crate::diagnostics::timing::TimingBreakdown;
+use crate::diagnostics::{timing::TimingBreakdown, LsdStage};
 
 /// High-level report for the gradient-based segment refinement pipeline.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SegmentRefineStage {
     pub pyramid: crate::diagnostics::PyramidStage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lsd: Option<LsdStage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lsd_segments: Option<Vec<Segment>>,
     pub levels: Vec<SegmentRefineLevel>,
