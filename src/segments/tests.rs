@@ -32,7 +32,7 @@ fn lsd_extractor_finds_vertical_segment() {
     );
     let longest = segs
         .iter()
-        .max_by(|a, b| a.length_sq().partial_cmp(&&b.length_sq()).unwrap())
+        .max_by(|a, b| a.length_sq().partial_cmp(&b.length_sq()).unwrap())
         .unwrap();
     assert!(
         longest.direction()[1].abs() > longest.direction()[0].abs(),

@@ -63,7 +63,7 @@ impl Segment {
 
     /// Line representation: ax + by + c = 0, with sqrt(a^2+b^2)=1
     pub fn line(&self) -> Vector3<f32> {
-        self.line.get_or_init(|| self.compute_line()).clone()
+        *self.line.get_or_init(|| self.compute_line())
     }
 
     fn compute_normal(&self) -> [f32; 2] {
@@ -72,7 +72,7 @@ impl Segment {
     }
 
     pub fn normal(&self) -> [f32; 2] {
-        self.normal.get_or_init(|| self.compute_normal()).clone()
+        *self.normal.get_or_init(|| self.compute_normal())
     }
 
     fn compute_length(&self) -> f32 {
@@ -82,7 +82,7 @@ impl Segment {
     }
 
     pub fn length(&self) -> f32 {
-        self.length.get_or_init(|| self.compute_length()).clone()
+        *self.length.get_or_init(|| self.compute_length())
     }
 
     fn compute_length_sq(&self) -> f32 {
@@ -92,9 +92,7 @@ impl Segment {
     }
 
     pub fn length_sq(&self) -> f32 {
-        self.length_sq
-            .get_or_init(|| self.compute_length_sq())
-            .clone()
+        *self.length_sq.get_or_init(|| self.compute_length_sq())
     }
 
     fn compute_theta(&self) -> f32 {
@@ -103,7 +101,7 @@ impl Segment {
     }
 
     pub fn theta(&self) -> f32 {
-        self.theta.get_or_init(|| self.compute_theta()).clone()
+        *self.theta.get_or_init(|| self.compute_theta())
     }
 
     fn compute_direction(&self) -> [f32; 2] {
@@ -119,9 +117,7 @@ impl Segment {
     }
 
     pub fn direction(&self) -> [f32; 2] {
-        self.direction
-            .get_or_init(|| self.compute_direction())
-            .clone()
+        *self.direction.get_or_init(|| self.compute_direction())
     }
 }
 
