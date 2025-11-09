@@ -6,6 +6,13 @@ use super::{
     IterationSnapshot, Roi, EPS,
 };
 
+#[derive(Clone, Copy)]
+struct EndpointSample {
+    r: f32,
+    dot: f32,
+    mag: f32,
+}
+
 pub(super) fn refine_endpoints(
     snapshot: &IterationSnapshot,
     lvl: &PyramidLevel<'_>,
@@ -39,17 +46,17 @@ pub(super) fn refine_endpoints(
         seg_bounds: (seg_min, seg_max),
         search_bounds: (scan_min, scan_max),
     };
-    let mut samples = Vec::new();
+    let tau_mag_sq = params.tau_mag * params.tau_mag;
+    let mut samples: Vec<EndpointSample> = Vec::new();
     let mut r = scan_min;
     while r <= scan_max + 1e-3 {
         let x = [mu[0] + r * d[0], mu[1] + r * d[1]];
         if let Some((gx, gy)) = bilinear_grad(lvl, x[0], x[1]) {
-            let mag = (gx * gx + gy * gy).sqrt();
-            if mag >= params.tau_mag {
+            let mag_sq = gx * gx + gy * gy;
+            if mag_sq >= tau_mag_sq {
+                let mag = mag_sq.sqrt();
                 let dot = gx * normal[0] + gy * normal[1];
-                let grad_unit = mag.max(EPS);
-                let angle = (dot / grad_unit).clamp(-1.0, 1.0).acos();
-                samples.push((r, dot, mag, angle));
+                samples.push(EndpointSample { r, dot, mag });
             }
         }
         r += delta_r;
@@ -61,20 +68,20 @@ pub(super) fn refine_endpoints(
 
     let mut pos = 0usize;
     let mut neg = 0usize;
-    for (_, dot, _, _) in &samples {
-        if *dot >= 0.0 {
+    for sample in &samples {
+        if sample.dot >= 0.0 {
             pos += 1;
         } else {
             neg += 1;
         }
     }
     let dominant_sign = if pos >= neg { 1.0 } else { -1.0 };
-    let tau_ori = params.tau_ori_deg.to_radians();
+    let tau_cos = params.tau_ori_deg.to_radians().cos();
     let mut inlier_flags = Vec::with_capacity(samples.len());
-    for (_, dot, _, angle) in &samples {
-        let ori_ok = *angle <= tau_ori;
-        let polarity_ok =
-            (*dot >= 0.0 && dominant_sign > 0.0) || (*dot < 0.0 && dominant_sign < 0.0);
+    for sample in &samples {
+        let ori_ok = sample.dot.abs() >= sample.mag * tau_cos;
+        let polarity_ok = (sample.dot >= 0.0 && dominant_sign > 0.0)
+            || (sample.dot < 0.0 && dominant_sign < 0.0);
         inlier_flags.push(ori_ok && polarity_ok);
     }
 
@@ -125,7 +132,7 @@ struct RunContext {
 fn update_best_run(
     start: usize,
     end: usize,
-    samples: &[(f32, f32, f32, f32)],
+    samples: &[EndpointSample],
     params: &RunContext,
     best: &mut RunResult,
 ) {
@@ -136,7 +143,7 @@ fn update_best_run(
     let mut score_sum = 0.0f32;
 
     for item in samples.iter().skip(start).take(count) {
-        score_sum += item.1.abs();
+        score_sum += item.dot.abs();
     }
     if count < best.count || (count == best.count && score_sum <= best.score) {
         return;
@@ -177,7 +184,7 @@ fn update_best_run(
 }
 
 fn refine_endpoint(
-    samples: &[(f32, f32, f32, f32)],
+    samples: &[EndpointSample],
     idx: usize,
     dir: i32,
     tau_mag: f32,
@@ -186,16 +193,16 @@ fn refine_endpoint(
 ) -> f32 {
     let mut xs = Vec::new();
     let mut ys = Vec::new();
-    xs.push(samples[idx].0);
-    ys.push(samples[idx].2);
+    xs.push(samples[idx].r);
+    ys.push(samples[idx].mag);
     let mut next = idx as isize + dir as isize;
     while xs.len() < 3 && next >= 0 && (next as usize) < samples.len() {
-        xs.push(samples[next as usize].0);
-        ys.push(samples[next as usize].2);
+        xs.push(samples[next as usize].r);
+        ys.push(samples[next as usize].mag);
         next += dir as isize;
     }
     if xs.len() < 2 {
-        return samples[idx].0;
+        return samples[idx].r;
     }
     let n = xs.len() as f32;
     let sum_x: f32 = xs.iter().sum();
@@ -204,17 +211,17 @@ fn refine_endpoint(
     let sum_xy: f32 = xs.iter().zip(ys.iter()).map(|(x, y)| x * y).sum();
     let denom = n * sum_xx - sum_x * sum_x;
     if denom.abs() <= EPS {
-        return samples[idx].0;
+        return samples[idx].r;
     }
     let a = (n * sum_xy - sum_x * sum_y) / denom;
     let b = (sum_y - a * sum_x) / n;
     if a.abs() <= EPS {
-        samples[idx].0
+        samples[idx].r
     } else {
         let raw = (tau_mag - b) / a;
         raw.clamp(
-            (samples[idx].0 - delta_r).max(search_bounds.0),
-            (samples[idx].0 + delta_r).min(search_bounds.1),
+            (samples[idx].r - delta_r).max(search_bounds.0),
+            (samples[idx].r + delta_r).min(search_bounds.1),
         )
     }
 }

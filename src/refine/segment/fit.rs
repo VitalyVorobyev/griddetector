@@ -57,7 +57,7 @@ pub(crate) fn weighted_line_fit(
     let mut normal = [-dir[1], dir[0]];
 
     if params.tau_ori_deg > 0.0 {
-        let tau_rad = params.tau_ori_deg.to_radians();
+        let tau_cos = params.tau_ori_deg.to_radians().cos();
         let mut weights = Vec::with_capacity(supports.len());
         let mut sum_w2 = 0.0f32;
         for s in supports {
@@ -65,8 +65,7 @@ pub(crate) fn weighted_line_fit(
             let mag = (grad[0] * grad[0] + grad[1] * grad[1]).sqrt().max(EPS);
             let dot = (grad[0] * normal[0] + grad[1] * normal[1]) / mag;
             let cos = dot.clamp(-1.0, 1.0);
-            let angle = cos.acos();
-            let ori_weight = if angle <= tau_rad { cos.max(0.0) } else { 0.0 };
+            let ori_weight = if cos >= tau_cos { cos.max(0.0) } else { 0.0 };
             let w = (s.weight * ori_weight).max(0.0);
             weights.push(w);
             sum_w2 += w;

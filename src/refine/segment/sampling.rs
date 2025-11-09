@@ -11,6 +11,7 @@ pub(crate) fn search_along_normal(
     w_perp: f32,
 ) -> Option<SupportPoint> {
     let mut best: Option<(f32, f32, [f32; 2], f32)> = None; // (t, |g|, grad, proj)
+    let tau_mag_sq = params.tau_mag * params.tau_mag;
     let mut t = -w_perp;
     while t <= w_perp + 1e-3 {
         let p = [center[0] + t * normal[0], center[1] + t * normal[1]];
@@ -19,8 +20,8 @@ pub(crate) fn search_along_normal(
             continue;
         }
         if let Some((gx, gy)) = bilinear_grad(lvl, p[0], p[1]) {
-            let mag = (gx * gx + gy * gy).sqrt();
-            if mag < params.tau_mag {
+            let mag_sq = gx * gx + gy * gy;
+            if mag_sq < tau_mag_sq {
                 t += params.delta_t;
                 continue;
             }
