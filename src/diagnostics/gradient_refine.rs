@@ -13,5 +13,13 @@ pub struct GradientRefineStage {
     pub avg_score: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avg_movement_px: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_tangent_steps: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_normal_refinements: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_gradient_samples: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_support_points: Option<f32>,
     pub fallback_to_input: bool,
 }

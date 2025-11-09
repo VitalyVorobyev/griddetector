@@ -1,11 +1,8 @@
 use crate::detector::scaling::LevelScaleMap;
 use crate::detector::workspace::DetectorWorkspace;
 use crate::diagnostics::GradientRefineStage;
-use crate::image::traits::ImageView;
 use crate::pyramid::Pyramid;
-use crate::refine::segment::{
-    self, PyramidLevel as SegmentGradientLevel, RefineParams as SegmentRefineParams,
-};
+use crate::refine::segment::{self, SegmentRefineParams};
 use crate::segments::Segment;
 use std::time::Instant;
 
@@ -38,15 +35,7 @@ pub fn refine_coarsest_with_gradients(
     }
 
     let level = &pyramid.levels[coarse_idx];
-    let grad = workspace.scharr_gradients(coarse_idx, level);
-    let gx = grad.gx.as_slice().unwrap_or(&grad.gx.data[..]);
-    let gy = grad.gy.as_slice().unwrap_or(&grad.gy.data[..]);
-    let grad_level = SegmentGradientLevel {
-        width: level.w,
-        height: level.h,
-        gx,
-        gy,
-    };
+    let grad_level = workspace.gradient_level(coarse_idx, level);
     let scale_map = LevelScaleMap::new(1.0, 1.0);
 
     let refine_start = Instant::now();
@@ -54,6 +43,10 @@ pub fn refine_coarsest_with_gradients(
     let mut accepted = 0usize;
     let mut score_acc = 0.0f32;
     let mut movement_acc = 0.0f32;
+    let mut tangent_steps_acc = 0usize;
+    let mut normal_refine_acc = 0usize;
+    let mut gradient_samples_acc = 0usize;
+    let mut support_acc = 0usize;
 
     for seg in segments {
         let result = segment::refine_segment(&grad_level, seg, &scale_map, params);
@@ -62,6 +55,10 @@ pub fn refine_coarsest_with_gradients(
             accepted += 1;
             score_acc += result.score;
             movement_acc += movement;
+            tangent_steps_acc += result.diagnostics.tangent_steps;
+            normal_refine_acc += result.diagnostics.normal_refinements;
+            gradient_samples_acc += result.diagnostics.gradient_samples;
+            support_acc += result.support_points;
             refined.push(result.seg);
         }
     }
@@ -87,6 +84,26 @@ pub fn refine_coarsest_with_gradients(
         },
         avg_movement_px: if accepted > 0 {
             Some(movement_acc / accepted as f32)
+        } else {
+            None
+        },
+        avg_tangent_steps: if accepted > 0 {
+            Some(tangent_steps_acc as f32 / accepted as f32)
+        } else {
+            None
+        },
+        avg_normal_refinements: if accepted > 0 {
+            Some(normal_refine_acc as f32 / accepted as f32)
+        } else {
+            None
+        },
+        avg_gradient_samples: if accepted > 0 {
+            Some(gradient_samples_acc as f32 / accepted as f32)
+        } else {
+            None
+        },
+        avg_support_points: if accepted > 0 {
+            Some(support_acc as f32 / accepted as f32)
         } else {
             None
         },

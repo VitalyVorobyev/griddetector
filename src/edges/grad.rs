@@ -11,6 +11,91 @@
 //! Complexity: O(W·H) per pass; memory: three float buffers + 1 byte/pixel.
 use crate::image::{ImageF32, ImageView, ImageViewMut};
 
+/// Lightweight view over per-level gradient buffers reused by refinement.
+#[derive(Clone, Copy, Debug)]
+pub struct GradientLevel<'a> {
+    pub width: usize,
+    pub height: usize,
+    pub gx: &'a [f32],
+    pub gy: &'a [f32],
+    pub mag: &'a [f32],
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct GradientSample {
+    pub gx: f32,
+    pub gy: f32,
+    pub mag: f32,
+}
+
+impl<'a> GradientLevel<'a> {
+    pub fn from_grad(grad: &'a Grad) -> Self {
+        debug_assert_eq!(grad.gx.stride, grad.gx.w);
+        debug_assert_eq!(grad.gy.stride, grad.gy.w);
+        debug_assert_eq!(grad.mag.stride, grad.mag.w);
+        Self {
+            width: grad.gx.w,
+            height: grad.gx.h,
+            gx: &grad.gx.data[..],
+            gy: &grad.gy.data[..],
+            mag: &grad.mag.data[..],
+        }
+    }
+
+    #[inline]
+    pub fn sample(&self, x: f32, y: f32) -> Option<GradientSample> {
+        if !x.is_finite() || !y.is_finite() {
+            return None;
+        }
+        if self.width == 0 || self.height == 0 {
+            return None;
+        }
+
+        let max_x = (self.width - 1) as isize;
+        let max_y = (self.height - 1) as isize;
+
+        if x < 0.0 || y < 0.0 || x > max_x as f32 || y > max_y as f32 {
+            return None;
+        }
+
+        let xf = x.floor() as isize;
+        let yf = y.floor() as isize;
+        let x0 = xf.clamp(0, max_x);
+        let y0 = yf.clamp(0, max_y);
+        let x1 = (x0 + 1).min(max_x);
+        let y1 = (y0 + 1).min(max_y);
+
+        let tx = if x1 == x0 {
+            0.0
+        } else {
+            (x - x0 as f32).clamp(0.0, 1.0)
+        };
+        let ty = if y1 == y0 {
+            0.0
+        } else {
+            (y - y0 as f32).clamp(0.0, 1.0)
+        };
+
+        let idx = |xx: isize, yy: isize| -> usize { yy as usize * self.width + xx as usize };
+
+        let lerp = |a: f32, b: f32, t: f32| a * (1.0 - t) + b * t;
+
+        let gx0 = lerp(self.gx[idx(x0, y0)], self.gx[idx(x1, y0)], tx);
+        let gx1 = lerp(self.gx[idx(x0, y1)], self.gx[idx(x1, y1)], tx);
+        let gx = lerp(gx0, gx1, ty);
+
+        let gy0 = lerp(self.gy[idx(x0, y0)], self.gy[idx(x1, y0)], tx);
+        let gy1 = lerp(self.gy[idx(x0, y1)], self.gy[idx(x1, y1)], tx);
+        let gy = lerp(gy0, gy1, ty);
+
+        let mag0 = lerp(self.mag[idx(x0, y0)], self.mag[idx(x1, y0)], tx);
+        let mag1 = lerp(self.mag[idx(x0, y1)], self.mag[idx(x1, y1)], tx);
+        let mag = lerp(mag0, mag1, ty);
+
+        Some(GradientSample { gx, gy, mag })
+    }
+}
+
 type Kernel3 = [[f32; 3]; 3];
 
 const SOBEL_KERNEL_X: Kernel3 = [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]];

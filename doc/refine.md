@@ -25,22 +25,23 @@ segments, rebuild bundles, then update the homography.
 ### Segment Refinement (`segment`)
 
 - **Inputs**: gradient buffers for level `l`, a coarse segment from level
-  `l+1`, a `ScaleMap` that lifts coordinates, and `segment::RefineParams`.
+  `l+1`, a `ScaleMap` that lifts coordinates, and `segment::SegmentRefineParams`.
 - **Stages**:
-  1. Upscale endpoints and build a padded ROI.
-  2. Sample gradients along the segment normal, keeping peaks above the
-     magnitude threshold; weight them with a Huber loss.
-  3. Fit a weighted line via orthogonal regression; iterate a few times until
-     the carrier stabilises.
-  4. Scan along the refined line to locate the longest contiguous run of
-     inlier pixels whose gradient polarity/orientation matches the line normal.
-  5. Promote those endpoints as the refined segment and compute an alignment
-     score. Reject if support is too weak.
-- **Outputs**: refined segment, average normal-projected gradient score,
-  inlier counts, and an `ok` flag.
-- **Parameters**: sampling spacing (`delta_s`), normal search half-width
-  (`w_perp`), gradient magnitude/orientation thresholds, Huber delta, maximum
-  iterations, and minimum inlier fraction.
+  1. Upscale the coarse endpoints to level `l`.
+  2. Evaluate a handful of seeds along the predicted segment and snap the best
+     one onto the local edge by running a tiny (±2–3 px) search along the
+     gradient normal.
+  3. Grow the support forward and backward along the tangent, repeatedly
+     predicting the next point, refining along the normal, and stopping when the
+     gradient weakens or the track drifts off the edge.
+  4. Fit a line to all refined samples, then project the extreme points onto the
+     line to obtain subpixel endpoints.
+- **Outputs**: refined segment geometry, mean gradient magnitude along the
+  support, support count, and diagnostics (normal refinements, tangent steps,
+  gradient samples).
+- **Parameters**: normal search radius/step, tangent step and iteration cap,
+  gradient magnitude gate, displacement tolerances, minimum support size, and
+  number of seed anchors.
 
 ### Homography Refinement (`homography`)
 

@@ -13,15 +13,15 @@
         "normal_span_limit_px": 2.0
     },
     "refine": {
-        "delta_s": 0.75,
-        "w_perp": 3.0,
-        "delta_t": 0.5,
-        "pad": 8.0,
-        "tau_mag": 0.1,
-        "tau_ori_deg": 25.0,
-        "huber_delta": 0.25,
-        "max_iters": 3,
-        "min_inlier_frac": 0.4
+        "anchor_search_radius": 3.0,
+        "normal_step": 0.5,
+        "tangent_step": 0.75,
+        "max_grow_steps": 48,
+        "gradient_threshold": 0.08,
+        "max_normal_shift": 2.0,
+        "max_point_dist": 3.5,
+        "min_support_points": 4,
+        "max_seeds": 3
     },
     "output": {
         "dir": "out/segment_demo"

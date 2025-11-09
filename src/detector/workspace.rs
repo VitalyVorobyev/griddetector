@@ -2,7 +2,7 @@
 //!
 //! The detector reuses gradient buffers across frames to avoid repeated
 //! allocations in hot paths. Cache entries are computed on demand.
-use crate::edges::grad::{scharr_gradients, Grad};
+use crate::edges::grad::{scharr_gradients, Grad, GradientLevel};
 use crate::image::ImageF32;
 
 /// Workspace storing per-level gradient buffers to avoid repeated allocations.
@@ -40,5 +40,11 @@ impl DetectorWorkspace {
         self.gradients[level_idx]
             .as_ref()
             .expect("gradient cache populated")
+    }
+
+    /// Provides a lightweight gradient view for refinement without cloning buffers.
+    pub fn gradient_level(&mut self, level_idx: usize, level: &ImageF32) -> GradientLevel<'_> {
+        let grad = self.scharr_gradients(level_idx, level);
+        GradientLevel::from_grad(grad)
     }
 }

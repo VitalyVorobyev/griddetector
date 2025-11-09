@@ -51,7 +51,7 @@ use crate::diagnostics::{
 use crate::image::ImageU8;
 use crate::lsd_vp::Engine as LsdVpEngine;
 use crate::pyramid::{Pyramid, PyramidOptions};
-use crate::refine::segment::RefineParams as SegmentRefineParams;
+use crate::refine::segment::SegmentRefineParams;
 use crate::refine::RefineParams as HomographyRefineParams;
 use crate::refine::Refiner;
 use crate::segments::{Bundle, LsdOptions};

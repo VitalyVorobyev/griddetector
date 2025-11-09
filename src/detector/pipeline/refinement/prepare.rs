@@ -3,11 +3,8 @@ use crate::detector::pipeline::bundling::BundleStack;
 use crate::detector::scaling::{LevelScaleMap, LevelScaling};
 use crate::detector::workspace::DetectorWorkspace;
 use crate::diagnostics::{BundleDescriptor, BundlingLevel, BundlingStage};
-use crate::image::traits::ImageView;
 use crate::pyramid::Pyramid;
-use crate::refine::segment::{
-    self, PyramidLevel as SegmentGradientLevel, RefineParams as SegmentRefineParams,
-};
+use crate::refine::segment::{self, SegmentRefineParams};
 use crate::refine::RefineLevel;
 use crate::segments::{Bundle, Segment};
 use log::debug;
@@ -136,15 +133,7 @@ pub fn prepare_levels(
         };
         let scale_map = LevelScaleMap::new(sx, sy);
 
-        let grad = workspace.scharr_gradients(finer_idx, finer_lvl);
-        let gx = grad.gx.as_slice().unwrap_or(&grad.gx.data[..]);
-        let gy = grad.gy.as_slice().unwrap_or(&grad.gy.data[..]);
-        let grad_level = SegmentGradientLevel {
-            width: finer_lvl.w,
-            height: finer_lvl.h,
-            gx,
-            gy,
-        };
+        let grad_level = workspace.gradient_level(finer_idx, finer_lvl);
 
         let refine_start = Instant::now();
         let mut refined_segments = Vec::with_capacity(current_segments.len());

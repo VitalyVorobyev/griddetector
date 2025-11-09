@@ -17,10 +17,10 @@ use grid_detector::diagnostics::{
 use grid_detector::image::io::{
     load_grayscale_image, save_grayscale_f32, write_json_file, GrayImageU8,
 };
-use grid_detector::image::{ImageF32, ImageView};
+use grid_detector::image::ImageF32;
 use grid_detector::lsd_vp::{analyze_families, FamilyAssignments};
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
-use grid_detector::refine::segment::{self, PyramidLevel as SegmentGradientLevel};
+use grid_detector::refine::segment::{self, SegmentRefineParams};
 use grid_detector::segments::{lsd_extract_segments, Segment};
 use std::env;
 use std::fs;
@@ -181,7 +181,7 @@ fn run_refinement_levels(
     pyramid: &Pyramid,
     workspace: &mut DetectorWorkspace,
     source_segments: &[Segment],
-    refine_params: &segment::RefineParams,
+    refine_params: &SegmentRefineParams,
 ) -> Result<(Vec<SegmentRefineLevel>, f64), String> {
     let mut levels_report: Vec<SegmentRefineLevel> = Vec::new();
     let mut refine_total_ms = 0.0f64;
@@ -191,21 +191,7 @@ fn run_refinement_levels(
         let finer_idx = coarse_idx - 1;
         let refine_start = Instant::now();
         let finer_level = &pyramid.levels[finer_idx];
-        let grad = workspace.scharr_gradients(finer_idx, finer_level);
-        let gx = grad
-            .gx
-            .as_slice()
-            .ok_or_else(|| format!("Gradient buffer at level {finer_idx} is not contiguous"))?;
-        let gy = grad
-            .gy
-            .as_slice()
-            .ok_or_else(|| format!("Gradient buffer at level {finer_idx} is not contiguous"))?;
-        let grad_level = SegmentGradientLevel {
-            width: finer_level.w,
-            height: finer_level.h,
-            gx,
-            gy,
-        };
+        let grad_level = workspace.gradient_level(finer_idx, finer_level);
         let coarse_level = &pyramid.levels[coarse_idx];
         let scale_map = level_scale_map(coarse_level, finer_level);
 
@@ -224,15 +210,18 @@ fn run_refinement_levels(
                 }
             }
             let score = result.score.is_finite().then_some(result.score);
-            let inliers = (result.inliers > 0).then_some(result.inliers);
-            let total = (result.total > 0).then_some(result.total);
             let updated = result.seg;
             samples.push(SegmentRefineSample {
                 segment: updated.clone(),
                 score,
                 ok: Some(ok),
-                inliers,
-                total,
+                support_points: (result.support_points > 0).then_some(result.support_points),
+                tangent_steps: (result.diagnostics.tangent_steps > 0)
+                    .then_some(result.diagnostics.tangent_steps),
+                normal_refinements: (result.diagnostics.normal_refinements > 0)
+                    .then_some(result.diagnostics.normal_refinements),
+                gradient_samples: (result.diagnostics.gradient_samples > 0)
+                    .then_some(result.diagnostics.gradient_samples),
             });
             refined_segments.push(updated);
         }

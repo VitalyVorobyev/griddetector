@@ -131,6 +131,18 @@ impl DetectionReport {
             if let Some(movement) = grad.avg_movement_px {
                 println!("  avg_movement_px={:.3}", movement);
             }
+            if let Some(steps) = grad.avg_tangent_steps {
+                println!("  avg_tangent_steps={:.2}", steps);
+            }
+            if let Some(normal_refine) = grad.avg_normal_refinements {
+                println!("  avg_normal_refinements={:.2}", normal_refine);
+            }
+            if let Some(samples) = grad.avg_gradient_samples {
+                println!("  avg_gradient_samples={:.2}", samples);
+            }
+            if let Some(support) = grad.avg_support_points {
+                println!("  avg_support_points={:.2}", support);
+            }
         } else {
             println!("\nGradient refine: skipped");
         }
