@@ -2,6 +2,31 @@
 //!
 //! The detector reuses gradient buffers across frames to avoid repeated
 //! allocations in hot paths. Cache entries are computed on demand.
+//!
+//! # Gradient tiles and refinement
+//!
+//! Gradient-driven refinement needs fast access to `gx, gy` at arbitrary
+//! subpixel locations. To keep the core refinement loop simple and cache
+//! friendly, this workspace exposes gradients as **tiles**:
+//!
+//! - [`scharr_gradients_full`] returns a single full-frame tile for a pyramid
+//!   level. The tile covers the entire level and is reused across segments.
+//! - [`scharr_gradients_window`] computes a cropped tile for an
+//!   axis-aligned window in level coordinates, writing the result into a
+//!   reusable buffer. This is used by the segment refiner to restrict work to
+//!   the union of all per-segment ROIs when beneficial.
+//!
+//! Both functions return a lightweight [`GradientTileView`] that carries:
+//! - The tile origin `(origin_x, origin_y)` in full-resolution coordinates.
+//! - Tile dimensions `(tile_width, tile_height)`.
+//! - Contiguous slices `gx`, `gy` storing horizontal/vertical derivatives
+//!   in row-major order.
+//!
+//! The refinement module wraps this view into [`crate::refine::segment::types::PyramidLevel`]
+//! and uses bilinear interpolation in [`crate::refine::segment::sampling::bilinear_grad`]
+//! to sample gradients at subpixel positions. The global level width/height
+//! are preserved in `PyramidLevel` so ROI logic can still work in full-image
+//! coordinates while gradient lookups operate inside the cropped tile.
 use crate::edges::grad::{scharr_gradients, scharr_gradients_window_into, Grad};
 use crate::image::{traits::ImageView, ImageF32};
 use crate::refine::segment::roi::IntBounds;

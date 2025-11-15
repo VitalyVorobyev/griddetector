@@ -1,9 +1,31 @@
 //! Public types used by the gradient-driven segment refiner.
+//!
+//! The refiner is driven by image gradients on a single pyramid level. To
+//! support both full-frame and cropped gradient tiles, [`PyramidLevel`]
+//! describes gradients in a small, contiguous window of the level together with
+//! enough metadata to interpret positions in full-image coordinates.
 
 use crate::segments::Segment;
 use serde::Deserialize;
 
 /// Single pyramid level with precomputed Sobel/Scharr gradients.
+///
+/// A `PyramidLevel` does not own the gradient buffers; it is a lightweight
+/// view over a **gradient tile** provided by the detector workspace. The tile
+/// may either cover the full image or a cropped window around the segments of
+/// interest.
+///
+/// Coordinate conventions:
+/// - `(width, height)` describe the full image dimensions at this level.
+/// - `(origin_x, origin_y)` give the top-left corner of the tile in full-image
+///   coordinates.
+/// - `(tile_width, tile_height)` describe the size of the tile in pixels.
+/// - `gx`, `gy` store gradients for the tile in row-major order with stride
+///   equal to `tile_width`.
+///
+/// Callers must convert full-image coordinates into tile-relative ones by
+/// subtracting `(origin_x, origin_y)` before indexing into `gx`/`gy`. The
+/// internal sampling helper takes care of this for subpixel sampling.
 #[derive(Clone, Debug)]
 pub struct PyramidLevel<'a> {
     /// Full-resolution width of the level (global coordinates).

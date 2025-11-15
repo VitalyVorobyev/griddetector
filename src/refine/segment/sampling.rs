@@ -16,7 +16,10 @@ pub(crate) fn search_along_normal(
     params: &RefineParams,
     w_perp: f32,
 ) -> Option<SupportPoint> {
-    let mut best: Option<(f32, f32, [f32; 2], f32)> = None; // (t, |g|, grad, proj)
+    let tau_mag_sq = params.tau_mag * params.tau_mag;
+    let mut best_t = 0.0f32;
+    let mut best_proj = 0.0f32;
+    let mut found = false;
     let mut t = -w_perp;
     while t <= w_perp + 1e-3 {
         let p = [center[0] + t * normal[0], center[1] + t * normal[1]];
@@ -25,34 +28,34 @@ pub(crate) fn search_along_normal(
             continue;
         }
         if let Some((gx, gy)) = bilinear_grad(lvl, p[0], p[1]) {
-            let mag = (gx * gx + gy * gy).sqrt();
-            if mag < params.tau_mag {
+            let mag_sq = gx * gx + gy * gy;
+            if mag_sq < tau_mag_sq {
                 t += params.delta_t;
                 continue;
             }
             let proj = gx * normal[0] + gy * normal[1];
             let val = proj.abs();
-            if let Some(ref mut current) = best {
-                if val > current.1 {
-                    *current = (t, val, [gx, gy], proj);
-                }
-            } else {
-                best = Some((t, val, [gx, gy], proj));
+            if !found || val > best_proj {
+                best_proj = val;
+                best_t = t;
+                found = true;
             }
         }
         t += params.delta_t;
     }
 
-    let (t_best, mut peak, _, _) = best?;
+    if !found {
+        return None;
+    }
 
-    let refined_t = quadratic_refine(lvl, roi, center, normal, params.delta_t, t_best, peak);
+    let refined_t = quadratic_refine(lvl, roi, center, normal, params.delta_t, best_t, best_proj);
     let pos = [
         center[0] + refined_t * normal[0],
         center[1] + refined_t * normal[1],
     ];
     let (gx, gy) = bilinear_grad(lvl, pos[0], pos[1])?;
     let proj = gx * normal[0] + gy * normal[1];
-    peak = proj.abs();
+    let peak = proj.abs();
     let weight = huber_weight(peak, params.huber_delta);
     Some(SupportPoint {
         pos,
@@ -61,6 +64,7 @@ pub(crate) fn search_along_normal(
     })
 }
 
+#[inline(always)]
 pub(crate) fn bilinear_grad(lvl: &PyramidLevel<'_>, x: f32, y: f32) -> Option<(f32, f32)> {
     if !x.is_finite() || !y.is_finite() {
         return None;
@@ -70,38 +74,39 @@ pub(crate) fn bilinear_grad(lvl: &PyramidLevel<'_>, x: f32, y: f32) -> Option<(f
     if x_rel < 0.0 || y_rel < 0.0 {
         return None;
     }
-    let w = lvl.tile_width as isize;
-    let h = lvl.tile_height as isize;
     let xf = x_rel.floor();
     let yf = y_rel.floor();
     let x0 = xf as isize;
     let y0 = yf as isize;
     let x1 = x0 + 1;
     let y1 = y0 + 1;
-    if x1 >= w || y1 >= h {
+    if x1 >= lvl.tile_width as isize || y1 >= lvl.tile_height as isize {
         return None;
     }
     #[cfg(feature = "profile_refine")]
     profile::record_sample(lvl.level_index);
     let tx = x_rel - xf;
     let ty = y_rel - yf;
-    let idx = |xx: isize, yy: isize| -> usize { (yy as usize) * lvl.tile_width + (xx as usize) };
-    let gx00 = lvl.gx[idx(x0, y0)];
-    let gx10 = lvl.gx[idx(x1, y0)];
-    let gx01 = lvl.gx[idx(x0, y1)];
-    let gx11 = lvl.gx[idx(x1, y1)];
-    let gy00 = lvl.gy[idx(x0, y0)];
-    let gy10 = lvl.gy[idx(x1, y0)];
-    let gy01 = lvl.gy[idx(x0, y1)];
-    let gy11 = lvl.gy[idx(x1, y1)];
+    let stride = lvl.tile_width as isize;
+    let base = y0 * stride + x0;
+    let gx00 = unsafe { *lvl.gx.get_unchecked(base as usize) };
+    let gx10 = unsafe { *lvl.gx.get_unchecked((base + 1) as usize) };
+    let gx01 = unsafe { *lvl.gx.get_unchecked((base + stride) as usize) };
+    let gx11 = unsafe { *lvl.gx.get_unchecked((base + stride + 1) as usize) };
+    let gy00 = unsafe { *lvl.gy.get_unchecked(base as usize) };
+    let gy10 = unsafe { *lvl.gy.get_unchecked((base + 1) as usize) };
+    let gy01 = unsafe { *lvl.gy.get_unchecked((base + stride) as usize) };
+    let gy11 = unsafe { *lvl.gy.get_unchecked((base + stride + 1) as usize) };
 
-    let gx0 = gx00 * (1.0 - tx) + gx10 * tx;
-    let gx1 = gx01 * (1.0 - tx) + gx11 * tx;
-    let gx = gx0 * (1.0 - ty) + gx1 * ty;
+    let inv_tx = 1.0 - tx;
+    let inv_ty = 1.0 - ty;
+    let gx0 = gx00 * inv_tx + gx10 * tx;
+    let gx1 = gx01 * inv_tx + gx11 * tx;
+    let gx = gx0 * inv_ty + gx1 * ty;
 
-    let gy0 = gy00 * (1.0 - tx) + gy10 * tx;
-    let gy1 = gy01 * (1.0 - tx) + gy11 * tx;
-    let gy = gy0 * (1.0 - ty) + gy1 * ty;
+    let gy0 = gy00 * inv_tx + gy10 * tx;
+    let gy1 = gy01 * inv_tx + gy11 * tx;
+    let gy = gy0 * inv_ty + gy1 * ty;
     Some((gx, gy))
 }
 

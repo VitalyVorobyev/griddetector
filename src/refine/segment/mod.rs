@@ -7,6 +7,46 @@
 //! inliers. The resulting subpixel segment feeds into bundling ahead of
 //! [`homography::Refiner`](super::homography::Refiner) to tighten the
 //! coarse-to-fine optimisation loop.
+//!
+//! # Gradient handling for refinement
+//!
+//! Refinement operates entirely on image gradients from a single pyramid level.
+//! The detector centralises gradient computation in its workspace
+//! (`detector::workspace`), which exposes Scharr
+//! derivatives as **gradient tiles**:
+//!
+//! - A full-frame tile (`origin_x = origin_y = 0`, `tile_width = width`,
+//!   `tile_height = height`) is used when refining all segments on a level or
+//!   when local cropping would not be cheaper.
+//! - Cropped tiles are built for axis-aligned windows that tightly cover the
+//!   union of per-segment ROIs. This saves work on large images when only a
+//!   small fraction of pixels participate in refinement.
+//!
+//! The tile is wrapped in a [`types::PyramidLevel`] and passed to
+//! [`refine_segment`]. `PyramidLevel` carries:
+//!
+//! - `width`, `height`: full image dimensions at this pyramid level.
+//! - `origin_x`, `origin_y`: top-left corner of the gradient tile in the
+//!   full image.
+//! - `tile_width`, `tile_height`: dimensions of the tile.
+//! - `gx`, `gy`: contiguous slices storing gradients for the tile.
+//! - `level_index`: the pyramid level index (0 = finest).
+//!
+//! All sampling routines work in **full-image coordinates**. The helper
+//! `sampling::bilinear_grad` converts a subpixel `(x, y)` into tile-relative
+//! coordinates by subtracting `(origin_x, origin_y)`, checks bounds against
+//! `(tile_width, tile_height)`, and performs bilinear interpolation inside the
+//! tile. This keeps the refinement logic independent of how large the tile is
+//! or whether it covers the full frame.
+//!
+//! Typical flow per level:
+//! - The caller builds a [`SegmentRoi`] for each segment in full-image
+//!   coordinates (padding is controlled by [`RefineParams::pad`]).
+//! - ROIs are optionally merged into a coarse window, or used individually, to
+//!   request a cropped gradient tile from `DetectorWorkspace`.
+//! - `refine_segment` consumes the resulting `PyramidLevel`, sampling
+//!   gradients via `sampling::search_along_normal` and `endpoints::refine_endpoints`
+//!   without concern for how the tile was produced.
 
 mod endpoints;
 mod fit;
