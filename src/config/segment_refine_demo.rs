@@ -15,6 +15,8 @@ pub struct SegmentRefineDemoConfig {
     pub lsd: LsdOptions,
     #[serde(default)]
     pub refine: SegmentRefineConfig,
+    #[serde(default)]
+    pub performance_mode: bool,
     pub output: SegmentRefineDemoOutputConfig,
 }
 

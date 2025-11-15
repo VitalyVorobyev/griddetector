@@ -1,15 +1,69 @@
 //! Public types used by the gradient-driven segment refiner.
+//!
+//! The refiner is driven by image gradients on a single pyramid level. To
+//! support both full-frame and cropped gradient tiles, [`PyramidLevel`]
+//! describes gradients in a small, contiguous window of the level together with
+//! enough metadata to interpret positions in full-image coordinates.
 
 use crate::segments::Segment;
 use serde::Deserialize;
 
 /// Single pyramid level with precomputed Sobel/Scharr gradients.
-#[derive(Clone, Copy, Debug)]
+///
+/// A `PyramidLevel` does not own the gradient buffers; it is a lightweight
+/// view over a **gradient tile** provided by the detector workspace. The tile
+/// may either cover the full image or a cropped window around the segments of
+/// interest.
+///
+/// Coordinate conventions:
+/// - `(width, height)` describe the full image dimensions at this level.
+/// - `(origin_x, origin_y)` give the top-left corner of the tile in full-image
+///   coordinates.
+/// - `(tile_width, tile_height)` describe the size of the tile in pixels.
+/// - `gx`, `gy` store gradients for the tile in row-major order with stride
+///   equal to `tile_width`.
+///
+/// Callers must convert full-image coordinates into tile-relative ones by
+/// subtracting `(origin_x, origin_y)` before indexing into `gx`/`gy`. The
+/// internal sampling helper takes care of this for subpixel sampling.
+#[derive(Clone, Debug)]
 pub struct PyramidLevel<'a> {
+    /// Full-resolution width of the level (global coordinates).
     pub width: usize,
+    /// Full-resolution height of the level (global coordinates).
     pub height: usize,
+    /// Left/top origin of the gradient tile within the full-resolution level.
+    pub origin_x: usize,
+    pub origin_y: usize,
+    /// Width/height of the gradient tile.
+    pub tile_width: usize,
+    pub tile_height: usize,
+    /// Horizontal and vertical derivatives stored for the tile.
     pub gx: &'a [f32],
     pub gy: &'a [f32],
+    /// Pyramid level index (0 = finest).
+    pub level_index: usize,
+}
+
+/// Axis-aligned region of interest around a segment in full-resolution coordinates.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SegmentRoi {
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+}
+
+impl SegmentRoi {
+    #[inline]
+    pub fn contains(&self, p: &[f32; 2]) -> bool {
+        p[0] >= self.x0 && p[0] <= self.x1 && p[1] >= self.y0 && p[1] <= self.y1
+    }
+
+    #[inline]
+    pub fn clamp_inside(&self, p: [f32; 2]) -> [f32; 2] {
+        [p[0].clamp(self.x0, self.x1), p[1].clamp(self.y0, self.y1)]
+    }
 }
 
 /// Parameters controlling the gradient-driven refinement.
@@ -48,6 +102,54 @@ impl Default for RefineParams {
             max_iters: 3,
             min_inlier_frac: 0.4,
         }
+    }
+}
+
+impl RefineParams {
+    /// Scale the refinement parameters for a specific pyramid level.
+    ///
+    /// `full_width` is the width of the finest level (L0). `level_width` is the
+    /// width of the level we are about to process. Spatial parameters scale
+    /// inversely with the pixel size so that the number of samples and corridor
+    /// widths remain roughly constant in physical units.
+    pub fn for_level(&self, full_width: usize, level_width: usize) -> Self {
+        let scale = if full_width == 0 || level_width == 0 {
+            1.0f32
+        } else {
+            full_width as f32 / level_width as f32
+        };
+
+        let mut params = self.clone();
+
+        let scale_spacing = |value: f32| -> f32 {
+            if !value.is_finite() {
+                return value;
+            }
+            let scaled = value / scale;
+            if scaled.is_finite() {
+                scaled.max(0.05)
+            } else {
+                value
+            }
+        };
+
+        let scale_width = |value: f32| -> f32 {
+            if !value.is_finite() {
+                return value;
+            }
+            let scaled = value / scale;
+            if scaled.is_finite() {
+                scaled.max(0.5)
+            } else {
+                value
+            }
+        };
+
+        params.delta_s = scale_spacing(self.delta_s);
+        params.delta_t = scale_spacing(self.delta_t);
+        params.w_perp = scale_width(self.w_perp);
+        params.pad = scale_width(self.pad);
+        params
     }
 }
 

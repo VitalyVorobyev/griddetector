@@ -23,6 +23,7 @@
         "max_iters": 3,
         "min_inlier_frac": 0.4
     },
+    "performance_mode": false,
     "output": {
         "dir": "out/segment_demo"
     }

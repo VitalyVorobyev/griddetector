@@ -1,12 +1,15 @@
 use crate::detector::scaling::LevelScaleMap;
 use crate::detector::workspace::DetectorWorkspace;
 use crate::diagnostics::GradientRefineStage;
-use crate::image::traits::ImageView;
 use crate::pyramid::Pyramid;
+#[cfg(feature = "profile_refine")]
+use crate::refine::segment::take_profile;
 use crate::refine::segment::{
     self, PyramidLevel as SegmentGradientLevel, RefineParams as SegmentRefineParams,
 };
 use crate::segments::Segment;
+#[cfg(feature = "profile_refine")]
+use log::info;
 use std::time::Instant;
 
 #[derive(Debug)]
@@ -38,16 +41,21 @@ pub fn refine_coarsest_with_gradients(
     }
 
     let level = &pyramid.levels[coarse_idx];
-    let grad = workspace.scharr_gradients(coarse_idx, level);
-    let gx = grad.gx.as_slice().unwrap_or(&grad.gx.data[..]);
-    let gy = grad.gy.as_slice().unwrap_or(&grad.gy.data[..]);
+    let grad_view = workspace.scharr_gradients_full(coarse_idx, level);
     let grad_level = SegmentGradientLevel {
         width: level.w,
         height: level.h,
-        gx,
-        gy,
+        origin_x: grad_view.origin_x,
+        origin_y: grad_view.origin_y,
+        tile_width: grad_view.tile_width,
+        tile_height: grad_view.tile_height,
+        gx: grad_view.gx,
+        gy: grad_view.gy,
+        level_index: coarse_idx,
     };
     let scale_map = LevelScaleMap::new(1.0, 1.0);
+    let full_width = pyramid.levels.first().map(|lvl| lvl.w).unwrap_or(level.w);
+    let level_params = params.for_level(full_width, level.w);
 
     let refine_start = Instant::now();
     let mut refined = Vec::with_capacity(segments.len());
@@ -56,7 +64,7 @@ pub fn refine_coarsest_with_gradients(
     let mut movement_acc = 0.0f32;
 
     for seg in segments {
-        let result = segment::refine_segment(&grad_level, seg, &scale_map, params);
+        let result = segment::refine_segment(&grad_level, seg, &scale_map, &level_params);
         let movement = average_endpoint_movement(seg, &result.seg);
         if result.ok {
             accepted += 1;
@@ -66,6 +74,8 @@ pub fn refine_coarsest_with_gradients(
         }
     }
     let elapsed_ms = refine_start.elapsed().as_secs_f64() * 1000.0;
+    #[cfg(feature = "profile_refine")]
+    log_segment_profile("gradient_refine", workspace);
 
     let fallback_to_input = refined.is_empty();
     let segments_out = if fallback_to_input {
@@ -97,6 +107,30 @@ pub fn refine_coarsest_with_gradients(
         stage: Some(stage),
         segments: segments_out,
         elapsed_ms,
+    }
+}
+
+#[cfg(feature = "profile_refine")]
+fn log_segment_profile(stage: &str, workspace: &DetectorWorkspace) {
+    let profile = take_profile();
+    if profile.is_empty() {
+        return;
+    }
+    info!("Segment refine profile for stage '{}':", stage);
+    for entry in profile {
+        if entry.roi_count == 0 && entry.bilinear_samples == 0 {
+            continue;
+        }
+        let avg_roi = if entry.roi_count > 0 {
+            entry.roi_area_px / entry.roi_count as f64
+        } else {
+            0.0
+        };
+        let grad_ms = workspace.gradient_time_ms(entry.level_index).unwrap_or(0.0);
+        info!(
+            "  L{}: grad_ms={:.2} roi_count={} avg_roi_px={:.1} bilinear_samples={}",
+            entry.level_index, grad_ms, entry.roi_count, avg_roi, entry.bilinear_samples
+        );
     }
 }
 

@@ -3,14 +3,18 @@ use crate::detector::pipeline::bundling::BundleStack;
 use crate::detector::scaling::{LevelScaleMap, LevelScaling};
 use crate::detector::workspace::DetectorWorkspace;
 use crate::diagnostics::{BundleDescriptor, BundlingLevel, BundlingStage};
-use crate::image::traits::ImageView;
 use crate::pyramid::Pyramid;
+#[cfg(feature = "profile_refine")]
+use crate::refine::segment::take_profile;
 use crate::refine::segment::{
-    self, PyramidLevel as SegmentGradientLevel, RefineParams as SegmentRefineParams,
+    self, roi::roi_to_int_bounds, PyramidLevel as SegmentGradientLevel,
+    RefineParams as SegmentRefineParams, ScaleMap,
 };
 use crate::refine::RefineLevel;
 use crate::segments::{Bundle, Segment};
 use log::debug;
+#[cfg(feature = "profile_refine")]
+use log::info;
 use nalgebra::Matrix3;
 use std::time::Instant;
 
@@ -136,32 +140,75 @@ pub fn prepare_levels(
         };
         let scale_map = LevelScaleMap::new(sx, sy);
 
-        let grad = workspace.scharr_gradients(finer_idx, finer_lvl);
-        let gx = grad.gx.as_slice().unwrap_or(&grad.gx.data[..]);
-        let gy = grad.gy.as_slice().unwrap_or(&grad.gy.data[..]);
-        let grad_level = SegmentGradientLevel {
-            width: finer_lvl.w,
-            height: finer_lvl.h,
-            gx,
-            gy,
-        };
-
+        let level_params = segment_params.for_level(full_width, finer_lvl.w);
         let refine_start = Instant::now();
         let mut refined_segments = Vec::with_capacity(current_segments.len());
         for seg in &current_segments {
-            let result = segment::refine_segment(&grad_level, seg, &scale_map, segment_params);
+            let grad_view = match segment::segment_roi_from_points(
+                scale_map.up(seg.p0),
+                scale_map.up(seg.p1),
+                level_params.pad,
+                finer_lvl.w,
+                finer_lvl.h,
+            )
+            .and_then(|roi| roi_to_int_bounds(&roi, finer_lvl.w, finer_lvl.h))
+            {
+                Some(bounds) => workspace.scharr_gradients_window(finer_idx, finer_lvl, &bounds),
+                None => workspace.scharr_gradients_full(finer_idx, finer_lvl),
+            };
+            let grad_level = SegmentGradientLevel {
+                width: finer_lvl.w,
+                height: finer_lvl.h,
+                origin_x: grad_view.origin_x,
+                origin_y: grad_view.origin_y,
+                tile_width: grad_view.tile_width,
+                tile_height: grad_view.tile_height,
+                gx: grad_view.gx,
+                gy: grad_view.gy,
+                level_index: finer_idx,
+            };
+            let result = segment::refine_segment(&grad_level, seg, &scale_map, &level_params);
             if result.ok {
                 refined_segments.push(result.seg);
             }
         }
         segment_refine_ms += refine_start.elapsed().as_secs_f64() * 1000.0;
         current_segments = refined_segments;
+        #[cfg(feature = "profile_refine")]
+        {
+            let stage_label = format!("prepare_levels L{}", finer_idx);
+            log_segment_profile(&stage_label, workspace);
+        }
     }
 
     PreparedLevels {
         levels: levels_data,
         bundling_ms,
         segment_refine_ms,
+    }
+}
+
+#[cfg(feature = "profile_refine")]
+fn log_segment_profile(stage: &str, workspace: &DetectorWorkspace) {
+    let profile = take_profile();
+    if profile.is_empty() {
+        return;
+    }
+    info!("Segment refine profile for stage '{}':", stage);
+    for entry in profile {
+        if entry.roi_count == 0 && entry.bilinear_samples == 0 {
+            continue;
+        }
+        let avg_roi = if entry.roi_count > 0 {
+            entry.roi_area_px / entry.roi_count as f64
+        } else {
+            0.0
+        };
+        let grad_ms = workspace.gradient_time_ms(entry.level_index).unwrap_or(0.0);
+        info!(
+            "  L{}: grad_ms={:.2} roi_count={} avg_roi_px={:.1} bilinear_samples={}",
+            entry.level_index, grad_ms, entry.roi_count, avg_roi, entry.bilinear_samples
+        );
     }
 }
 

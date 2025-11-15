@@ -23,6 +23,7 @@ path = "src/bin/lsd_vp_demo.rs"
 [features]
 default = ["parallel"]
 parallel = ["dep:rayon"]
+profile_refine = []
 
 [dependencies]
 nalgebra = { version = "0.34", features = ["serde-serialize"] }

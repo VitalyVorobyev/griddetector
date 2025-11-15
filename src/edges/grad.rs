@@ -103,3 +103,44 @@ pub fn sobel_gradients(l: &ImageF32) -> Grad {
 pub fn scharr_gradients(l: &ImageF32) -> Grad {
     gradients_with_kernels(l, &SCHARR_KERNEL_X, &SCHARR_KERNEL_Y)
 }
+
+/// Horizontal/vertical Scharr gradients restricted to an axis-aligned window.
+pub fn scharr_gradients_window_into(
+    l: &ImageF32,
+    x0: usize,
+    y0: usize,
+    width: usize,
+    height: usize,
+    gx_out: &mut [f32],
+    gy_out: &mut [f32],
+) {
+    if width == 0 || height == 0 {
+        return;
+    }
+    assert!(gx_out.len() >= width * height);
+    assert!(gy_out.len() >= width * height);
+    let max_x = l.w.saturating_sub(1);
+    let max_y = l.h.saturating_sub(1);
+    for (row_out, y) in (y0..y0 + height).enumerate() {
+        let y_idx = [y.saturating_sub(1), y, (y + 1).min(max_y)];
+        let rows = [l.row(y_idx[0]), l.row(y_idx[1]), l.row(y_idx[2])];
+        for (col_out, x) in (x0..x0 + width).enumerate() {
+            let x_idx = [x.saturating_sub(1), x, (x + 1).min(max_x)];
+            let mut sum_x = 0.0;
+            let mut sum_y = 0.0;
+            for (ky, yy_row) in rows.iter().enumerate() {
+                let kx_row = &SCHARR_KERNEL_X[ky];
+                let ky_row = &SCHARR_KERNEL_Y[ky];
+                sum_x += yy_row[x_idx[0]] * kx_row[0]
+                    + yy_row[x_idx[1]] * kx_row[1]
+                    + yy_row[x_idx[2]] * kx_row[2];
+                sum_y += yy_row[x_idx[0]] * ky_row[0]
+                    + yy_row[x_idx[1]] * ky_row[1]
+                    + yy_row[x_idx[2]] * ky_row[2];
+            }
+            let idx = row_out * width + col_out;
+            gx_out[idx] = sum_x;
+            gy_out[idx] = sum_y;
+        }
+    }
+}
