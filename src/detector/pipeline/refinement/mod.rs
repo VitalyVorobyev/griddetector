@@ -13,6 +13,7 @@
 pub mod homography;
 pub mod indexing;
 pub mod prepare;
+pub(crate) mod segments;
 
 pub use homography::{refine_homography, RefinementComputation};
 pub use indexing::index_grid_from_bundles;

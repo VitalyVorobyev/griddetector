@@ -33,11 +33,12 @@
 
 pub mod outliers;
 pub mod params;
-mod pipeline;
+pub(crate) mod pipeline;
 mod scaling;
 mod workspace;
 
 pub use params::{BundlingParams, GridParams, OutlierFilterParams, RefinementSchedule};
+pub(crate) use pipeline::refinement::segments::{run_segment_refine_pass, SegmentRefinePass};
 pub use pipeline::GridDetector;
 pub use scaling::{rescale_bundle_to_full_res, LevelScaleMap, LevelScaling};
 pub use workspace::DetectorWorkspace;

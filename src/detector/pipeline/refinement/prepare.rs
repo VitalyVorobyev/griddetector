@@ -1,22 +1,19 @@
+use super::segments::run_segment_refine_pass;
 use crate::detector::params::BundlingParams;
 use crate::detector::pipeline::bundling::BundleStack;
-use crate::detector::scaling::{LevelScaleMap, LevelScaling};
+use crate::detector::scaling::LevelScaling;
 use crate::detector::workspace::DetectorWorkspace;
 use crate::diagnostics::{BundleDescriptor, BundlingLevel, BundlingStage};
 use crate::pyramid::Pyramid;
 #[cfg(feature = "profile_refine")]
 use crate::refine::segment::take_profile;
-use crate::refine::segment::{
-    self, roi::roi_to_int_bounds, PyramidLevel as SegmentGradientLevel,
-    RefineParams as SegmentRefineParams, ScaleMap,
-};
+use crate::refine::segment::RefineParams as SegmentRefineParams;
 use crate::refine::RefineLevel;
 use crate::segments::{Bundle, Segment};
 use log::debug;
 #[cfg(feature = "profile_refine")]
 use log::info;
 use nalgebra::Matrix3;
-use std::time::Instant;
 
 /// Bundled and refined data prepared at each pyramid level.
 #[derive(Debug)]
@@ -125,60 +122,21 @@ pub fn prepare_levels(
             continue;
         }
 
-        // Lift segments forward to the next finer level (L-1).
-        let finer_idx = level_idx - 1;
-        let finer_lvl = &pyramid.levels[finer_idx];
-        let sx = if lvl.w > 0 {
-            finer_lvl.w as f32 / lvl.w as f32
-        } else {
-            2.0
-        };
-        let sy = if lvl.h > 0 {
-            finer_lvl.h as f32 / lvl.h as f32
-        } else {
-            2.0
-        };
-        let scale_map = LevelScaleMap::new(sx, sy);
-
-        let level_params = segment_params.for_level(full_width, finer_lvl.w);
-        let refine_start = Instant::now();
-        let mut refined_segments = Vec::with_capacity(current_segments.len());
-        for seg in &current_segments {
-            let grad_view = match segment::segment_roi_from_points(
-                scale_map.up(seg.p0),
-                scale_map.up(seg.p1),
-                level_params.pad,
-                finer_lvl.w,
-                finer_lvl.h,
-            )
-            .and_then(|roi| roi_to_int_bounds(&roi, finer_lvl.w, finer_lvl.h))
-            {
-                Some(bounds) => workspace.scharr_gradients_window(finer_idx, finer_lvl, &bounds),
-                None => workspace.scharr_gradients_full(finer_idx, finer_lvl),
-            };
-            let grad_level = SegmentGradientLevel {
-                width: finer_lvl.w,
-                height: finer_lvl.h,
-                origin_x: grad_view.origin_x,
-                origin_y: grad_view.origin_y,
-                tile_width: grad_view.tile_width,
-                tile_height: grad_view.tile_height,
-                gx: grad_view.gx,
-                gy: grad_view.gy,
-                level_index: finer_idx,
-            };
-            let result = segment::refine_segment(&grad_level, seg, &scale_map, &level_params);
-            if result.ok {
-                refined_segments.push(result.seg);
-            }
-        }
-        segment_refine_ms += refine_start.elapsed().as_secs_f64() * 1000.0;
-        current_segments = refined_segments;
+        let pass = run_segment_refine_pass(
+            workspace,
+            pyramid,
+            level_idx,
+            &current_segments,
+            segment_params,
+            full_width,
+        );
+        segment_refine_ms += pass.elapsed_ms;
         #[cfg(feature = "profile_refine")]
         {
-            let stage_label = format!("prepare_levels L{}", finer_idx);
+            let stage_label = format!("prepare_levels L{}", pass.finer_idx);
             log_segment_profile(&stage_label, workspace);
         }
+        current_segments = pass.into_accepted_segments();
     }
 
     PreparedLevels {

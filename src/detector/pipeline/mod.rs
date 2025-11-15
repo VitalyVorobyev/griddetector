@@ -23,7 +23,7 @@ mod bundling;
 mod gradient_refine;
 mod lsd;
 mod outliers;
-mod refinement;
+pub(crate) mod refinement;
 mod reporting;
 
 // Stages

@@ -10,6 +10,8 @@ use crate::refine::segment::{
 use crate::segments::Segment;
 #[cfg(feature = "profile_refine")]
 use log::info;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 use std::time::Instant;
 
 #[derive(Debug)]
@@ -63,8 +65,28 @@ pub fn refine_coarsest_with_gradients(
     let mut score_acc = 0.0f32;
     let mut movement_acc = 0.0f32;
 
-    for seg in segments {
-        let result = segment::refine_segment(&grad_level, seg, &scale_map, &level_params);
+    #[cfg(feature = "parallel")]
+    let refinements: Vec<(usize, segment::RefineResult)> = segments
+        .par_iter()
+        .enumerate()
+        .map(|(idx, seg)| {
+            let result = segment::refine_segment(&grad_level, seg, &scale_map, &level_params);
+            (idx, result)
+        })
+        .collect();
+
+    #[cfg(not(feature = "parallel"))]
+    let refinements: Vec<(usize, segment::RefineResult)> = segments
+        .iter()
+        .enumerate()
+        .map(|(idx, seg)| {
+            let result = segment::refine_segment(&grad_level, seg, &scale_map, &level_params);
+            (idx, result)
+        })
+        .collect();
+
+    for (idx, result) in refinements {
+        let seg = &segments[idx];
         let movement = average_endpoint_movement(seg, &result.seg);
         if result.ok {
             accepted += 1;

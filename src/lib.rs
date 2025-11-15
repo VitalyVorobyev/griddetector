@@ -61,7 +61,8 @@ pub mod prelude {
 pub mod stages {
     // Stage runners / builders.
     pub use crate::diagnostics::builders::{
-        run_lsd_stage, run_outlier_stage, LsdStageOutput, OutlierStageOutput,
+        run_lsd_stage, run_outlier_stage, run_segment_refine_levels, LsdStageOutput,
+        OutlierStageOutput, SegmentRefineLevels,
     };
 
     // Structured diagnostics types.

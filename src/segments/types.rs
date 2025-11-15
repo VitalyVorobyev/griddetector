@@ -1,6 +1,6 @@
 use nalgebra::Vector3;
 use serde::{Deserialize, Serialize};
-use std::cell::OnceCell;
+use std::sync::OnceLock;
 
 /// Identifier referencing a segment recorded in the pipeline trace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -16,17 +16,17 @@ pub struct Segment {
     pub avg_mag: f32,
     pub strength: f32,
     #[serde(skip)]
-    line: OnceCell<Vector3<f32>>,
+    line: OnceLock<Vector3<f32>>,
     #[serde(skip)]
-    normal: OnceCell<[f32; 2]>,
+    normal: OnceLock<[f32; 2]>,
     #[serde(skip)]
-    direction: OnceCell<[f32; 2]>,
+    direction: OnceLock<[f32; 2]>,
     #[serde(skip)]
-    length: OnceCell<f32>,
+    length: OnceLock<f32>,
     #[serde(skip)]
-    length_sq: OnceCell<f32>,
+    length_sq: OnceLock<f32>,
     #[serde(skip)]
-    theta: OnceCell<f32>,
+    theta: OnceLock<f32>,
 }
 
 impl Segment {
@@ -37,12 +37,12 @@ impl Segment {
             p1,
             avg_mag,
             strength,
-            line: OnceCell::new(),
-            normal: OnceCell::new(),
-            direction: OnceCell::new(),
-            length: OnceCell::new(),
-            length_sq: OnceCell::new(),
-            theta: OnceCell::new(),
+            line: OnceLock::new(),
+            normal: OnceLock::new(),
+            direction: OnceLock::new(),
+            length: OnceLock::new(),
+            length_sq: OnceLock::new(),
+            theta: OnceLock::new(),
         }
     }
 

@@ -3,11 +3,15 @@
 
 use crate::detector::outliers::{classify_segments_with_details, OutlierFilterDiagnostics};
 use crate::detector::params::OutlierFilterParams;
+use crate::detector::{run_segment_refine_pass, DetectorWorkspace, SegmentRefinePass};
 use crate::diagnostics::{
-    FamilyCounts, LsdStage, OutlierFilterStage, OutlierThresholds, SegmentSample,
+    FamilyCounts, LsdStage, OutlierFilterStage, OutlierThresholds, SegmentRefineLevel,
+    SegmentRefineSample, SegmentSample,
 };
 use crate::image::ImageF32;
 use crate::lsd_vp::{DetailedInference, Engine as LsdVpEngine, FamilyLabel};
+use crate::pyramid::Pyramid;
+use crate::refine::segment::RefineParams as SegmentRefineParams;
 use crate::segments::{LsdOptions, Segment};
 use nalgebra::Matrix3;
 
@@ -23,6 +27,13 @@ pub struct LsdStageOutput {
 pub struct OutlierStageOutput {
     pub stage: OutlierFilterStage,
     pub inlier_segments: Vec<Segment>,
+}
+
+/// Result of running the coarse→fine gradient refinement outside the pipeline.
+pub struct SegmentRefineLevels {
+    pub levels: Vec<SegmentRefineLevel>,
+    pub refined_segments: Vec<Segment>,
+    pub elapsed_ms: f64,
 }
 
 /// Execute the LSD→VP stage on a pyramid level, returning both the diagnostics
@@ -98,6 +109,50 @@ pub fn run_outlier_stage(
     build_outlier_stage(decisions, diag, segments, filter_params)
 }
 
+/// Execute the refinement cascade and capture per-level diagnostics.
+pub fn run_segment_refine_levels(
+    pyramid: &Pyramid,
+    workspace: &mut DetectorWorkspace,
+    source_segments: &[Segment],
+    refine_params: &SegmentRefineParams,
+) -> SegmentRefineLevels {
+    if pyramid.levels.len() < 2 || source_segments.is_empty() {
+        return SegmentRefineLevels {
+            levels: Vec::new(),
+            refined_segments: Vec::new(),
+            elapsed_ms: 0.0,
+        };
+    }
+
+    let mut current_segments = source_segments.to_vec();
+    let mut levels = Vec::new();
+    let mut elapsed_ms = 0.0;
+    let full_width = pyramid.levels.first().map(|lvl| lvl.w).unwrap_or(0);
+
+    for coarse_idx in (1..pyramid.levels.len()).rev() {
+        if current_segments.is_empty() {
+            break;
+        }
+        let pass = run_segment_refine_pass(
+            workspace,
+            pyramid,
+            coarse_idx,
+            &current_segments,
+            refine_params,
+            full_width,
+        );
+        elapsed_ms += pass.elapsed_ms;
+        levels.push(build_segment_level(&pass));
+        current_segments = pass.into_accepted_segments();
+    }
+
+    SegmentRefineLevels {
+        levels,
+        refined_segments: current_segments,
+        elapsed_ms,
+    }
+}
+
 fn build_outlier_stage(
     decisions: Vec<crate::detector::outliers::SegmentDecision>,
     diag: OutlierFilterDiagnostics,
@@ -132,6 +187,46 @@ fn build_outlier_stage(
     OutlierStageOutput {
         stage,
         inlier_segments: kept_segments,
+    }
+}
+
+fn build_segment_level(pass: &SegmentRefinePass) -> SegmentRefineLevel {
+    let mut accepted = 0usize;
+    let mut score_sum = 0.0f32;
+    let mut samples = Vec::with_capacity(pass.results.len());
+
+    for result in &pass.results {
+        if result.ok {
+            accepted += 1;
+            if result.score.is_finite() {
+                score_sum += result.score;
+            }
+        }
+        let score = result.score.is_finite().then_some(result.score);
+        let inliers = (result.inliers > 0).then_some(result.inliers);
+        let total = (result.total > 0).then_some(result.total);
+        samples.push(SegmentRefineSample {
+            segment: result.seg.clone(),
+            score,
+            ok: Some(result.ok),
+            inliers,
+            total,
+        });
+    }
+
+    let acceptance_ratio =
+        (!pass.results.is_empty()).then_some(accepted as f32 / pass.results.len() as f32);
+    let avg_score = (accepted > 0).then_some(score_sum / accepted as f32);
+
+    SegmentRefineLevel {
+        coarse_level: pass.coarse_idx,
+        finer_level: pass.finer_idx,
+        elapsed_ms: pass.elapsed_ms,
+        segments_in: pass.results.len(),
+        accepted,
+        acceptance_ratio,
+        avg_score,
+        results: samples,
     }
 }
 
