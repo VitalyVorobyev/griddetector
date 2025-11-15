@@ -1,5 +1,3 @@
-#![cfg(feature = "profile_refine")]
-
 use super::SegmentRoi;
 use std::sync::{Mutex, OnceLock};
 
@@ -19,7 +17,7 @@ struct ProfileState {
 impl ProfileState {
     fn level_mut(&mut self, idx: usize) -> &mut LevelProfile {
         if self.levels.len() <= idx {
-            self.levels.resize_with(idx + 1, || LevelProfile::default());
+            self.levels.resize_with(idx + 1, LevelProfile::default);
         }
         let entry = &mut self.levels[idx];
         entry.level_index = idx;

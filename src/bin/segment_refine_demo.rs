@@ -54,6 +54,7 @@ struct ResultWithTime<R> {
 fn run() -> Result<(), String> {
     let config = load_config_from_args()?;
     ensure_output_dir(&config)?;
+    let diagnostics_enabled = !config.performance_mode;
 
     let ResultWithTime {
         result: gray,
@@ -63,58 +64,78 @@ fn run() -> Result<(), String> {
     let total_start = Instant::now();
 
     let (pyramid, pyramid_stage, pyramid_ms) = build_pyramid_stage(&gray, &config)?;
-    save_pyramid_images(&pyramid, &config.output.dir)?;
+    if diagnostics_enabled {
+        save_pyramid_images(&pyramid, &config.output.dir)?;
+    }
 
     let mut workspace = DetectorWorkspace::new();
     workspace.reset(pyramid.levels.len());
 
-    let (lsd_segments, lsd_stage) = run_lsd_demo(&pyramid, &config)?;
+    let (lsd_segments, lsd_stage, lsd_elapsed_ms) = run_lsd_demo(&pyramid, &config)?;
     let refine_params = config.refine.resolve();
-    let (levels_report, refine_total_ms) =
-        run_refinement_levels(&pyramid, &mut workspace, &lsd_segments, &refine_params)?;
+    let (levels_report, refine_total_ms) = run_refinement_levels(
+        &pyramid,
+        &mut workspace,
+        &lsd_segments,
+        &refine_params,
+        diagnostics_enabled,
+    )?;
 
     let total_ms = total_start.elapsed().as_secs_f64() * 1000.0;
-    let mut timings = TimingBreakdown::with_total(total_ms);
+    let mut timings = diagnostics_enabled.then(|| TimingBreakdown::with_total(total_ms));
     if load_ms > 0.0 {
-        timings.push("load", load_ms);
+        if let Some(t) = timings.as_mut() {
+            t.push("load", load_ms);
+        }
     }
     if pyramid_ms > 0.0 {
-        timings.push("pyramid", pyramid_ms);
+        if let Some(t) = timings.as_mut() {
+            t.push("pyramid", pyramid_ms);
+        }
         println!("Pyramid built in {:.2} ms", pyramid_ms);
     }
-    if lsd_stage.elapsed_ms > 0.0 {
-        timings.push("lsd", lsd_stage.elapsed_ms);
+    if lsd_elapsed_ms > 0.0 {
+        if let Some(t) = timings.as_mut() {
+            t.push("lsd", lsd_elapsed_ms);
+        }
         println!(
             "LSD detected {} segments in {:.2} ms",
             lsd_segments.len(),
-            lsd_stage.elapsed_ms
+            lsd_elapsed_ms
         );
     }
+    let refined_levels = pyramid.levels.len().saturating_sub(1);
     if refine_total_ms > 0.0 {
-        timings.push("segment_refine", refine_total_ms);
+        if let Some(t) = timings.as_mut() {
+            t.push("segment_refine", refine_total_ms);
+        }
         println!(
             "Refined {} segments over {} levels in {:.2} ms",
             lsd_segments.len(),
-            levels_report.len(),
+            refined_levels,
             refine_total_ms
         );
     }
 
-    let stage = SegmentRefineStage {
-        pyramid: pyramid_stage,
-        lsd: Some(lsd_stage),
-        lsd_segments: Some(lsd_segments.clone()),
-        levels: levels_report,
-        timings,
-    };
+    if diagnostics_enabled {
+        let stage = SegmentRefineStage {
+            pyramid: pyramid_stage.expect("pyramid stage missing"),
+            lsd: lsd_stage,
+            lsd_segments: Some(lsd_segments.clone()),
+            levels: levels_report,
+            timings: timings.expect("timings missing"),
+        };
 
-    let report_path = config.output.dir.join("report.json");
-    write_json_file(&report_path, &stage)?;
+        let report_path = config.output.dir.join("report.json");
+        write_json_file(&report_path, &stage)?;
 
-    println!(
-        "Segment refinement report written to {}",
-        report_path.display()
-    );
+        println!(
+            "Segment refinement report written to {}",
+            report_path.display()
+        );
+    } else {
+        println!("Performance mode enabled: skipped diagnostics output");
+    }
 
     println!("Total execution time: {:.2} ms", total_ms);
 
@@ -138,7 +159,7 @@ fn ensure_output_dir(config: &seg_cfg::SegmentRefineDemoConfig) -> Result<(), St
 fn build_pyramid_stage(
     gray: &GrayImageU8,
     config: &seg_cfg::SegmentRefineDemoConfig,
-) -> Result<(Pyramid, PyramidStage, f64), String> {
+) -> Result<(Pyramid, Option<PyramidStage>, f64), String> {
     let levels = config.pyramid.levels.max(1);
     let pyramid_opts = PyramidOptions::new(levels).with_blur_levels(config.pyramid.blur_levels);
     let ResultWithTime {
@@ -148,7 +169,7 @@ fn build_pyramid_stage(
         let pyramid = Pyramid::build_u8(gray.as_view(), pyramid_opts);
         Ok(pyramid)
     })?;
-    let stage = PyramidStage::from_pyramid(&pyramid, elapsed_ms);
+    let stage = (!config.performance_mode).then(|| PyramidStage::from_pyramid(&pyramid, elapsed_ms));
     Ok((pyramid, stage, elapsed_ms))
 }
 
@@ -163,7 +184,7 @@ fn save_pyramid_images(pyramid: &Pyramid, out_dir: &Path) -> Result<(), String> 
 fn run_lsd_demo(
     pyramid: &Pyramid,
     config: &seg_cfg::SegmentRefineDemoConfig,
-) -> Result<(Vec<Segment>, LsdStage), String> {
+) -> Result<(Vec<Segment>, Option<LsdStage>, f64), String> {
     let coarsest_index = pyramid
         .levels
         .len()
@@ -176,12 +197,16 @@ fn run_lsd_demo(
         elapsed_ms,
     } = run_with_timer(|| {
         let segments = lsd_extract_segments(coarse_level, config.lsd.with_scale(scale));
-        let assignments = analyze_families(&segments, config.lsd.angle_tolerance_deg)
-            .map_err(|err| format!("Orientation analysis failed: {err}"))?;
-        Ok((segments, assignments))
+        if config.performance_mode {
+            Ok((segments, None))
+        } else {
+            let assignments = analyze_families(&segments, config.lsd.angle_tolerance_deg)
+                .map_err(|err| format!("Orientation analysis failed: {err}"))?;
+            Ok((segments, Some(assignments)))
+        }
     })?;
-    let lsd_stage = build_lsd_stage(&assignments, elapsed_ms);
-    Ok((segments, lsd_stage))
+    let lsd_stage = assignments.map(|a| build_lsd_stage(&a, elapsed_ms));
+    Ok((segments, lsd_stage, elapsed_ms))
 }
 
 fn run_refinement_levels(
@@ -189,6 +214,7 @@ fn run_refinement_levels(
     workspace: &mut DetectorWorkspace,
     source_segments: &[Segment],
     refine_params: &segment::RefineParams,
+    collect_levels: bool,
 ) -> Result<(Vec<SegmentRefineLevel>, f64), String> {
     let mut levels_report: Vec<SegmentRefineLevel> = Vec::new();
     let mut refine_total_ms = 0.0f64;
@@ -203,7 +229,7 @@ fn run_refinement_levels(
         let scale_map = level_scale_map(coarse_level, finer_level);
         let level_params = refine_params.for_level(full_width, finer_level.w);
         let mut refined_segments = Vec::with_capacity(current_segments.len());
-        let mut samples = Vec::with_capacity(current_segments.len());
+        let mut samples = collect_levels.then(|| Vec::with_capacity(current_segments.len()));
         let mut accepted = 0usize;
         let mut score_sum = 0.0f32;
 
@@ -243,13 +269,15 @@ fn run_refinement_levels(
             let inliers = (result.inliers > 0).then_some(result.inliers);
             let total = (result.total > 0).then_some(result.total);
             let updated = result.seg;
-            samples.push(SegmentRefineSample {
-                segment: updated.clone(),
-                score,
-                ok: Some(ok),
-                inliers,
-                total,
-            });
+            if let Some(samples) = samples.as_mut() {
+                samples.push(SegmentRefineSample {
+                    segment: updated.clone(),
+                    score,
+                    ok: Some(ok),
+                    inliers,
+                    total,
+                });
+            }
             refined_segments.push(updated);
         }
 
@@ -263,16 +291,18 @@ fn run_refinement_levels(
             .then_some(accepted as f32 / current_segments.len() as f32);
         let avg_score = (accepted > 0).then_some(score_sum / accepted as f32);
 
-        levels_report.push(SegmentRefineLevel {
-            coarse_level: coarse_idx,
-            finer_level: finer_idx,
-            elapsed_ms,
-            segments_in: current_segments.len(),
-            accepted,
-            acceptance_ratio,
-            avg_score,
-            results: samples,
-        });
+        if let Some(samples) = samples {
+            levels_report.push(SegmentRefineLevel {
+                coarse_level: coarse_idx,
+                finer_level: finer_idx,
+                elapsed_ms,
+                segments_in: current_segments.len(),
+                accepted,
+                acceptance_ratio,
+                avg_score,
+                results: samples,
+            });
+        }
 
         current_segments = refined_segments;
 
