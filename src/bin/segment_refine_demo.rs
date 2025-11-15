@@ -169,7 +169,8 @@ fn build_pyramid_stage(
         let pyramid = Pyramid::build_u8(gray.as_view(), pyramid_opts);
         Ok(pyramid)
     })?;
-    let stage = (!config.performance_mode).then(|| PyramidStage::from_pyramid(&pyramid, elapsed_ms));
+    let stage =
+        (!config.performance_mode).then(|| PyramidStage::from_pyramid(&pyramid, elapsed_ms));
     Ok((pyramid, stage, elapsed_ms))
 }
 
