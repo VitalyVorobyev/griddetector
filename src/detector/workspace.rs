@@ -34,6 +34,7 @@ use crate::refine::segment::roi::IntBounds;
 use std::time::Instant;
 
 /// Workspace storing per-level gradient buffers to avoid repeated allocations.
+#[derive(Default)]
 pub struct DetectorWorkspace {
     full_tiles: Vec<Option<GradientPatch>>,
     roi_gradients: Vec<Option<GradientPatch>>,
@@ -197,16 +198,5 @@ impl DetectorWorkspace {
     #[cfg(feature = "profile_refine")]
     pub fn gradient_time_ms(&self, level_idx: usize) -> Option<f64> {
         self.grad_timings_ms.get(level_idx).copied()
-    }
-}
-
-impl Default for DetectorWorkspace {
-    fn default() -> Self {
-        Self {
-            full_tiles: Vec::new(),
-            roi_gradients: Vec::new(),
-            #[cfg(feature = "profile_refine")]
-            grad_timings_ms: Vec::new(),
-        }
     }
 }
