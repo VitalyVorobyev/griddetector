@@ -140,13 +140,14 @@ pub fn prepare_levels(
         };
         let scale_map = LevelScaleMap::new(sx, sy);
 
+        let level_params = segment_params.for_level(full_width, finer_lvl.w);
         let refine_start = Instant::now();
         let mut refined_segments = Vec::with_capacity(current_segments.len());
         for seg in &current_segments {
             let grad_view = match segment::segment_roi_from_points(
                 scale_map.up(seg.p0),
                 scale_map.up(seg.p1),
-                segment_params.pad,
+                level_params.pad,
                 finer_lvl.w,
                 finer_lvl.h,
             )
@@ -166,7 +167,7 @@ pub fn prepare_levels(
                 gy: grad_view.gy,
                 level_index: finer_idx,
             };
-            let result = segment::refine_segment(&grad_level, seg, &scale_map, segment_params);
+            let result = segment::refine_segment(&grad_level, seg, &scale_map, &level_params);
             if result.ok {
                 refined_segments.push(result.seg);
             }

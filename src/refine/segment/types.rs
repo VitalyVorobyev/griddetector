@@ -105,6 +105,54 @@ impl Default for RefineParams {
     }
 }
 
+impl RefineParams {
+    /// Scale the refinement parameters for a specific pyramid level.
+    ///
+    /// `full_width` is the width of the finest level (L0). `level_width` is the
+    /// width of the level we are about to process. Spatial parameters scale
+    /// inversely with the pixel size so that the number of samples and corridor
+    /// widths remain roughly constant in physical units.
+    pub fn for_level(&self, full_width: usize, level_width: usize) -> Self {
+        let scale = if full_width == 0 || level_width == 0 {
+            1.0f32
+        } else {
+            full_width as f32 / level_width as f32
+        };
+
+        let mut params = self.clone();
+
+        let scale_spacing = |value: f32| -> f32 {
+            if !value.is_finite() {
+                return value;
+            }
+            let scaled = value / scale;
+            if scaled.is_finite() {
+                scaled.max(0.05)
+            } else {
+                value
+            }
+        };
+
+        let scale_width = |value: f32| -> f32 {
+            if !value.is_finite() {
+                return value;
+            }
+            let scaled = value / scale;
+            if scaled.is_finite() {
+                scaled.max(0.5)
+            } else {
+                value
+            }
+        };
+
+        params.delta_s = scale_spacing(self.delta_s);
+        params.delta_t = scale_spacing(self.delta_t);
+        params.w_perp = scale_width(self.w_perp);
+        params.pad = scale_width(self.pad);
+        params
+    }
+}
+
 /// Outcome of a refinement attempt.
 #[derive(Clone, Debug)]
 pub struct RefineResult {

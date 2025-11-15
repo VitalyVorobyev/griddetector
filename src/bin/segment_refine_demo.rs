@@ -201,6 +201,7 @@ fn run_refinement_levels(
     let mut levels_report: Vec<SegmentRefineLevel> = Vec::new();
     let mut refine_total_ms = 0.0f64;
     let mut current_segments: Vec<Segment> = source_segments.to_vec();
+    let full_width = pyramid.levels.first().map(|lvl| lvl.w).unwrap_or(0);
 
     for coarse_idx in (1..pyramid.levels.len()).rev() {
         let finer_idx = coarse_idx - 1;
@@ -208,6 +209,7 @@ fn run_refinement_levels(
         let finer_level = &pyramid.levels[finer_idx];
         let coarse_level = &pyramid.levels[coarse_idx];
         let scale_map = level_scale_map(coarse_level, finer_level);
+        let level_params = refine_params.for_level(full_width, finer_level.w);
         let mut refined_segments = Vec::with_capacity(current_segments.len());
         let mut samples = Vec::with_capacity(current_segments.len());
         let mut accepted = 0usize;
@@ -217,7 +219,7 @@ fn run_refinement_levels(
             let grad_view = match segment::segment_roi_from_points(
                 scale_map.up(seg.p0),
                 scale_map.up(seg.p1),
-                refine_params.pad,
+                level_params.pad,
                 finer_level.w,
                 finer_level.h,
             )
@@ -237,7 +239,7 @@ fn run_refinement_levels(
                 gy: grad_view.gy,
                 level_index: finer_idx,
             };
-            let result = segment::refine_segment(&grad_level, seg, &scale_map, refine_params);
+            let result = segment::refine_segment(&grad_level, seg, &scale_map, &level_params);
             let ok = result.ok;
             if ok {
                 accepted += 1;

@@ -54,6 +54,8 @@ pub fn refine_coarsest_with_gradients(
         level_index: coarse_idx,
     };
     let scale_map = LevelScaleMap::new(1.0, 1.0);
+    let full_width = pyramid.levels.first().map(|lvl| lvl.w).unwrap_or(level.w);
+    let level_params = params.for_level(full_width, level.w);
 
     let refine_start = Instant::now();
     let mut refined = Vec::with_capacity(segments.len());
@@ -62,7 +64,7 @@ pub fn refine_coarsest_with_gradients(
     let mut movement_acc = 0.0f32;
 
     for seg in segments {
-        let result = segment::refine_segment(&grad_level, seg, &scale_map, params);
+        let result = segment::refine_segment(&grad_level, seg, &scale_map, &level_params);
         let movement = average_endpoint_movement(seg, &result.seg);
         if result.ok {
             accepted += 1;
