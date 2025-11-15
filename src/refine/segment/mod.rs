@@ -10,6 +10,9 @@
 
 mod endpoints;
 mod fit;
+#[cfg(feature = "profile_refine")]
+mod profile;
+pub mod roi;
 mod sampling;
 pub mod types;
 
@@ -18,31 +21,13 @@ use crate::angle::angle_between;
 use crate::segments::Segment;
 use endpoints::refine_endpoints;
 use fit::{distance, project_point_to_line, weighted_line_fit};
+#[cfg(feature = "profile_refine")]
+pub use profile::{take_profile, LevelProfile};
+pub use roi::IntBounds;
 use sampling::search_along_normal;
-pub use types::{PyramidLevel, RefineParams, RefineResult, ScaleMap};
+pub use types::{PyramidLevel, RefineParams, RefineResult, ScaleMap, SegmentRoi};
 
 const EPS: f32 = 1e-6;
-
-/// Axis-aligned region of interest around the current segment.
-#[derive(Clone, Copy, Debug)]
-struct Roi {
-    x0: f32,
-    y0: f32,
-    x1: f32,
-    y1: f32,
-}
-
-impl Roi {
-    #[inline]
-    fn contains(&self, p: &[f32; 2]) -> bool {
-        p[0] >= self.x0 && p[0] <= self.x1 && p[1] >= self.y0 && p[1] <= self.y1
-    }
-
-    #[inline]
-    fn clamp_inside(&self, p: [f32; 2]) -> [f32; 2] {
-        [p[0].clamp(self.x0, self.x1), p[1].clamp(self.y0, self.y1)]
-    }
-}
 
 /// Snapshot produced by the outer carrier update loop.
 #[derive(Clone, Debug)]
@@ -51,7 +36,7 @@ struct IterationSnapshot {
     mu: [f32; 2],
     normal: [f32; 2],
     total_centers: usize,
-    roi: Roi,
+    roi: SegmentRoi,
 }
 
 /// Refine a coarse-level segment using gradient support on the finer level.
@@ -82,7 +67,7 @@ pub fn refine_segment(
         return RefineResult::failed(fallback);
     }
 
-    let Some(roi) = compute_roi(&seg, params.pad, lvl.width, lvl.height) else {
+    let Some(roi) = compute_roi(&seg, params.pad, lvl.width, lvl.height, lvl.level_index) else {
         return RefineResult::failed(fallback);
     };
 
@@ -129,23 +114,43 @@ pub fn refine_segment(
     }
 }
 
-fn compute_roi(seg: &Segment, pad: f32, width: usize, height: usize) -> Option<Roi> {
-    let (mut min_x, mut max_x) = (seg.p0[0].min(seg.p1[0]), seg.p0[0].max(seg.p1[0]));
-    let (mut min_y, mut max_y) = (seg.p0[1].min(seg.p1[1]), seg.p0[1].max(seg.p1[1]));
+#[cfg_attr(not(feature = "profile_refine"), allow(unused_variables))]
+pub(crate) fn compute_roi(
+    seg: &Segment,
+    pad: f32,
+    width: usize,
+    height: usize,
+    level_index: usize,
+) -> Option<SegmentRoi> {
+    let roi = segment_roi_from_points(seg.p0, seg.p1, pad, width, height)?;
+    #[cfg(feature = "profile_refine")]
+    profile::record_roi(level_index, &roi);
+    Some(roi)
+}
+
+pub fn segment_roi_from_points(
+    p0: [f32; 2],
+    p1: [f32; 2],
+    pad: f32,
+    width: usize,
+    height: usize,
+) -> Option<SegmentRoi> {
+    let (mut min_x, mut max_x) = (p0[0].min(p1[0]), p0[0].max(p1[0]));
+    let (mut min_y, mut max_y) = (p0[1].min(p1[1]), p0[1].max(p1[1]));
     min_x -= pad;
     max_x += pad;
     min_y -= pad;
     max_y += pad;
     let w = width as f32;
     let h = height as f32;
-    min_x = min_x.clamp(0.0, w - 1.0);
-    max_x = max_x.clamp(0.0, w - 1.0);
-    min_y = min_y.clamp(0.0, h - 1.0);
-    max_y = max_y.clamp(0.0, h - 1.0);
+    min_x = min_x.clamp(0.0, (w - 1.0).max(0.0));
+    max_x = max_x.clamp(0.0, (w - 1.0).max(0.0));
+    min_y = min_y.clamp(0.0, (h - 1.0).max(0.0));
+    max_y = max_y.clamp(0.0, (h - 1.0).max(0.0));
     if min_x >= max_x || min_y >= max_y {
         None
     } else {
-        Some(Roi {
+        Some(SegmentRoi {
             x0: min_x,
             y0: min_y,
             x1: max_x,
@@ -157,7 +162,7 @@ fn compute_roi(seg: &Segment, pad: f32, width: usize, height: usize) -> Option<R
 fn run_iterations(
     lvl: &PyramidLevel<'_>,
     seg0: &Segment,
-    roi: &Roi,
+    roi: &SegmentRoi,
     params: &RefineParams,
     w_perp: f32,
 ) -> Option<IterationSnapshot> {
@@ -227,7 +232,7 @@ mod tests {
     #[test]
     fn roi_rejects_degenerate_segments() {
         let seg = Segment::new(SegmentId(1), [10.0, 10.0], [10.1, 10.1], 1.0, 1.0);
-        assert!(compute_roi(&seg, 0.0, 32, 32).is_some());
-        assert!(compute_roi(&seg, 0.0, 1, 1).is_none());
+        assert!(compute_roi(&seg, 0.0, 32, 32, 0).is_some());
+        assert!(compute_roi(&seg, 0.0, 1, 1, 0).is_none());
     }
 }

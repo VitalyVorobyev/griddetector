@@ -4,12 +4,44 @@ use crate::segments::Segment;
 use serde::Deserialize;
 
 /// Single pyramid level with precomputed Sobel/Scharr gradients.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct PyramidLevel<'a> {
+    /// Full-resolution width of the level (global coordinates).
     pub width: usize,
+    /// Full-resolution height of the level (global coordinates).
     pub height: usize,
+    /// Left/top origin of the gradient tile within the full-resolution level.
+    pub origin_x: usize,
+    pub origin_y: usize,
+    /// Width/height of the gradient tile.
+    pub tile_width: usize,
+    pub tile_height: usize,
+    /// Horizontal and vertical derivatives stored for the tile.
     pub gx: &'a [f32],
     pub gy: &'a [f32],
+    /// Pyramid level index (0 = finest).
+    pub level_index: usize,
+}
+
+/// Axis-aligned region of interest around a segment in full-resolution coordinates.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SegmentRoi {
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+}
+
+impl SegmentRoi {
+    #[inline]
+    pub fn contains(&self, p: &[f32; 2]) -> bool {
+        p[0] >= self.x0 && p[0] <= self.x1 && p[1] >= self.y0 && p[1] <= self.y1
+    }
+
+    #[inline]
+    pub fn clamp_inside(&self, p: [f32; 2]) -> [f32; 2] {
+        [p[0].clamp(self.x0, self.x1), p[1].clamp(self.y0, self.y1)]
+    }
 }
 
 /// Parameters controlling the gradient-driven refinement.

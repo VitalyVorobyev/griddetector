@@ -2,8 +2,8 @@
 
 use super::{
     sampling::bilinear_grad,
-    types::{PyramidLevel, RefineParams},
-    IterationSnapshot, Roi, EPS,
+    types::{PyramidLevel, RefineParams, SegmentRoi},
+    IterationSnapshot, EPS,
 };
 
 pub(super) fn refine_endpoints(
@@ -219,7 +219,7 @@ fn refine_endpoint(
     }
 }
 
-fn line_rect_intersection(mu: &[f32; 2], d: &[f32; 2], roi: &Roi) -> Option<(f32, f32)> {
+fn line_rect_intersection(mu: &[f32; 2], d: &[f32; 2], roi: &SegmentRoi) -> Option<(f32, f32)> {
     let mut rs = Vec::new();
     let eps = 1e-6f32;
     if d[0].abs() > eps {
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn line_rect_intersection_basic() {
-        let roi = Roi {
+        let roi = SegmentRoi {
             x0: 0.0,
             y0: 0.0,
             x1: 10.0,

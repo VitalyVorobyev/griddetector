@@ -17,10 +17,13 @@ use grid_detector::diagnostics::{
 use grid_detector::image::io::{
     load_grayscale_image, save_grayscale_f32, write_json_file, GrayImageU8,
 };
-use grid_detector::image::{ImageF32, ImageView};
+use grid_detector::image::ImageF32;
 use grid_detector::lsd_vp::{analyze_families, FamilyAssignments};
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
-use grid_detector::refine::segment::{self, PyramidLevel as SegmentGradientLevel};
+use grid_detector::refine::segment::roi::roi_to_int_bounds;
+#[cfg(feature = "profile_refine")]
+use grid_detector::refine::segment::take_profile;
+use grid_detector::refine::segment::{self, PyramidLevel as SegmentGradientLevel, ScaleMap};
 use grid_detector::segments::{lsd_extract_segments, Segment};
 use std::env;
 use std::fs;
@@ -87,12 +90,24 @@ fn run() -> Result<(), String> {
     }
     if pyramid_ms > 0.0 {
         timings.push("pyramid", pyramid_ms);
+        println!("Pyramid built in {:.2} ms", pyramid_ms);
     }
     if lsd_stage.elapsed_ms > 0.0 {
         timings.push("lsd", lsd_stage.elapsed_ms);
+        println!(
+            "LSD detected {} segments in {:.2} ms",
+            lsd_segments.len(),
+            lsd_stage.elapsed_ms
+        );
     }
     if refine_total_ms > 0.0 {
         timings.push("segment_refine", refine_total_ms);
+        println!(
+            "Refined {} segments over {} levels in {:.2} ms",
+            lsd_segments.len(),
+            levels_report.len(),
+            refine_total_ms
+        );
     }
 
     let stage = SegmentRefineStage {
@@ -191,30 +206,37 @@ fn run_refinement_levels(
         let finer_idx = coarse_idx - 1;
         let refine_start = Instant::now();
         let finer_level = &pyramid.levels[finer_idx];
-        let grad = workspace.scharr_gradients(finer_idx, finer_level);
-        let gx = grad
-            .gx
-            .as_slice()
-            .ok_or_else(|| format!("Gradient buffer at level {finer_idx} is not contiguous"))?;
-        let gy = grad
-            .gy
-            .as_slice()
-            .ok_or_else(|| format!("Gradient buffer at level {finer_idx} is not contiguous"))?;
-        let grad_level = SegmentGradientLevel {
-            width: finer_level.w,
-            height: finer_level.h,
-            gx,
-            gy,
-        };
         let coarse_level = &pyramid.levels[coarse_idx];
         let scale_map = level_scale_map(coarse_level, finer_level);
-
         let mut refined_segments = Vec::with_capacity(current_segments.len());
         let mut samples = Vec::with_capacity(current_segments.len());
         let mut accepted = 0usize;
         let mut score_sum = 0.0f32;
 
         for seg in &current_segments {
+            let grad_view = match segment::segment_roi_from_points(
+                scale_map.up(seg.p0),
+                scale_map.up(seg.p1),
+                refine_params.pad,
+                finer_level.w,
+                finer_level.h,
+            )
+            .and_then(|roi| roi_to_int_bounds(&roi, finer_level.w, finer_level.h))
+            {
+                Some(bounds) => workspace.scharr_gradients_window(finer_idx, finer_level, &bounds),
+                None => workspace.scharr_gradients_full(finer_idx, finer_level),
+            };
+            let grad_level = SegmentGradientLevel {
+                width: finer_level.w,
+                height: finer_level.h,
+                origin_x: grad_view.origin_x,
+                origin_y: grad_view.origin_y,
+                tile_width: grad_view.tile_width,
+                tile_height: grad_view.tile_height,
+                gx: grad_view.gx,
+                gy: grad_view.gy,
+                level_index: finer_idx,
+            };
             let result = segment::refine_segment(&grad_level, seg, &scale_map, refine_params);
             let ok = result.ok;
             if ok {
@@ -238,6 +260,10 @@ fn run_refinement_levels(
         }
 
         let elapsed_ms = refine_start.elapsed().as_secs_f64() * 1000.0;
+        println!(
+            "Refinement for level {} took {:.2} ms",
+            finer_idx, elapsed_ms
+        );
         refine_total_ms += elapsed_ms;
         let acceptance_ratio = (!current_segments.is_empty())
             .then_some(accepted as f32 / current_segments.len() as f32);
@@ -255,6 +281,9 @@ fn run_refinement_levels(
         });
 
         current_segments = refined_segments;
+
+        #[cfg(feature = "profile_refine")]
+        dump_refine_profile(workspace);
     }
 
     Ok((levels_report, refine_total_ms))
@@ -289,4 +318,28 @@ fn level_scale_map(coarse: &ImageF32, fine: &ImageF32) -> LevelScaleMap {
         fine.h as f32 / coarse.h as f32
     };
     LevelScaleMap::new(sx, sy)
+}
+
+#[cfg(feature = "profile_refine")]
+fn dump_refine_profile(workspace: &DetectorWorkspace) {
+    let profile = take_profile();
+    if profile.is_empty() {
+        return;
+    }
+    println!("Segment refine profile:");
+    for entry in profile {
+        if entry.roi_count == 0 && entry.bilinear_samples == 0 {
+            continue;
+        }
+        let avg_roi = if entry.roi_count > 0 {
+            entry.roi_area_px / entry.roi_count as f64
+        } else {
+            0.0
+        };
+        let grad_ms = workspace.gradient_time_ms(entry.level_index).unwrap_or(0.0);
+        println!(
+            "  L{}: grad_ms={:.2} roi_count={} avg_roi_px={:.1} bilinear_samples={}",
+            entry.level_index, grad_ms, entry.roi_count, avg_roi, entry.bilinear_samples
+        );
+    }
 }

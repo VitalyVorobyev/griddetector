@@ -1,10 +1,16 @@
 //! Gradient sampling along the carrier normal.
 
-use super::{fit::SupportPoint, types::PyramidLevel, types::RefineParams, Roi, EPS};
+#[cfg(feature = "profile_refine")]
+use super::profile;
+use super::{
+    fit::SupportPoint,
+    types::{PyramidLevel, RefineParams, SegmentRoi},
+    EPS,
+};
 
 pub(crate) fn search_along_normal(
     lvl: &PyramidLevel<'_>,
-    roi: &Roi,
+    roi: &SegmentRoi,
     center: &[f32; 2],
     normal: &[f32; 2],
     params: &RefineParams,
@@ -59,13 +65,15 @@ pub(crate) fn bilinear_grad(lvl: &PyramidLevel<'_>, x: f32, y: f32) -> Option<(f
     if !x.is_finite() || !y.is_finite() {
         return None;
     }
-    if x < 0.0 || y < 0.0 {
+    let x_rel = x - lvl.origin_x as f32;
+    let y_rel = y - lvl.origin_y as f32;
+    if x_rel < 0.0 || y_rel < 0.0 {
         return None;
     }
-    let w = lvl.width as isize;
-    let h = lvl.height as isize;
-    let xf = x.floor();
-    let yf = y.floor();
+    let w = lvl.tile_width as isize;
+    let h = lvl.tile_height as isize;
+    let xf = x_rel.floor();
+    let yf = y_rel.floor();
     let x0 = xf as isize;
     let y0 = yf as isize;
     let x1 = x0 + 1;
@@ -73,9 +81,11 @@ pub(crate) fn bilinear_grad(lvl: &PyramidLevel<'_>, x: f32, y: f32) -> Option<(f
     if x1 >= w || y1 >= h {
         return None;
     }
-    let tx = x - xf;
-    let ty = y - yf;
-    let idx = |xx: isize, yy: isize| -> usize { (yy as usize) * lvl.width + (xx as usize) };
+    #[cfg(feature = "profile_refine")]
+    profile::record_sample(lvl.level_index);
+    let tx = x_rel - xf;
+    let ty = y_rel - yf;
+    let idx = |xx: isize, yy: isize| -> usize { (yy as usize) * lvl.tile_width + (xx as usize) };
     let gx00 = lvl.gx[idx(x0, y0)];
     let gx10 = lvl.gx[idx(x1, y0)];
     let gx01 = lvl.gx[idx(x0, y1)];
@@ -97,7 +107,7 @@ pub(crate) fn bilinear_grad(lvl: &PyramidLevel<'_>, x: f32, y: f32) -> Option<(f
 
 fn quadratic_refine(
     lvl: &PyramidLevel<'_>,
-    roi: &Roi,
+    roi: &SegmentRoi,
     center: &[f32; 2],
     normal: &[f32; 2],
     delta_t: f32,
@@ -145,8 +155,13 @@ mod tests {
         let lvl = PyramidLevel {
             width: 4,
             height: 4,
+            origin_x: 0,
+            origin_y: 0,
+            tile_width: 4,
+            tile_height: 4,
             gx: &[0.0; 16],
             gy: &[0.0; 16],
+            level_index: 0,
         };
         assert!(bilinear_grad(&lvl, -1.0, 0.0).is_none());
         assert!(bilinear_grad(&lvl, 3.5, 3.5).is_none());
