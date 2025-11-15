@@ -40,21 +40,10 @@ fn run_with_timer<R, F: FnOnce() -> Result<R, String>>(f: F) -> Result<ResultWit
 }
 
 fn main() {
-    let run_perf = run_with_timer(|| {
-        if let Err(err) = run() {
-            eprintln!("Error: {err}");
-            std::process::exit(1);
-        } else {
-            Ok(())
-        }
-    });
-    println!(
-        "Total execution time: {:.2} ms",
-        match run_perf {
-            Ok(r) => r.elapsed_ms,
-            Err(_) => 0.0,
-        }
-    );
+    run().unwrap_or_else(|err| {
+        eprintln!("Error: {err}");
+        std::process::exit(1);
+    })
 }
 
 struct ResultWithTime<R> {
@@ -65,12 +54,13 @@ struct ResultWithTime<R> {
 fn run() -> Result<(), String> {
     let config = load_config_from_args()?;
     ensure_output_dir(&config)?;
-    let total_start = Instant::now();
 
     let ResultWithTime {
         result: gray,
         elapsed_ms: load_ms,
     } = run_with_timer(|| load_grayscale_image(&config.input))?;
+
+    let total_start = Instant::now();
 
     let (pyramid, pyramid_stage, pyramid_ms) = build_pyramid_stage(&gray, &config)?;
     save_pyramid_images(&pyramid, &config.output.dir)?;
@@ -125,6 +115,8 @@ fn run() -> Result<(), String> {
         "Segment refinement report written to {}",
         report_path.display()
     );
+
+    println!("Total execution time: {:.2} ms", total_ms);
 
     Ok(())
 }
