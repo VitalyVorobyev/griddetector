@@ -7,7 +7,7 @@ Below is a concrete proposal you can start implementing.
 1. Where the project is now (from the outside)
 
 From README + docs and exports in lib.rs, the current picture looks like this:
-	•	Single crate griddetector, library name grid_detector, crate-type rlib + cdylib, plus binaries grid_demo and lsd_vp_demo.  ￼
+	•	Single crate griddetector, library name grid_detector, crate-type rlib + cdylib, plus binaries grid_demo.  ￼
 	•	Modules documented in doc/: image, pyramid, edges, segments, lsd_vp, refine, detector, types, diagnostics, homography, config, angle.  ￼
 	•	lib.rs re-exports a lot of stuff at the crate root: the detector, params, workspace, homography helpers, result types, and a big block of diagnostic stage types.  ￼
 	•	Algorithmically (in docs):
@@ -68,7 +68,6 @@ src/
     grid_demo.rs
     coarse_edges.rs
     coarse_segments.rs
-    lsd_vp_demo.rs
     vp_outlier_demo.rs
 
 Key ideas:
@@ -104,7 +103,7 @@ Crates:
 	•	Depends on grid-core.
 	•	Exposes the main Rust API surface for detection and diagnostics.
 	3.	grid-cli
-	•	All binaries (moved from root crate): grid_demo, lsd_vp_demo, coarse_edges, etc.
+	•	All binaries (moved from root crate): grid_demo, coarse_edges, etc.
 	•	Depends on grid-algo.
 	•	Reads JSON configs, writes JSON diagnostics/images.
 	4.	(Optional later) grid-ffi
@@ -306,7 +305,6 @@ Phase 4 – Examples & diagnostics for real work
 	1.	Curate demo binaries:
 	•	coarse_edges
 	•	coarse_segments
-	•	lsd_vp_demo
 	•	vp_outlier_demo
 	•	grid_demo (full pipeline)
 	2.	For each binary:

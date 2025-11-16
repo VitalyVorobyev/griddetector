@@ -54,13 +54,6 @@ cargo run --release --bin coarse_edges config/coarse_edges.json
 cargo run --release --bin coarse_segments config/coarse_segments.json
 ```
 
-LSD→VP coarse hypothesis demo (writes the coarsest-level image and a JSON report with
-segment families and the estimated projective basis):
-
-```sh
-cargo run --release --bin lsd_vp_demo config/lsd_vp_demo_sample.json
-```
-
 VP outlier classification and single-level refinement demo (produces per-segment labels,
 coarse/refined models, and timing metrics):
 
