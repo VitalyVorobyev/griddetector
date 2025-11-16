@@ -14,6 +14,12 @@ pub struct StaticSeparableFilter {
     taps: &'static [f32],
 }
 
+impl Default for StaticSeparableFilter {
+    fn default() -> Self {
+        GAUSSIAN_5TAP
+    }
+}
+
 impl StaticSeparableFilter {
     pub const fn new(taps: &'static [f32]) -> Self {
         Self { taps }
@@ -33,7 +39,7 @@ pub const GAUSSIAN_5TAP: StaticSeparableFilter =
 
 /// Apply a separable filter to `input`, returning a new `ImageF32` with the
 /// same dimensions. Border handling clamps to the valid range.
-pub fn apply(filter: &dyn SeparableFilter, input: &ImageF32) -> ImageF32 {
+pub fn apply(filter: StaticSeparableFilter, input: &ImageF32) -> ImageF32 {
     let w = input.w;
     let h = input.h;
     let taps = filter.taps();

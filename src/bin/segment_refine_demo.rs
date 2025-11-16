@@ -7,7 +7,6 @@
 //! 4. Refine the segments down the pyramid using only local gradients.
 //! 5. Emit diagnostics identical to the pipeline (pyramid, LSD stage, refinement levels).
 
-use grid_detector::config::segment_refine_demo as seg_cfg;
 use grid_detector::detector::{DetectorWorkspace, LevelScaleMap};
 use grid_detector::diagnostics::builders::compute_family_counts;
 use grid_detector::diagnostics::{
@@ -21,14 +20,45 @@ use grid_detector::image::ImageF32;
 use grid_detector::lsd_vp::{analyze_families, FamilyAssignments};
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
 use grid_detector::refine::segment::roi::roi_to_int_bounds;
+use grid_detector::refine::segment::RefineParams as SegmentRefineParams;
+use grid_detector::segments::LsdOptions;
+
 #[cfg(feature = "profile_refine")]
 use grid_detector::refine::segment::take_profile;
 use grid_detector::refine::segment::{self, PyramidLevel as SegmentGradientLevel, ScaleMap};
 use grid_detector::segments::{lsd_extract_segments, Segment};
+use serde::Deserialize;
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
+
+#[derive(Debug, Deserialize)]
+pub struct SegmentRefineDemoConfig {
+    #[serde(rename = "input")]
+    pub input: PathBuf,
+    pub pyramid: PyramidOptions,
+    #[serde(default)]
+    pub lsd: LsdOptions,
+    #[serde(default)]
+    pub refine: SegmentRefineParams,
+    #[serde(default)]
+    pub performance_mode: bool,
+    pub output: SegmentRefineDemoOutputConfig,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SegmentRefineDemoOutputConfig {
+    #[serde(rename = "dir")]
+    pub dir: PathBuf,
+}
+
+pub fn load_config(path: &Path) -> Result<SegmentRefineDemoConfig, String> {
+    let data = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read config {}: {e}", path.display()))?;
+    serde_json::from_str(&data)
+        .map_err(|e| format!("Failed to parse config {}: {e}", path.display()))
+}
 
 /// Run a closure while timing its execution and reporting the elapsed time. Should return the same
 /// result as the closure.
@@ -72,12 +102,11 @@ fn run() -> Result<(), String> {
     workspace.reset(pyramid.levels.len());
 
     let (lsd_segments, lsd_stage, lsd_elapsed_ms) = run_lsd_demo(&pyramid, &config)?;
-    let refine_params = config.refine.resolve();
     let (levels_report, refine_total_ms) = run_refinement_levels(
         &pyramid,
         &mut workspace,
         &lsd_segments,
-        &refine_params,
+        &config.refine,
         diagnostics_enabled,
     )?;
 
@@ -146,19 +175,19 @@ fn usage() -> String {
     "Usage: segment_refine_demo <config.json>".to_string()
 }
 
-fn load_config_from_args() -> Result<seg_cfg::SegmentRefineDemoConfig, String> {
+fn load_config_from_args() -> Result<SegmentRefineDemoConfig, String> {
     let config_path = env::args().nth(1).ok_or_else(usage)?;
-    seg_cfg::load_config(Path::new(&config_path))
+    load_config(Path::new(&config_path))
 }
 
-fn ensure_output_dir(config: &seg_cfg::SegmentRefineDemoConfig) -> Result<(), String> {
+fn ensure_output_dir(config: &SegmentRefineDemoConfig) -> Result<(), String> {
     fs::create_dir_all(&config.output.dir)
         .map_err(|e| format!("Failed to create {}: {e}", config.output.dir.display()))
 }
 
 fn build_pyramid_stage(
     gray: &GrayImageU8,
-    config: &seg_cfg::SegmentRefineDemoConfig,
+    config: &SegmentRefineDemoConfig,
 ) -> Result<(Pyramid, Option<PyramidStage>, f64), String> {
     let levels = config.pyramid.levels.max(1);
     let pyramid_opts = PyramidOptions::new(levels).with_blur_levels(config.pyramid.blur_levels);
@@ -184,7 +213,7 @@ fn save_pyramid_images(pyramid: &Pyramid, out_dir: &Path) -> Result<(), String> 
 
 fn run_lsd_demo(
     pyramid: &Pyramid,
-    config: &seg_cfg::SegmentRefineDemoConfig,
+    config: &SegmentRefineDemoConfig,
 ) -> Result<(Vec<Segment>, Option<LsdStage>, f64), String> {
     let coarsest_index = pyramid
         .levels

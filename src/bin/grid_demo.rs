@@ -1,12 +1,35 @@
-use grid_detector::config::grid::{self};
+use grid_detector::detector::GridParams;
 use grid_detector::diagnostics::DetectionReport;
 use grid_detector::image::io::{
     load_grayscale_image, save_grayscale_f32, write_json_file, GrayImageU8,
 };
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
 use grid_detector::GridDetector;
+use serde::Deserialize;
 use std::env;
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+#[derive(Clone, Default, Deserialize)]
+pub struct OutputConfig {
+    pub json_out: Option<PathBuf>,
+    pub debug_dir: Option<PathBuf>,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct RuntimeConfig {
+    pub input_path: PathBuf,
+    pub output: OutputConfig,
+    pub grid_params: GridParams,
+}
+
+pub fn load_config(path: &Path) -> Result<RuntimeConfig, String> {
+    let contents = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read config {}: {e}", path.display()))?;
+    let config: RuntimeConfig = serde_json::from_str(&contents)
+        .map_err(|e| format!("Failed to parse config {}: {e}", path.display()))?;
+    Ok(config)
+}
 
 fn main() {
     if let Err(err) = run() {
@@ -17,7 +40,7 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let config_path = env::args().nth(1).ok_or_else(usage)?;
-    let config = grid::load_config(Path::new(&config_path))?;
+    let config = load_config(Path::new(&config_path))?;
 
     let gray = load_grayscale_image(&config.input_path)?;
     let image = gray.as_view();

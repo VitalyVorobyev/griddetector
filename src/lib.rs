@@ -10,7 +10,6 @@ pub mod types;
 // “Expert” modules – still public, but considered unstable internals.
 // (You can tighten or feature-gate these later.)
 pub mod angle;
-pub mod config;
 pub mod edges;
 pub mod lsd_vp;
 pub mod pyramid;

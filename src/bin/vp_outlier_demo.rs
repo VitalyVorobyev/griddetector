@@ -1,13 +1,66 @@
-use grid_detector::config::vp_outlier_demo as cfg;
-use grid_detector::config::vp_outlier_demo::VpOutlierDemoConfig;
+use grid_detector::detector::{BundlingParams, OutlierFilterParams};
 use grid_detector::image::io::{
     load_grayscale_image, save_grayscale_f32, write_json_file, GrayImageU8,
 };
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
+use grid_detector::refine::RefineParams;
+use grid_detector::segments::LsdOptions;
 use grid_detector::{GridDetector, GridParams};
+use serde::Deserialize;
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Deserialize)]
+pub struct VpOutlierDemoConfig {
+    #[serde(rename = "input")]
+    pub input: PathBuf,
+    pub pyramid: PyramidOptions,
+    #[serde(default)]
+    pub lsd: LsdOptions,
+    #[serde(default)]
+    pub outlier: OutlierFilterParams,
+    #[serde(default)]
+    pub bundling: BundlingParams,
+    #[serde(default)]
+    pub refine: RefineParams,
+    pub output: DemoOutputConfig,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DemoOutputConfig {
+    #[serde(rename = "dir")]
+    pub dir: PathBuf,
+    #[serde(rename = "coarsest_image")]
+    pub coarsest_image: PathBuf,
+    #[serde(rename = "result_json")]
+    pub result_json: PathBuf,
+}
+
+impl DemoOutputConfig {
+    pub fn coarsest_path(&self) -> PathBuf {
+        resolve_path(&self.dir, &self.coarsest_image)
+    }
+
+    pub fn result_path(&self) -> PathBuf {
+        resolve_path(&self.dir, &self.result_json)
+    }
+}
+
+pub fn load_config(path: &Path) -> Result<VpOutlierDemoConfig, String> {
+    let data = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read config {}: {e}", path.display()))?;
+    serde_json::from_str(&data)
+        .map_err(|e| format!("Failed to parse config {}: {e}", path.display()))
+}
+
+fn resolve_path(base_dir: &Path, path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base_dir.join(path)
+    }
+}
 
 fn main() {
     if let Err(err) = run() {
@@ -28,7 +81,7 @@ fn build_pyramid_save_coarsest_image(
 
 fn run() -> Result<(), String> {
     let config_path = env::args().nth(1).ok_or_else(usage)?;
-    let config = cfg::load_config(Path::new(&config_path))?;
+    let config = load_config(Path::new(&config_path))?;
 
     fs::create_dir_all(&config.output.dir)
         .map_err(|e| format!("Failed to create {}: {e}", config.output.dir.display()))?;
@@ -57,7 +110,7 @@ fn usage() -> String {
     "Usage: vp_outlier_demo <config.json>".to_string()
 }
 
-fn build_pyramid_options(config: &VpOutlierDemoConfig, levels: usize) -> PyramidOptions<'static> {
+fn build_pyramid_options(config: &VpOutlierDemoConfig, levels: usize) -> PyramidOptions {
     PyramidOptions::new(levels).with_blur_levels(config.pyramid.blur_levels)
 }
 

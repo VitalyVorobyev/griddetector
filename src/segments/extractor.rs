@@ -1,7 +1,7 @@
 use super::region_accumulator::RegionAccumulator;
 use super::types::{LsdOptions, Segment, SegmentId};
 use crate::angle::{angular_difference, normalize_half_pi};
-use crate::edges::{sobel_gradients, Grad};
+use crate::edges::{scharr_gradients, Grad};
 use crate::image::ImageF32;
 use nalgebra::{Matrix2, SymmetricEigen};
 
@@ -34,7 +34,7 @@ pub(super) struct LsdExtractor<'a> {
 
 impl<'a> LsdExtractor<'a> {
     pub(super) fn new(l: &ImageF32, options: LsdOptions, mask: Option<&'a [u8]>) -> Self {
-        let grad = sobel_gradients(l);
+        let grad = scharr_gradients(l);
         let width = l.w;
         let height = l.h;
         let n = width * height;

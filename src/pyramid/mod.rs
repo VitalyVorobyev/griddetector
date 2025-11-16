@@ -6,62 +6,20 @@
 //! to the image extents, matching the previous implementation.
 
 pub mod filters;
+pub mod types;
 
 use crate::image::{ImageF32, ImageU8, ImageView, ImageViewMut};
-use filters::{apply as apply_filter, SeparableFilter, GAUSSIAN_5TAP};
+use filters::apply as apply_filter;
+pub use types::PyramidOptions;
 
 #[derive(Clone, Debug)]
 pub struct Pyramid {
     pub levels: Vec<ImageF32>,
 }
 
-/// Options controlling pyramid construction.
-#[derive(Clone, Copy)]
-pub struct PyramidOptions<'a> {
-    /// Number of pyramid levels (>= 1).
-    pub levels: usize,
-    /// Number of initial downscale steps that apply the separable filter.
-    ///
-    ///`Some(k)` applies the filter for the first `k` downscale
-    /// operations (e.g. `k >= levels` → blur everywhere).
-    pub blur_levels: usize,
-    /// Filter used for the separable blur stage.
-    pub filter: &'a dyn SeparableFilter,
-}
-
-impl<'a> PyramidOptions<'a> {
-    pub fn new(levels: usize) -> Self {
-        Self {
-            levels,
-            blur_levels: 0,
-            filter: &GAUSSIAN_5TAP,
-        }
-    }
-
-    pub fn with_blur_levels(mut self, blur_levels: usize) -> Self {
-        self.blur_levels = blur_levels;
-        self
-    }
-
-    pub fn with_filter(mut self, filter: &'a dyn SeparableFilter) -> Self {
-        self.filter = filter;
-        self
-    }
-}
-
-impl std::fmt::Debug for PyramidOptions<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PyramidOptions")
-            .field("levels", &self.levels)
-            .field("blur_levels", &self.blur_levels)
-            .field("filter_taps", &self.filter.taps().len())
-            .finish()
-    }
-}
-
 impl Pyramid {
     /// Build a pyramid from an 8-bit grayscale input using the provided options.
-    pub fn build_u8(gray: ImageU8<'_>, options: PyramidOptions<'_>) -> Self {
+    pub fn build_u8(gray: ImageU8<'_>, options: PyramidOptions) -> Self {
         assert!(options.levels >= 1, "pyramid requires at least one level");
         let mut levels = Vec::with_capacity(options.levels);
         levels.push(convert_l0(gray));

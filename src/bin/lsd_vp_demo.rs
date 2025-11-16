@@ -1,4 +1,3 @@
-use grid_detector::config::lsd_vp;
 use grid_detector::diagnostics::builders::run_lsd_stage;
 use grid_detector::diagnostics::{LsdStage, PyramidStage};
 use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
@@ -6,10 +5,36 @@ use grid_detector::lsd_vp::Engine;
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
 use grid_detector::segments::{lsd_extract_segments, LsdOptions, Segment};
 use nalgebra::Matrix3;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::env;
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
+
+#[derive(Debug, Deserialize)]
+pub struct LsdVpDemoConfig {
+    #[serde(rename = "input")]
+    pub input: PathBuf,
+    pub pyramid: PyramidOptions,
+    #[serde(default)]
+    pub lsd: LsdOptions,
+    pub output: LsdVpOutputConfig,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LsdVpOutputConfig {
+    #[serde(rename = "coarsest_image")]
+    pub coarsest_image: PathBuf,
+    #[serde(rename = "result_json")]
+    pub result_json: PathBuf,
+}
+
+pub fn load_config(path: &Path) -> Result<LsdVpDemoConfig, String> {
+    let data = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read config {}: {e}", path.display()))?;
+    serde_json::from_str(&data)
+        .map_err(|e| format!("Failed to parse config {}: {e}", path.display()))
+}
 
 fn main() {
     if let Err(err) = run() {
@@ -20,7 +45,7 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let config_path = env::args().nth(1).ok_or_else(usage)?;
-    let config = lsd_vp::load_config(Path::new(&config_path))?;
+    let config = load_config(Path::new(&config_path))?;
 
     let gray = load_grayscale_image(&config.input)?;
     let levels = config.pyramid.levels.max(1);
