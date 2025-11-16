@@ -44,7 +44,7 @@ mod reporting;
 use super::params::{BundlingParams, GridParams, OutlierFilterParams};
 use crate::image::ImageU8;
 use crate::pyramid::{Pyramid};
-use crate::refine::segment::RefineParams as SegmentRefineParams;
+use crate::refine::segment::RefineOptions as SegmentRefineParams;
 use crate::segments::{LsdOptions, LsdResult, lsd_extract_segments_coarse};
 use crate::types::GridResult;
 use nalgebra::Matrix3;

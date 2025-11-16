@@ -6,7 +6,7 @@
 //! Defaults aim for robust, real-time behaviour at common resolutions. For
 //! tuning, start with the LSD thresholds and the refinement schedule.
 
-use crate::refine::segment::RefineParams as SegmentRefineParams;
+use crate::refine::segment::RefineOptions as SegmentRefineParams;
 use crate::pyramid::PyramidOptions;
 use crate::segments::LsdOptions;
 use nalgebra::Matrix3;

@@ -3,7 +3,7 @@ mod common;
 use common::synthetic_image::checkerboard_u8;
 use grid_detector::lsd_vp::Engine as LsdVpEngine;
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
-use grid_detector::refine::{RefineLevel, RefineParams, Refiner};
+use grid_detector::refine::{RefineLevel, RefineOptions, Refiner};
 use grid_detector::segments::{bundle_segments, Bundle};
 use nalgebra::Matrix3;
 
@@ -59,7 +59,7 @@ fn refiner_improves_checkerboard_hypothesis() {
     let scale = Matrix3::new(scale_x, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 1.0);
     let h_initial = scale * hypothesis.hmtx0;
 
-    let params = RefineParams {
+    let params = RefineOptions {
         min_bundles_per_family: 2,
         ..Default::default()
     };

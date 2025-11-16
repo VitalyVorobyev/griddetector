@@ -20,7 +20,7 @@ use grid_detector::image::ImageF32;
 use grid_detector::lsd_vp::{analyze_families, FamilyAssignments};
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
 use grid_detector::refine::segment::roi::roi_to_int_bounds;
-use grid_detector::refine::segment::RefineParams as SegmentRefineParams;
+use grid_detector::refine::segment::RefineOptions as SegmentRefineParams;
 use grid_detector::segments::LsdOptions;
 
 #[cfg(feature = "profile_refine")]
@@ -215,7 +215,7 @@ fn run_refinement_levels(
     pyramid: &Pyramid,
     workspace: &mut DetectorWorkspace,
     source_segments: &[Segment],
-    refine_params: &segment::RefineParams,
+    refine_params: &segment::RefineOptions,
     collect_levels: bool,
 ) -> Result<(Vec<SegmentRefineLevel>, f64), String> {
     let mut levels_report: Vec<SegmentRefineLevel> = Vec::new();

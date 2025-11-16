@@ -160,7 +160,7 @@ pub struct GridParams {
     pub pyramid: PyramidParams,
     pub lsd: LsdParams,
     pub vp: VpParams,
-    pub refine: RefineParams,
+    pub refine: RefineOptions,
     pub bundling: BundlingParams,
     pub indexing: IndexingParams,
     pub diagnostics: DiagnosticParams,
@@ -180,7 +180,7 @@ pub struct PipelineConfig {
     pub vp: VpParams,
     pub outlier: OutlierParams,
     pub bundling: BundlingParams,
-    pub refine: RefineParams,
+    pub refine: RefineOptions,
 }
 
 pub struct DetectorWorkspace {
@@ -224,7 +224,7 @@ pub mod image;     // ImageU8, ImageF32
 pub mod pyramid;   // Pyramid, PyramidOptions
 pub mod segments;  // Segment, LsdOptions, etc.
 pub mod vp;        // VpEstimate, etc.
-pub mod refine;    // RefineParams, segment_refine(), homography_refine()
+pub mod refine;    // RefineOptions, segment_refine(), homography_refine()
 
 But don’t re-export every type at crate root; instead provide a small prelude:
 

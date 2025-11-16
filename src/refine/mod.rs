@@ -3,9 +3,6 @@
 //! The `refine` module bundles two complementary refinement routines used by
 //! the grid detector:
 //!
-//! - [`homography`] refines coarse homography hypotheses by re-weighting
-//!   bundled line constraints via an IRLS scheme around vanishing-point
-//!   directions.
 //! - [`segment`] lifts a line segment detected on a coarser pyramid level and
 //!   snaps it to gradient support on the next finer level, performing the
 //!   coarse-to-fine carrier update used by the detector’s refinement cascade.
@@ -18,10 +15,14 @@
 
 const EPS: f32 = 1e-6;
 
-mod anchor;
-mod families;
-mod irls;
-pub mod segment;
-mod types;
+mod endpoints;
+mod fit;
+mod iteration;
+mod options;
+mod refinesegment;
+mod roi;
+mod sampling;
+mod workspace;
 
-pub(crate) use families::split_bundles;
+#[cfg(feature = "profile_refine")]
+mod profile;

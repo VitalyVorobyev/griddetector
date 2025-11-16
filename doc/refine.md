@@ -25,7 +25,7 @@ segments, rebuild bundles, then update the homography.
 ### Segment Refinement (`segment`)
 
 - **Inputs**: gradient buffers for level `l`, a coarse segment from level
-  `l+1`, a `ScaleMap` that lifts coordinates, and `segment::RefineParams`.
+  `l+1`, a `ScaleMap` that lifts coordinates, and `segment::RefineOptions`.
 - **Stages**:
   1. Upscale endpoints and build a padded ROI.
   2. Sample gradients along the segment normal, keeping peaks above the
@@ -65,7 +65,7 @@ vanishing points across the pyramid.
      homography and confidence accumulate across levels.
 - **Outputs**: refined homography `h_refined`, aggregated `confidence`,
   last-level `inlier_ratio`, number of `levels_used`, and per-level diagnostics.
-- **Parameters** (`homography::RefineParams`): orientation tolerance, Huber
+- **Parameters** (`homography::RefineOptions`): orientation tolerance, Huber
   delta, maximum IRLS iterations, and minimum bundles per family.
 
 ### Detector Integration

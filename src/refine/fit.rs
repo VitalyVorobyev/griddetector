@@ -1,6 +1,6 @@
 //! Support point representation and robust carrier fitting utilities.
 
-use super::{types::RefineParams, EPS};
+use super::{options::RefineOptions, EPS};
 
 /// Weighted support sample collected along the carrier normal.
 #[derive(Clone, Copy, Debug)]
@@ -14,7 +14,7 @@ type LineFitResult = ([f32; 2], [f32; 2], f32, [f32; 2]);
 
 pub(crate) fn weighted_line_fit(
     supports: &[SupportPoint],
-    params: &RefineParams,
+    params: &RefineOptions,
 ) -> Option<LineFitResult> {
     let mut sum_w = 0.0;
     let mut mu = [0.0f32, 0.0];

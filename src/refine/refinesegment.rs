@@ -41,42 +41,69 @@
 //!
 //! Typical flow per level:
 //! - The caller builds a [`SegmentRoi`] for each segment in full-image
-//!   coordinates (padding is controlled by [`RefineParams::pad`]).
+//!   coordinates (padding is controlled by [`RefineOptions::pad`]).
 //! - ROIs are optionally merged into a coarse window, or used individually, to
 //!   request a cropped gradient tile from `DetectorWorkspace`.
 //! - `refine_segment` consumes the resulting `PyramidLevel`, sampling
 //!   gradients via `sampling::search_along_normal` and `endpoints::refine_endpoints`
 //!   without concern for how the tile was produced.
 
-mod endpoints;
-mod fit;
-#[cfg(feature = "profile_refine")]
-mod profile;
-pub mod roi;
-mod sampling;
-pub mod types;
-
-use crate::angle::angle_between;
+use super::workspace::PyramidLevel;
+use super::options::RefineOptions;
+use super::iteration::run_iterations;
 
 use crate::segments::Segment;
-use endpoints::refine_endpoints;
-use fit::{distance, project_point_to_line, weighted_line_fit};
+
+use super::endpoints::refine_endpoints;
 #[cfg(feature = "profile_refine")]
-pub use profile::{take_profile, LevelProfile};
-pub use roi::IntBounds;
-use sampling::search_along_normal;
-pub use types::{PyramidLevel, RefineParams, RefineResult, ScaleMap, SegmentRoi};
+use profile::{take_profile, LevelProfile};
+use super::roi::{SegmentRoi, segment_roi_from_points};
 
 const EPS: f32 = 1e-6;
 
-/// Snapshot produced by the outer carrier update loop.
+/// Coordinate mapping from pyramid level `l+1` to level `l`.
+///
+/// Implementors can model pure dyadic scaling, fractional pixel offsets, or
+/// any bespoke decimation geometry used to build the image pyramid.
+pub trait ScaleMap {
+    fn up(&self, p_coarse: [f32; 2]) -> [f32; 2];
+}
+
+/// Outcome of a refinement attempt.
 #[derive(Clone, Debug)]
-struct IterationSnapshot {
-    seg: Segment,
-    mu: [f32; 2],
-    normal: [f32; 2],
-    total_centers: usize,
-    roi: SegmentRoi,
+pub struct RefineResult {
+    /// Refined segment (or the fallback seed when `ok == false`).
+    pub seg: Segment,
+    /// Mean absolute normal-projected gradient across inlier samples.
+    pub score: f32,
+    /// Whether the refinement satisfied the length and score thresholds.
+    pub ok: bool,
+    /// Number of inlier samples supporting the endpoints.
+    pub inliers: usize,
+    /// Total number of centreline samples considered.
+    pub total: usize,
+}
+
+impl RefineResult {
+    pub(crate) fn failed(seg: Segment) -> Self {
+        Self {
+            seg,
+            score: 0.0,
+            ok: false,
+            inliers: 0,
+            total: 0,
+        }
+    }
+
+    pub(crate) fn rejected(seg: Segment, inliers: usize, total: usize, score: f32) -> Self {
+        Self {
+            seg,
+            score,
+            ok: false,
+            inliers,
+            total,
+        }
+    }
 }
 
 /// Refine a coarse-level segment using gradient support on the finer level.
@@ -88,7 +115,7 @@ pub fn refine_segment(
     lvl: &PyramidLevel<'_>,
     seg_coarse: &Segment,
     scale: &dyn ScaleMap,
-    params: &RefineParams,
+    params: &RefineOptions,
 ) -> RefineResult {
     if lvl.width == 0 || lvl.height == 0 {
         return RefineResult::failed(seg_coarse.clone());
@@ -166,102 +193,6 @@ pub(crate) fn compute_roi(
     #[cfg(feature = "profile_refine")]
     profile::record_roi(level_index, &roi);
     Some(roi)
-}
-
-pub fn segment_roi_from_points(
-    p0: [f32; 2],
-    p1: [f32; 2],
-    pad: f32,
-    width: usize,
-    height: usize,
-) -> Option<SegmentRoi> {
-    let (mut min_x, mut max_x) = (p0[0].min(p1[0]), p0[0].max(p1[0]));
-    let (mut min_y, mut max_y) = (p0[1].min(p1[1]), p0[1].max(p1[1]));
-    min_x -= pad;
-    max_x += pad;
-    min_y -= pad;
-    max_y += pad;
-    let w = width as f32;
-    let h = height as f32;
-    min_x = min_x.clamp(0.0, (w - 1.0).max(0.0));
-    max_x = max_x.clamp(0.0, (w - 1.0).max(0.0));
-    min_y = min_y.clamp(0.0, (h - 1.0).max(0.0));
-    max_y = max_y.clamp(0.0, (h - 1.0).max(0.0));
-    if min_x >= max_x || min_y >= max_y {
-        None
-    } else {
-        Some(SegmentRoi {
-            x0: min_x,
-            y0: min_y,
-            x1: max_x,
-            y1: max_y,
-        })
-    }
-}
-
-fn run_iterations(
-    lvl: &PyramidLevel<'_>,
-    seg0: &Segment,
-    roi: &SegmentRoi,
-    params: &RefineParams,
-    w_perp: f32,
-) -> Option<IterationSnapshot> {
-    let mut p0 = seg0.p0;
-    let mut p1 = seg0.p1;
-    let mut last_mu = seg0.midpoint();
-    let mut last_normal = seg0.normal();
-    let mut total_centers = 0usize;
-
-    for _ in 0..params.max_iters.max(1) {
-        let dir = seg0.direction();
-        let normal = seg0.normal();
-        let length = distance(&p0, &p1);
-        let samples = (length / params.delta_s).floor() as usize;
-        let mut n_centers = samples.max(4) + 1;
-        if length < 3.0 {
-            n_centers = 1;
-        }
-        total_centers = n_centers;
-        let mut supports = Vec::with_capacity(n_centers);
-        for i in 0..n_centers {
-            let t = if n_centers <= 1 {
-                0.0
-            } else {
-                (i as f32) / ((n_centers - 1) as f32)
-            };
-            let center = [p0[0] + dir[0] * t * length, p0[1] + dir[1] * t * length];
-            if let Some(support) = search_along_normal(lvl, roi, &center, &normal, params, w_perp) {
-                supports.push(support);
-            }
-        }
-        let supports_needed = usize::min(3, n_centers);
-        if supports.len() < supports_needed {
-            return None;
-        }
-
-        let (d_final, n_final, rho, mu) = weighted_line_fit(&supports, params)?;
-        last_mu = mu;
-        last_normal = n_final;
-
-        let new_p0 = project_point_to_line(&p0, &n_final, rho);
-        let new_p1 = project_point_to_line(&p1, &n_final, rho);
-        let moved = distance(&new_p0, &p0).max(distance(&new_p1, &p1));
-        let angle_diff = angle_between(&dir, &d_final).to_degrees();
-        p0 = new_p0;
-        p1 = new_p1;
-
-        if moved < 0.05 && angle_diff < 0.25 {
-            break;
-        }
-    }
-
-    Some(IterationSnapshot {
-        seg: Segment::new(seg0.id, p0, p1, seg0.avg_mag, seg0.strength),
-        mu: last_mu,
-        normal: last_normal,
-        total_centers,
-        roi: *roi,
-    })
 }
 
 #[cfg(test)]

@@ -2,14 +2,16 @@
 
 use super::{
     sampling::bilinear_grad,
-    types::{PyramidLevel, RefineParams, SegmentRoi},
-    IterationSnapshot, EPS,
+    workspace::PyramidLevel,
+    roi::SegmentRoi,
+    options::RefineOptions,
+    iteration::IterationSnapshot, EPS,
 };
 
 pub(super) fn refine_endpoints(
     snapshot: &IterationSnapshot,
     lvl: &PyramidLevel<'_>,
-    params: &RefineParams,
+    params: &RefineOptions,
 ) -> ([f32; 2], [f32; 2], usize, f32) {
     let seg = &snapshot.seg;
     let mut p0 = seg.p0;

@@ -29,7 +29,7 @@
 //! coordinates while gradient lookups operate inside the cropped tile.
 use crate::edges::grad::scharr_gradients_window_into;
 use crate::image::ImageF32;
-use crate::refine::segment::roi::IntBounds;
+use crate::refine::roi::IntBounds;
 #[cfg(feature = "profile_refine")]
 use std::time::Instant;
 
@@ -199,4 +199,41 @@ impl DetectorWorkspace {
     pub fn gradient_time_ms(&self, level_idx: usize) -> Option<f64> {
         self.grad_timings_ms.get(level_idx).copied()
     }
+}
+
+/// Single pyramid level with precomputed Sobel/Scharr gradients.
+///
+/// A `PyramidLevel` does not own the gradient buffers; it is a lightweight
+/// view over a **gradient tile** provided by the detector workspace. The tile
+/// may either cover the full image or a cropped window around the segments of
+/// interest.
+///
+/// Coordinate conventions:
+/// - `(width, height)` describe the full image dimensions at this level.
+/// - `(origin_x, origin_y)` give the top-left corner of the tile in full-image
+///   coordinates.
+/// - `(tile_width, tile_height)` describe the size of the tile in pixels.
+/// - `gx`, `gy` store gradients for the tile in row-major order with stride
+///   equal to `tile_width`.
+///
+/// Callers must convert full-image coordinates into tile-relative ones by
+/// subtracting `(origin_x, origin_y)` before indexing into `gx`/`gy`. The
+/// internal sampling helper takes care of this for subpixel sampling.
+#[derive(Clone, Debug)]
+pub struct PyramidLevel<'a> {
+    /// Full-resolution width of the level (global coordinates).
+    pub width: usize,
+    /// Full-resolution height of the level (global coordinates).
+    pub height: usize,
+    /// Left/top origin of the gradient tile within the full-resolution level.
+    pub origin_x: usize,
+    pub origin_y: usize,
+    /// Width/height of the gradient tile.
+    pub tile_width: usize,
+    pub tile_height: usize,
+    /// Horizontal and vertical derivatives stored for the tile.
+    pub gx: &'a [f32],
+    pub gy: &'a [f32],
+    /// Pyramid level index (0 = finest).
+    pub level_index: usize,
 }

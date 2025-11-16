@@ -4,7 +4,9 @@
 use super::profile;
 use super::{
     fit::SupportPoint,
-    types::{PyramidLevel, RefineParams, SegmentRoi},
+    workspace::PyramidLevel,
+    roi::SegmentRoi,
+    options::RefineOptions,
     EPS,
 };
 
@@ -13,7 +15,7 @@ pub(crate) fn search_along_normal(
     roi: &SegmentRoi,
     center: &[f32; 2],
     normal: &[f32; 2],
-    params: &RefineParams,
+    params: &RefineOptions,
     w_perp: f32,
 ) -> Option<SupportPoint> {
     let tau_mag_sq = params.tau_mag * params.tau_mag;

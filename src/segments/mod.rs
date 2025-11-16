@@ -44,13 +44,11 @@
 //! - `crate::lsd_vp` for orientation clustering and VP estimation.
 //! - `crate::refine` for coarse-to-fine Huber-weighted refinement using bundles.
 
-mod bundling;
 mod extractor;
 mod region_accumulator;
 mod segment;
 mod options;
 
-pub use bundling::{bundle_segments, Bundle};
 pub use segment::{Segment, SegmentId};
 pub use options::LsdOptions;
 pub use extractor::LsdResult;

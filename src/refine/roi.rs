@@ -77,3 +77,34 @@ fn convert_bounds(
         y1: y1 as usize,
     })
 }
+
+pub fn segment_roi_from_points(
+    p0: [f32; 2],
+    p1: [f32; 2],
+    pad: f32,
+    width: usize,
+    height: usize,
+) -> Option<SegmentRoi> {
+    let (mut min_x, mut max_x) = (p0[0].min(p1[0]), p0[0].max(p1[0]));
+    let (mut min_y, mut max_y) = (p0[1].min(p1[1]), p0[1].max(p1[1]));
+    min_x -= pad;
+    max_x += pad;
+    min_y -= pad;
+    max_y += pad;
+    let w = width as f32;
+    let h = height as f32;
+    min_x = min_x.clamp(0.0, (w - 1.0).max(0.0));
+    max_x = max_x.clamp(0.0, (w - 1.0).max(0.0));
+    min_y = min_y.clamp(0.0, (h - 1.0).max(0.0));
+    max_y = max_y.clamp(0.0, (h - 1.0).max(0.0));
+    if min_x >= max_x || min_y >= max_y {
+        None
+    } else {
+        Some(SegmentRoi {
+            x0: min_x,
+            y0: min_y,
+            x1: max_x,
+            y1: max_y,
+        })
+    }
+}

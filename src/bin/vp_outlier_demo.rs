@@ -3,7 +3,7 @@ use grid_detector::image::io::{
     load_grayscale_image, save_grayscale_f32, write_json_file, GrayImageU8,
 };
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
-use grid_detector::refine::RefineParams;
+use grid_detector::refine::RefineOptions;
 use grid_detector::segments::LsdOptions;
 use grid_detector::{GridDetector, GridParams};
 use serde::Deserialize;
@@ -23,7 +23,7 @@ pub struct VpOutlierDemoConfig {
     #[serde(default)]
     pub bundling: BundlingParams,
     #[serde(default)]
-    pub refine: RefineParams,
+    pub refine: RefineOptions,
     pub output: DemoOutputConfig,
 }
 
