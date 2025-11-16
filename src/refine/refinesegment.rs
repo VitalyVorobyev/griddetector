@@ -48,19 +48,124 @@
 //!   gradients via `sampling::search_along_normal` and `endpoints::refine_endpoints`
 //!   without concern for how the tile was produced.
 
-use super::workspace::PyramidLevel;
+use super::workspace::{RefinementWorkspace, PyramidLevel};
 use super::options::RefineOptions;
 use super::iteration::run_iterations;
 
+use crate::image::ImageF32;
+use crate::edges::Grad;
 use crate::segments::Segment;
-use crate::pyramid::ScaleMap;
+use crate::pyramid::{ScaleMap, Pyramid, LevelScaleMap};
 
 use super::endpoints::refine_endpoints;
 #[cfg(feature = "profile_refine")]
-use profile::{take_profile, LevelProfile};
-use super::roi::{SegmentRoi, segment_roi_from_points};
+use super::profile::{take_profile, LevelProfile};
+use super::roi::{SegmentRoi, segment_roi_from_points, roi_to_int_bounds};
+
+use serde::Serialize;
+use std::time::Instant;
 
 const EPS: f32 = 1e-6;
+
+#[derive(Default, Debug, Serialize)]
+pub struct SegmentsRefinementLevelResult {
+    pub elapsed_ms: f64,
+    pub accepted: usize,
+}
+
+#[derive(Default, Debug, Serialize)]
+pub struct SegmentsRefinementResult {
+    pub levels: Vec<SegmentsRefinementLevelResult>,
+    pub elapsed_ms: f64,
+    #[cfg(feature = "profile_refine")]
+    pub profile: LevelProfile
+}
+
+pub fn refine_coarse_segments(
+    pyramid: &Pyramid,
+    source_segments: &[Segment],
+    refine_params: &RefineOptions,
+    coarse_gradient: Option<Grad>,
+) -> Result<SegmentsRefinementResult, String> {
+    let mut current_segments: Vec<Segment> = source_segments.to_vec();
+    let full_width = pyramid.levels.first().map(|lvl| lvl.w).unwrap_or(0);
+
+    let mut workspace = match(coarse_gradient) {
+        Some(grad) => RefinementWorkspace::from_coarsest_gradient(grad, pyramid.levels.len()),
+        None => RefinementWorkspace::new(pyramid.levels.len())
+    };
+
+    let mut result = SegmentsRefinementResult::default();
+    for coarse_idx in (1..pyramid.levels.len()).rev() {
+        let finer_idx = coarse_idx - 1;
+        let refine_start = Instant::now();
+        let finer_level = &pyramid.levels[finer_idx];
+        let coarse_level = &pyramid.levels[coarse_idx];
+        let scale_map = level_scale_map(coarse_level, finer_level);
+        let level_params = refine_params.for_level(full_width, finer_level.w);
+        let mut refined_segments = Vec::with_capacity(current_segments.len());
+        let mut accepted = 0usize;
+        let mut score_sum = 0.0f32;
+
+        for seg in &current_segments {
+            let grad_view = match segment_roi_from_points(
+                scale_map.up(seg.p0),
+                scale_map.up(seg.p1),
+                level_params.pad,
+                finer_level.w,
+                finer_level.h,
+            )
+            .and_then(|roi| roi_to_int_bounds(&roi, finer_level.w, finer_level.h))
+            {
+                Some(bounds) => workspace.scharr_gradients_window(finer_idx, finer_level, &bounds),
+                None => workspace.scharr_gradients_full(finer_idx, finer_level),
+            };
+            let grad_level = PyramidLevel {
+                width: finer_level.w,
+                height: finer_level.h,
+                origin_x: grad_view.origin_x,
+                origin_y: grad_view.origin_y,
+                tile_width: grad_view.tile_width,
+                tile_height: grad_view.tile_height,
+                gx: grad_view.gx,
+                gy: grad_view.gy,
+                level_index: finer_idx,
+            };
+            let result = refine_segment(&grad_level, seg, &scale_map, &level_params);
+            let ok = result.ok;
+            if ok {
+                accepted += 1;
+                if result.score.is_finite() {
+                    score_sum += result.score;
+                }
+            }
+            let updated = result.seg;
+
+            refined_segments.push(updated);
+        }
+
+        let elapsed_ms = refine_start.elapsed().as_secs_f64() * 1000.0;
+        println!(
+            "Refinement for level {} took {:.2} ms",
+            finer_idx, elapsed_ms
+        );
+        let acceptance_ratio = (!current_segments.is_empty())
+            .then_some(accepted as f32 / current_segments.len() as f32);
+        let avg_score = (accepted > 0).then_some(score_sum / accepted as f32);
+
+        current_segments = refined_segments;
+
+        #[cfg(feature = "profile_refine")]
+        dump_refine_profile(workspace);
+
+        result.levels.push(SegmentsRefinementLevelResult {
+            elapsed_ms,
+            accepted: current_segments.len()
+        });
+    }
+
+    Ok(result)
+}
 
 /// Outcome of a refinement attempt.
 #[derive(Clone, Debug)]
@@ -188,6 +293,20 @@ pub(crate) fn compute_roi(
     Some(roi)
 }
 
+fn level_scale_map(coarse: &ImageF32, fine: &ImageF32) -> LevelScaleMap {
+    let sx = if coarse.w == 0 {
+        2.0
+    } else {
+        fine.w as f32 / coarse.w as f32
+    };
+    let sy = if coarse.h == 0 {
+        2.0
+    } else {
+        fine.h as f32 / coarse.h as f32
+    };
+    LevelScaleMap::new(sx, sy)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,5 +317,29 @@ mod tests {
         let seg = Segment::new(SegmentId(1), [10.0, 10.0], [10.1, 10.1], 1.0, 1.0);
         assert!(compute_roi(&seg, 0.0, 32, 32, 0).is_some());
         assert!(compute_roi(&seg, 0.0, 1, 1, 0).is_none());
+    }
+}
+
+#[cfg(feature = "profile_refine")]
+fn dump_refine_profile(workspace: &DetectorWorkspace) {
+    let profile = take_profile();
+    if profile.is_empty() {
+        return;
+    }
+    println!("Segment refine profile:");
+    for entry in profile {
+        if entry.roi_count == 0 && entry.bilinear_samples == 0 {
+            continue;
+        }
+        let avg_roi = if entry.roi_count > 0 {
+            entry.roi_area_px / entry.roi_count as f64
+        } else {
+            0.0
+        };
+        let grad_ms = workspace.gradient_time_ms(entry.level_index).unwrap_or(0.0);
+        println!(
+            "  L{}: grad_ms={:.2} roi_count={} avg_roi_px={:.1} bilinear_samples={}",
+            entry.level_index, grad_ms, entry.roi_count, avg_roi, entry.bilinear_samples
+        );
     }
 }

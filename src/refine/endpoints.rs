@@ -5,8 +5,10 @@ use super::{
     workspace::PyramidLevel,
     roi::SegmentRoi,
     options::RefineOptions,
-    iteration::IterationSnapshot, EPS,
+    iteration::IterationSnapshot,
 };
+
+const EPS: f32 = 1e-6;
 
 pub(super) fn refine_endpoints(
     snapshot: &IterationSnapshot,

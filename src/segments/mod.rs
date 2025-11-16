@@ -53,6 +53,7 @@ pub use segment::{Segment, SegmentId};
 pub use options::LsdOptions;
 pub use extractor::LsdResult;
 
+use crate::edges::Grad;
 use crate::image::ImageF32;
 use crate::pyramid::{Pyramid};
 
@@ -68,6 +69,7 @@ pub fn lsd_extract_segments_coarse(pyramid: &Pyramid, options: LsdOptions) -> Ls
     } else {
         LsdResult {
             segments: Vec::new(),
+            grad: Grad::default(),
             elapsed_ms: 0.0,
         }
     }

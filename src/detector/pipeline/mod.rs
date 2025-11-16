@@ -19,7 +19,8 @@
 //! }
 //! # }
 //! ```
-mod outliers;
+
+// mod outliers;
 mod reporting;
 
 // Stages
@@ -79,6 +80,7 @@ impl GridDetector {
 
         let LsdResult {
             segments: coarse_segments,
+            grad,
             elapsed_ms: lsd_ms,
         } = lsd_extract_segments_coarse(&pyramid, self.params.lsd_params);
 

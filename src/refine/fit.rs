@@ -1,6 +1,8 @@
 //! Support point representation and robust carrier fitting utilities.
 
-use super::{options::RefineOptions, EPS};
+use super::options::RefineOptions;
+
+const EPS: f32 = 1e-6;
 
 /// Weighted support sample collected along the carrier normal.
 #[derive(Clone, Copy, Debug)]

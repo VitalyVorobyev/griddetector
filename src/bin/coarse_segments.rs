@@ -59,6 +59,7 @@ fn run() -> Result<(), String> {
 
     let LsdResult {
         segments,
+        grad: _,
         elapsed_ms: lsd_ms
     } = lsd_extract_segments_coarse(&pyramid, config.lsd);
 

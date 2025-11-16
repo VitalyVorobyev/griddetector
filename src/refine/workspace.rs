@@ -27,7 +27,7 @@
 //! to sample gradients at subpixel positions. The global level width/height
 //! are preserved in `PyramidLevel` so ROI logic can still work in full-image
 //! coordinates while gradient lookups operate inside the cropped tile.
-use crate::edges::grad::scharr_gradients_window_into;
+use crate::edges::grad::{scharr_gradients_window_into, Grad};
 use crate::image::ImageF32;
 use crate::refine::roi::IntBounds;
 #[cfg(feature = "profile_refine")]
@@ -35,7 +35,7 @@ use std::time::Instant;
 
 /// Workspace storing per-level gradient buffers to avoid repeated allocations.
 #[derive(Default)]
-pub struct DetectorWorkspace {
+pub struct RefinementWorkspace {
     full_tiles: Vec<Option<GradientPatch>>,
     roi_gradients: Vec<Option<GradientPatch>>,
     #[cfg(feature = "profile_refine")]
@@ -84,9 +84,43 @@ impl GradientPatch {
     }
 }
 
-impl DetectorWorkspace {
-    pub fn new() -> Self {
-        Self::default()
+impl RefinementWorkspace {
+    pub fn new(levels: usize) -> Self {
+        let mut instance = Self::default();
+        instance.reset(levels);
+        instance
+    }
+
+    /// Construct a workspace seeded with a precomputed gradient on the coarsest level.
+    ///
+    /// `levels` is the total number of pyramid levels (0 = finest, `levels-1` = coarsest).
+    /// The provided `grad` is assumed to correspond to the coarsest level; its `gx`/`gy`
+    /// buffers are moved into the cached full-frame tile for that level so they can be
+    /// reused without recomputing Scharr gradients.
+    pub fn from_coarsest_gradient(grad: Grad, levels: usize) -> Self {
+        let mut instance = RefinementWorkspace::new(levels);
+        if levels == 0 {
+            return instance;
+        }
+
+        let coarse_idx = levels - 1;
+        if coarse_idx >= instance.full_tiles.len() {
+            instance
+                .full_tiles
+                .resize_with(coarse_idx + 1, || None);
+        }
+
+        let gx = grad.gx;
+        let gy = grad.gy;
+        let patch = instance.full_tiles[coarse_idx].get_or_insert_with(GradientPatch::new);
+        patch.origin_x = 0;
+        patch.origin_y = 0;
+        patch.tile_width = gx.w;
+        patch.tile_height = gx.h;
+        patch.gx = gx.data;
+        patch.gy = gy.data;
+
+        instance
     }
 
     /// Clears cached data and prepares space for `levels` entries.

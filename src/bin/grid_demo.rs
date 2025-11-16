@@ -1,9 +1,7 @@
 use grid_detector::detector::GridParams;
-use grid_detector::diagnostics::DetectionReport;
 use grid_detector::image::io::{
-    load_grayscale_image, save_grayscale_f32, write_json_file, GrayImageU8,
+    load_grayscale_image, write_json_file,
 };
-use grid_detector::pyramid::{Pyramid, PyramidOptions};
 use grid_detector::GridDetector;
 use serde::Deserialize;
 use std::env;
@@ -47,7 +45,6 @@ fn run() -> Result<(), String> {
 
     let mut detector = GridDetector::new(config.grid_params.clone());
     let detailed = detector.process(image);
-    detailed.print_text_summary();
 
     if let Some(path) = &config.output.json_out {
         write_json_file(path, &detailed)?;
@@ -56,47 +53,9 @@ fn run() -> Result<(), String> {
         eprintln!("No JSON output path specified, skipping JSON report.");
     }
 
-    if let Some(dir) = &config.output.debug_dir {
-        save_debug_artifacts(dir, &gray, &detailed, &config.grid_params)?;
-        println!("Debug artifacts written to {}", dir.display());
-    }
-
     Ok(())
 }
 
 fn usage() -> String {
     "Usage: grid_demo <config.json>".to_string()
-}
-
-fn save_debug_artifacts(
-    dir: &Path,
-    gray: &GrayImageU8,
-    detailed: &DetectionReport,
-    grid_params: &grid_detector::GridParams,
-) -> Result<(), String> {
-    std::fs::create_dir_all(dir)
-        .map_err(|e| format!("Failed to create debug dir {}: {e}", dir.display()))?;
-
-    write_json_file(&dir.join("detailed_result.json"), detailed)?;
-
-    if let Some(lsd) = &detailed.trace.lsd {
-        write_json_file(&dir.join("lsd_diagnostics.json"), lsd)?;
-    }
-    if let Some(refine) = &detailed.trace.refinement {
-        write_json_file(&dir.join("refinement_diagnostics.json"), refine)?;
-    }
-    if let Some(bundles) = &detailed.trace.bundling {
-        write_json_file(&dir.join("bundles.json"), bundles)?;
-    }
-
-    // Rebuild the pyramid for debugging using the same blur schedule as the detector
-    let pyramid_opts = PyramidOptions::new(grid_params.pyramid_levels)
-        .with_blur_levels(grid_params.pyramid_blur_levels);
-    let pyramid = Pyramid::build_u8(gray.as_view(), pyramid_opts);
-    for (level_idx, level) in pyramid.levels.iter().enumerate() {
-        let path = dir.join(format!("pyramid_L{}.png", level_idx));
-        save_grayscale_f32(level, &path)?;
-    }
-
-    Ok(())
 }

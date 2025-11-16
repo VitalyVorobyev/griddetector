@@ -26,4 +26,4 @@ pub use pipeline::{DetectionReport, InputDescriptor, PipelineTrace};
 pub use refine::{RefinementIteration, RefinementOutcome, RefinementStage};
 pub use segment_refine::{SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage};
 pub use segments::{SegmentClass, SegmentSample};
-pub use timing::{StageTiming, TimingBreakdown};
+pub use timing::{StageTiming, TimingBreakdown, ResultWithTime, run_with_timer};

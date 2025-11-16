@@ -13,8 +13,6 @@
 //! - and finally uses `families::split_bundles` (re-exported as
 //!   `split_bundles`) during grid indexing in rectified space.
 
-const EPS: f32 = 1e-6;
-
 mod endpoints;
 mod fit;
 mod iteration;
@@ -25,6 +23,7 @@ mod sampling;
 mod workspace;
 
 pub use options::RefineOptions;
+pub use refinesegment::{refine_coarse_segments, SegmentsRefinementResult};
 
 #[cfg(feature = "profile_refine")]
 mod profile;

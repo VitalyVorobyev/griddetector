@@ -20,7 +20,7 @@ const SCHARR_KERNEL_X: Kernel3 = [[-3.0, 0.0, 3.0], [-10.0, 0.0, 10.0], [-3.0, 0
 const SCHARR_KERNEL_Y: Kernel3 = [[-3.0, -10.0, -3.0], [0.0, 0.0, 0.0], [3.0, 10.0, 3.0]];
 
 /// Per‑pixel gradient buffers and orientation quantization.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Grad {
     /// Horizontal derivative (convolution with kernel X)
     pub gx: ImageF32,

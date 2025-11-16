@@ -1,10 +1,11 @@
 use super::filters::apply as apply_filter;
 use super::options::PyramidOptions;
 use crate::image::{ImageF32, ImageU8, ImageView, ImageViewMut};
+
+use serde::Serialize;
 use std::time::Instant;
 
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Pyramid {
     pub levels: Vec<ImageF32>,
 }
@@ -59,8 +60,9 @@ impl Pyramid {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Default)]
 pub struct PyramidResult {
+    #[serde(skip)]
     pub pyramid: Pyramid,
     pub elapsed_ms: f64,
     pub elapsed_convert_l0_ms: f64

@@ -5,6 +5,7 @@ use crate::angle::{angular_difference, normalize_half_pi};
 use crate::edges::{scharr_gradients, Grad};
 use crate::image::ImageF32;
 use nalgebra::{Matrix2, SymmetricEigen};
+use serde::Serialize;
 use std::time::Instant;
 
 const NEIGH_OFFSETS: [(isize, isize); 8] = [
@@ -18,8 +19,11 @@ const NEIGH_OFFSETS: [(isize, isize); 8] = [
     (1, 1),
 ];
 
+#[derive(Default, Serialize, Debug)]
 pub struct LsdResult {
     pub segments: Vec<Segment>,
+    #[serde(skip)]
+    pub grad: Grad,
     pub elapsed_ms: f64,
 }
 
@@ -62,7 +66,7 @@ impl LsdExtractor {
             self.process_seed(idx);
         }
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-        LsdResult { segments: self.segments, elapsed_ms }
+        LsdResult { segments: self.segments, grad: self.grad, elapsed_ms }
 
     }
 
