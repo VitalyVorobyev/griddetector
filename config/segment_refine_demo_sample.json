@@ -23,6 +23,13 @@
         "max_iters": 3,
         "min_inlier_frac": 0.4
     },
+    "timing": {
+        "warmup_runs": 0,
+        "runs": 1,
+        "max_threads": null,
+        "min_segments_for_parallel": 128,
+        "force_sequential": false
+    },
     "performance_mode": false,
     "output": {
         "dir": "out/segment_demo"

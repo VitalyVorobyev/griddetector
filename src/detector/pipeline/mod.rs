@@ -51,6 +51,7 @@ use crate::diagnostics::{
 use crate::image::ImageU8;
 use crate::lsd_vp::Engine as LsdVpEngine;
 use crate::pyramid::{Pyramid, PyramidOptions};
+use crate::refine::segment::driver::ParallelRefineOptions;
 use crate::refine::segment::RefineParams as SegmentRefineParams;
 use crate::refine::RefineParams as HomographyRefineParams;
 use crate::refine::Refiner;
@@ -110,6 +111,7 @@ impl GridDetector {
         let lsd_engine = LsdVpEngine {
             options: self.params.lsd_params,
         };
+        let parallel_refine = ParallelRefineOptions::default();
         let LsdComputation {
             stage: mut lsd_stage,
             segments: coarse_segments,
@@ -150,6 +152,7 @@ impl GridDetector {
                 &pyramid,
                 &filtered_segments,
                 &self.params.segment_refine_params,
+                parallel_refine,
             )
         };
         let gradient_refine_stage = gradient_outcome.stage.clone();
@@ -196,6 +199,7 @@ impl GridDetector {
                 coarse_segments_final.clone(),
                 width,
                 height,
+                parallel_refine,
             );
         }
 
@@ -357,6 +361,7 @@ impl GridDetector {
         let lsd_engine = LsdVpEngine {
             options: self.params.lsd_params.with_scale(scale),
         };
+        let parallel_refine = ParallelRefineOptions::default();
         let LsdComputation {
             stage: mut lsd_stage,
             segments: coarse_segments,
@@ -400,6 +405,7 @@ impl GridDetector {
                 &pyramid,
                 &filtered_segments,
                 &self.params.segment_refine_params,
+                parallel_refine,
             )
         };
         let gradient_refine_stage = gradient_outcome.stage.clone();

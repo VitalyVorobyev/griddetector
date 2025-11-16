@@ -2,6 +2,7 @@ use crate::detector::scaling::LevelScaleMap;
 use crate::detector::workspace::DetectorWorkspace;
 use crate::diagnostics::GradientRefineStage;
 use crate::pyramid::Pyramid;
+use crate::refine::segment::driver::ParallelRefineOptions;
 #[cfg(feature = "profile_refine")]
 use crate::refine::segment::take_profile;
 use crate::refine::segment::{
@@ -24,6 +25,7 @@ pub fn refine_coarsest_with_gradients(
     pyramid: &Pyramid,
     segments: &[Segment],
     params: &SegmentRefineParams,
+    parallel: ParallelRefineOptions,
 ) -> GradientRefineComputation {
     let Some(coarse_idx) = pyramid.levels.len().checked_sub(1) else {
         return GradientRefineComputation {
@@ -58,14 +60,13 @@ pub fn refine_coarsest_with_gradients(
     let level_params = params.for_level(full_width, level.w);
 
     let refine_start = Instant::now();
-    let mut refined = Vec::with_capacity(segments.len());
+    let work_items = refine_batch(segments, &grad_level, &scale_map, &level_params, parallel);
+    let mut refined = Vec::with_capacity(work_items.len());
     let mut accepted = 0usize;
     let mut score_acc = 0.0f32;
     let mut movement_acc = 0.0f32;
 
-    for seg in segments {
-        let result = segment::refine_segment(&grad_level, seg, &scale_map, &level_params);
-        let movement = average_endpoint_movement(seg, &result.seg);
+    for (result, movement) in work_items {
         if result.ok {
             accepted += 1;
             score_acc += result.score;
@@ -138,6 +139,46 @@ fn average_endpoint_movement(a: &Segment, b: &Segment) -> f32 {
     let da0 = distance_squared(a.p0, b.p0).sqrt();
     let da1 = distance_squared(a.p1, b.p1).sqrt();
     0.5 * (da0 + da1)
+}
+
+fn refine_batch(
+    segments: &[Segment],
+    grad_level: &SegmentGradientLevel<'_>,
+    scale_map: &LevelScaleMap,
+    params: &SegmentRefineParams,
+    parallel: ParallelRefineOptions,
+) -> Vec<(segment::RefineResult, f32)> {
+    if parallel.should_parallelize(segments.len()) {
+        #[cfg(feature = "parallel")]
+        {
+            use rayon::prelude::*;
+            let jobs: Vec<Segment> = segments.to_vec();
+            return jobs
+                .into_par_iter()
+                .map(|seg| {
+                    let result = segment::refine_segment(grad_level, &seg, scale_map, params);
+                    let movement = average_endpoint_movement(&seg, &result.seg);
+                    (result, movement)
+                })
+                .collect();
+        }
+    }
+    refine_batch_sequential(segments, grad_level, scale_map, params)
+}
+
+fn refine_batch_sequential(
+    segments: &[Segment],
+    grad_level: &SegmentGradientLevel<'_>,
+    scale_map: &LevelScaleMap,
+    params: &SegmentRefineParams,
+) -> Vec<(segment::RefineResult, f32)> {
+    let mut refined = Vec::with_capacity(segments.len());
+    for seg in segments {
+        let result = segment::refine_segment(grad_level, seg, scale_map, params);
+        let movement = average_endpoint_movement(seg, &result.seg);
+        refined.push((result, movement));
+    }
+    refined
 }
 
 fn distance_squared(p0: [f32; 2], p1: [f32; 2]) -> f32 {

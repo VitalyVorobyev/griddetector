@@ -48,6 +48,7 @@
 //!   gradients via `sampling::search_along_normal` and `endpoints::refine_endpoints`
 //!   without concern for how the tile was produced.
 
+pub mod driver;
 mod endpoints;
 mod fit;
 #[cfg(feature = "profile_refine")]

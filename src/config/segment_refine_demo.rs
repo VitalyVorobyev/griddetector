@@ -1,4 +1,5 @@
 use super::edge::PyramidConfig;
+use crate::refine::segment::driver::ParallelRefineOptions;
 use crate::refine::segment::RefineParams as SegmentRefineParams;
 use crate::segments::LsdOptions;
 use serde::Deserialize;
@@ -17,6 +18,8 @@ pub struct SegmentRefineDemoConfig {
     pub refine: SegmentRefineConfig,
     #[serde(default)]
     pub performance_mode: bool,
+    #[serde(default)]
+    pub timing: SegmentRefineTimingConfig,
     pub output: SegmentRefineDemoOutputConfig,
 }
 
@@ -65,6 +68,42 @@ impl SegmentRefineConfig {
             p.min_inlier_frac = v;
         }
         p
+    }
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+pub struct SegmentRefineTimingConfig {
+    /// Number of warm-up runs skipped from reporting.
+    pub warmup_runs: usize,
+    /// Number of measurement runs recorded (>=1).
+    pub runs: usize,
+    /// Optional Rayon worker limit.
+    pub max_threads: Option<usize>,
+    /// Optional threshold overriding the parallel fallback.
+    pub min_segments_for_parallel: Option<usize>,
+    /// Forces sequential refinement when true.
+    pub force_sequential: bool,
+}
+
+impl SegmentRefineTimingConfig {
+    pub fn measurement_runs(&self) -> usize {
+        self.runs.max(1)
+    }
+
+    pub fn warmup_runs(&self) -> usize {
+        self.warmup_runs
+    }
+
+    pub fn parallel_options(&self) -> ParallelRefineOptions {
+        if self.force_sequential {
+            return ParallelRefineOptions::disabled();
+        }
+        if let Some(min_segments) = self.min_segments_for_parallel {
+            ParallelRefineOptions::default().with_min_segments(min_segments)
+        } else {
+            ParallelRefineOptions::default()
+        }
     }
 }
 

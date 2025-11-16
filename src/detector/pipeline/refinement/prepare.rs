@@ -4,12 +4,10 @@ use crate::detector::scaling::{LevelScaleMap, LevelScaling};
 use crate::detector::workspace::DetectorWorkspace;
 use crate::diagnostics::{BundleDescriptor, BundlingLevel, BundlingStage};
 use crate::pyramid::Pyramid;
+use crate::refine::segment::driver::{refine_segments_between_levels, ParallelRefineOptions};
 #[cfg(feature = "profile_refine")]
 use crate::refine::segment::take_profile;
-use crate::refine::segment::{
-    self, roi::roi_to_int_bounds, PyramidLevel as SegmentGradientLevel,
-    RefineParams as SegmentRefineParams, ScaleMap,
-};
+use crate::refine::segment::RefineParams as SegmentRefineParams;
 use crate::refine::RefineLevel;
 use crate::segments::{Bundle, Segment};
 use log::debug;
@@ -83,6 +81,7 @@ pub fn prepare_levels(
     initial_segments: Vec<Segment>,
     full_width: usize,
     full_height: usize,
+    parallel: ParallelRefineOptions,
 ) -> PreparedLevels {
     if pyramid.levels.is_empty() {
         return PreparedLevels::empty();
@@ -142,32 +141,17 @@ pub fn prepare_levels(
 
         let level_params = segment_params.for_level(full_width, finer_lvl.w);
         let refine_start = Instant::now();
-        let mut refined_segments = Vec::with_capacity(current_segments.len());
-        for seg in &current_segments {
-            let grad_view = match segment::segment_roi_from_points(
-                scale_map.up(seg.p0),
-                scale_map.up(seg.p1),
-                level_params.pad,
-                finer_lvl.w,
-                finer_lvl.h,
-            )
-            .and_then(|roi| roi_to_int_bounds(&roi, finer_lvl.w, finer_lvl.h))
-            {
-                Some(bounds) => workspace.scharr_gradients_window(finer_idx, finer_lvl, &bounds),
-                None => workspace.scharr_gradients_full(finer_idx, finer_lvl),
-            };
-            let grad_level = SegmentGradientLevel {
-                width: finer_lvl.w,
-                height: finer_lvl.h,
-                origin_x: grad_view.origin_x,
-                origin_y: grad_view.origin_y,
-                tile_width: grad_view.tile_width,
-                tile_height: grad_view.tile_height,
-                gx: grad_view.gx,
-                gy: grad_view.gy,
-                level_index: finer_idx,
-            };
-            let result = segment::refine_segment(&grad_level, seg, &scale_map, &level_params);
+        let results = refine_segments_between_levels(
+            workspace,
+            finer_lvl,
+            finer_idx,
+            &scale_map,
+            &level_params,
+            current_segments,
+            parallel,
+        );
+        let mut refined_segments = Vec::with_capacity(results.len());
+        for result in results {
             if result.ok {
                 refined_segments.push(result.seg);
             }

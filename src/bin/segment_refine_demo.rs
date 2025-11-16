@@ -20,10 +20,12 @@ use grid_detector::image::io::{
 use grid_detector::image::ImageF32;
 use grid_detector::lsd_vp::{analyze_families, FamilyAssignments};
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
-use grid_detector::refine::segment::roi::roi_to_int_bounds;
+use grid_detector::refine::segment;
+use grid_detector::refine::segment::driver::{
+    refine_segments_between_levels, ParallelRefineOptions,
+};
 #[cfg(feature = "profile_refine")]
 use grid_detector::refine::segment::take_profile;
-use grid_detector::refine::segment::{self, PyramidLevel as SegmentGradientLevel, ScaleMap};
 use grid_detector::segments::{lsd_extract_segments, Segment};
 use std::env;
 use std::fs;
@@ -51,9 +53,29 @@ struct ResultWithTime<R> {
     elapsed_ms: f64,
 }
 
+#[derive(Clone, Debug)]
+struct LevelTiming {
+    coarse_level: usize,
+    finer_level: usize,
+    elapsed_ms: f64,
+    segments_in: usize,
+}
+
+#[derive(Clone, Debug)]
+struct RunTimings {
+    total_ms: f64,
+    level_timings: Vec<LevelTiming>,
+}
+
+struct RefineRunResult {
+    levels_report: Vec<SegmentRefineLevel>,
+    timings: RunTimings,
+}
+
 fn run() -> Result<(), String> {
     let config = load_config_from_args()?;
     ensure_output_dir(&config)?;
+    configure_thread_pool(config.timing.max_threads);
     let diagnostics_enabled = !config.performance_mode;
 
     let ResultWithTime {
@@ -69,17 +91,47 @@ fn run() -> Result<(), String> {
     }
 
     let mut workspace = DetectorWorkspace::new();
-    workspace.reset(pyramid.levels.len());
-
     let (lsd_segments, lsd_stage, lsd_elapsed_ms) = run_lsd_demo(&pyramid, &config)?;
     let refine_params = config.refine.resolve();
-    let (levels_report, refine_total_ms) = run_refinement_levels(
-        &pyramid,
-        &mut workspace,
-        &lsd_segments,
-        &refine_params,
-        diagnostics_enabled,
-    )?;
+    let parallel_opts = config.timing.parallel_options();
+    let warmup_runs = config.timing.warmup_runs();
+    let measurement_runs = config.timing.measurement_runs();
+    let total_runs = warmup_runs + measurement_runs;
+    let mut measurement_timings: Vec<RunTimings> = Vec::new();
+    let mut collected_levels = Vec::new();
+
+    for run_idx in 0..total_runs {
+        workspace.reset(pyramid.levels.len());
+        let is_measurement = run_idx >= warmup_runs;
+        let is_last_run = run_idx == total_runs.saturating_sub(1);
+        let collect_levels = diagnostics_enabled && is_last_run;
+        let log_timings = is_last_run || measurement_runs == 1;
+        let RefineRunResult {
+            levels_report,
+            timings,
+        } = run_refinement_levels(
+            &pyramid,
+            &mut workspace,
+            &lsd_segments,
+            &refine_params,
+            collect_levels,
+            log_timings,
+            parallel_opts,
+        )?;
+        if collect_levels {
+            collected_levels = levels_report;
+        }
+        if is_measurement {
+            measurement_timings.push(timings);
+        }
+    }
+
+    let refine_total_ms = if measurement_timings.is_empty() {
+        0.0
+    } else {
+        measurement_timings.iter().map(|t| t.total_ms).sum::<f64>()
+            / (measurement_timings.len() as f64)
+    };
 
     let total_ms = total_start.elapsed().as_secs_f64() * 1000.0;
     let mut timings = diagnostics_enabled.then(|| TimingBreakdown::with_total(total_ms));
@@ -109,12 +161,23 @@ fn run() -> Result<(), String> {
         if let Some(t) = timings.as_mut() {
             t.push("segment_refine", refine_total_ms);
         }
-        println!(
-            "Refined {} segments over {} levels in {:.2} ms",
-            lsd_segments.len(),
-            refined_levels,
-            refine_total_ms
-        );
+        if measurement_timings.len() > 1 {
+            println!(
+                "Refined {} segments over {} levels: avg {:.2} ms over {} runs",
+                lsd_segments.len(),
+                refined_levels,
+                refine_total_ms,
+                measurement_timings.len()
+            );
+            print_refine_timing_summary(&measurement_timings);
+        } else {
+            println!(
+                "Refined {} segments over {} levels in {:.2} ms",
+                lsd_segments.len(),
+                refined_levels,
+                refine_total_ms
+            );
+        }
     }
 
     if diagnostics_enabled {
@@ -122,7 +185,7 @@ fn run() -> Result<(), String> {
             pyramid: pyramid_stage.expect("pyramid stage missing"),
             lsd: lsd_stage,
             lsd_segments: Some(lsd_segments.clone()),
-            levels: levels_report,
+            levels: collected_levels,
             timings: timings.expect("timings missing"),
         };
 
@@ -216,11 +279,14 @@ fn run_refinement_levels(
     source_segments: &[Segment],
     refine_params: &segment::RefineParams,
     collect_levels: bool,
-) -> Result<(Vec<SegmentRefineLevel>, f64), String> {
+    log_timings: bool,
+    parallel: ParallelRefineOptions,
+) -> Result<RefineRunResult, String> {
     let mut levels_report: Vec<SegmentRefineLevel> = Vec::new();
     let mut refine_total_ms = 0.0f64;
     let mut current_segments: Vec<Segment> = source_segments.to_vec();
     let full_width = pyramid.levels.first().map(|lvl| lvl.w).unwrap_or(0);
+    let mut level_timings = Vec::new();
 
     for coarse_idx in (1..pyramid.levels.len()).rev() {
         let finer_idx = coarse_idx - 1;
@@ -229,52 +295,37 @@ fn run_refinement_levels(
         let coarse_level = &pyramid.levels[coarse_idx];
         let scale_map = level_scale_map(coarse_level, finer_level);
         let level_params = refine_params.for_level(full_width, finer_level.w);
-        let mut refined_segments = Vec::with_capacity(current_segments.len());
-        let mut samples = collect_levels.then(|| Vec::with_capacity(current_segments.len()));
         let mut accepted = 0usize;
         let mut score_sum = 0.0f32;
+        let segments_in = current_segments.len();
+        let results = refine_segments_between_levels(
+            workspace,
+            finer_level,
+            finer_idx,
+            &scale_map,
+            &level_params,
+            current_segments,
+            parallel,
+        );
+        let mut refined_segments = Vec::with_capacity(results.len());
+        let mut samples = collect_levels.then(|| Vec::with_capacity(results.len()));
 
-        for seg in &current_segments {
-            let grad_view = match segment::segment_roi_from_points(
-                scale_map.up(seg.p0),
-                scale_map.up(seg.p1),
-                level_params.pad,
-                finer_level.w,
-                finer_level.h,
-            )
-            .and_then(|roi| roi_to_int_bounds(&roi, finer_level.w, finer_level.h))
-            {
-                Some(bounds) => workspace.scharr_gradients_window(finer_idx, finer_level, &bounds),
-                None => workspace.scharr_gradients_full(finer_idx, finer_level),
-            };
-            let grad_level = SegmentGradientLevel {
-                width: finer_level.w,
-                height: finer_level.h,
-                origin_x: grad_view.origin_x,
-                origin_y: grad_view.origin_y,
-                tile_width: grad_view.tile_width,
-                tile_height: grad_view.tile_height,
-                gx: grad_view.gx,
-                gy: grad_view.gy,
-                level_index: finer_idx,
-            };
-            let result = segment::refine_segment(&grad_level, seg, &scale_map, &level_params);
-            let ok = result.ok;
-            if ok {
+        for result in results {
+            if result.ok {
                 accepted += 1;
                 if result.score.is_finite() {
                     score_sum += result.score;
                 }
             }
-            let score = result.score.is_finite().then_some(result.score);
-            let inliers = (result.inliers > 0).then_some(result.inliers);
-            let total = (result.total > 0).then_some(result.total);
             let updated = result.seg;
             if let Some(samples) = samples.as_mut() {
+                let score = result.score.is_finite().then_some(result.score);
+                let inliers = (result.inliers > 0).then_some(result.inliers);
+                let total = (result.total > 0).then_some(result.total);
                 samples.push(SegmentRefineSample {
                     segment: updated.clone(),
                     score,
-                    ok: Some(ok),
+                    ok: Some(result.ok),
                     inliers,
                     total,
                 });
@@ -283,13 +334,20 @@ fn run_refinement_levels(
         }
 
         let elapsed_ms = refine_start.elapsed().as_secs_f64() * 1000.0;
-        println!(
-            "Refinement for level {} took {:.2} ms",
-            finer_idx, elapsed_ms
-        );
+        if log_timings {
+            println!(
+                "Refinement for level {} took {:.2} ms",
+                finer_idx, elapsed_ms
+            );
+        }
         refine_total_ms += elapsed_ms;
-        let acceptance_ratio = (!current_segments.is_empty())
-            .then_some(accepted as f32 / current_segments.len() as f32);
+        level_timings.push(LevelTiming {
+            coarse_level: coarse_idx,
+            finer_level: finer_idx,
+            elapsed_ms,
+            segments_in,
+        });
+        let acceptance_ratio = (segments_in > 0).then_some(accepted as f32 / segments_in as f32);
         let avg_score = (accepted > 0).then_some(score_sum / accepted as f32);
 
         if let Some(samples) = samples {
@@ -297,7 +355,7 @@ fn run_refinement_levels(
                 coarse_level: coarse_idx,
                 finer_level: finer_idx,
                 elapsed_ms,
-                segments_in: current_segments.len(),
+                segments_in,
                 accepted,
                 acceptance_ratio,
                 avg_score,
@@ -311,7 +369,13 @@ fn run_refinement_levels(
         dump_refine_profile(workspace);
     }
 
-    Ok((levels_report, refine_total_ms))
+    Ok(RefineRunResult {
+        levels_report,
+        timings: RunTimings {
+            total_ms: refine_total_ms,
+            level_timings,
+        },
+    })
 }
 
 fn build_lsd_stage(assignments: &FamilyAssignments, elapsed_ms: f64) -> LsdStage {
@@ -343,6 +407,67 @@ fn level_scale_map(coarse: &ImageF32, fine: &ImageF32) -> LevelScaleMap {
         fine.h as f32 / coarse.h as f32
     };
     LevelScaleMap::new(sx, sy)
+}
+
+fn configure_thread_pool(max_threads: Option<usize>) {
+    #[cfg(feature = "parallel")]
+    {
+        if let Some(limit) = max_threads {
+            if limit > 0 {
+                if let Err(err) = rayon::ThreadPoolBuilder::new()
+                    .num_threads(limit)
+                    .build_global()
+                {
+                    eprintln!("Warning: unable to configure Rayon thread pool: {err}");
+                }
+            }
+        }
+    }
+    #[cfg(not(feature = "parallel"))]
+    let _ = max_threads;
+}
+
+fn print_refine_timing_summary(runs: &[RunTimings]) {
+    if runs.len() <= 1 {
+        return;
+    }
+    use std::collections::BTreeMap;
+
+    #[derive(Default)]
+    struct LevelAggregate {
+        coarse_level: usize,
+        finer_level: usize,
+        sum_ms: f64,
+        sum_segments: f64,
+        count: usize,
+    }
+
+    let mut per_level: BTreeMap<usize, LevelAggregate> = BTreeMap::new();
+    for run in runs {
+        for level in &run.level_timings {
+            let entry = per_level
+                .entry(level.finer_level)
+                .or_insert_with(LevelAggregate::default);
+            entry.coarse_level = level.coarse_level;
+            entry.finer_level = level.finer_level;
+            entry.sum_ms += level.elapsed_ms;
+            entry.sum_segments += level.segments_in as f64;
+            entry.count += 1;
+        }
+    }
+
+    println!("  Per-level averages:");
+    for (_, agg) in per_level {
+        if agg.count == 0 {
+            continue;
+        }
+        let avg_ms = agg.sum_ms / agg.count as f64;
+        let avg_segments = (agg.sum_segments / agg.count as f64).round() as usize;
+        println!(
+            "    L{}→L{} avg {:.2} ms (segments≈{})",
+            agg.coarse_level, agg.finer_level, avg_ms, avg_segments
+        );
+    }
 }
 
 #[cfg(feature = "profile_refine")]
