@@ -7,10 +7,10 @@
 
 mod filters;
 mod options;
-mod pyramid;
+mod pyramidbuild;
 mod scaling;
 
 pub use filters::GAUSSIAN_5TAP;
 pub use options::PyramidOptions;
-pub use pyramid::{build_pyramid, Pyramid, PyramidResult};
+pub use pyramidbuild::{build_pyramid, Pyramid, PyramidResult};
 pub use scaling::{LevelScaleMap, ScaleMap};

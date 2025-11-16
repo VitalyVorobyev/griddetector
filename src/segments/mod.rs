@@ -65,7 +65,7 @@ pub fn lsd_extract_segments(l: &ImageF32, options: LsdOptions) -> LsdResult {
 pub fn lsd_extract_segments_coarse(pyramid: &Pyramid, options: LsdOptions) -> LsdResult {
     if let Some(coarse_level) = pyramid.levels.last() {
         let scale = pyramid.scale_for_level(coarse_level);
-        extractor::LsdExtractor::new(&coarse_level, options.with_scale(scale)).extract()
+        extractor::LsdExtractor::new(coarse_level, options.with_scale(scale)).extract()
     } else {
         LsdResult {
             segments: Vec::new(),
