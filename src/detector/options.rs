@@ -6,8 +6,8 @@
 //! Defaults aim for robust, real-time behaviour at common resolutions. For
 //! tuning, start with the LSD thresholds and the refinement schedule.
 
-use crate::refine::RefineOptions;
 use crate::pyramid::PyramidOptions;
+use crate::refine::RefineOptions;
 use crate::segments::LsdOptions;
 use nalgebra::Matrix3;
 use serde::Deserialize;

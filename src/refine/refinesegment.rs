@@ -48,19 +48,19 @@
 //!   gradients via `sampling::search_along_normal` and `endpoints::refine_endpoints`
 //!   without concern for how the tile was produced.
 
-use super::workspace::{RefinementWorkspace, PyramidLevel};
-use super::options::RefineOptions;
 use super::iteration::run_iterations;
+use super::options::RefineOptions;
+use super::workspace::{PyramidLevel, RefinementWorkspace};
 
-use crate::image::ImageF32;
 use crate::edges::Grad;
+use crate::image::ImageF32;
+use crate::pyramid::{LevelScaleMap, Pyramid, ScaleMap};
 use crate::segments::Segment;
-use crate::pyramid::{ScaleMap, Pyramid, LevelScaleMap};
 
 use super::endpoints::refine_endpoints;
 #[cfg(feature = "profile_refine")]
 use super::profile::{take_profile, LevelProfile};
-use super::roi::{SegmentRoi, segment_roi_from_points, roi_to_int_bounds};
+use super::roi::{roi_to_int_bounds, segment_roi_from_points, SegmentRoi};
 
 use serde::Serialize;
 use std::time::Instant;
@@ -78,7 +78,7 @@ pub struct SegmentsRefinementResult {
     pub levels: Vec<SegmentsRefinementLevelResult>,
     pub elapsed_ms: f64,
     #[cfg(feature = "profile_refine")]
-    pub profile: LevelProfile
+    pub profile: LevelProfile,
 }
 
 pub fn refine_coarse_segments(
@@ -90,9 +90,9 @@ pub fn refine_coarse_segments(
     let mut current_segments: Vec<Segment> = source_segments.to_vec();
     let full_width = pyramid.levels.first().map(|lvl| lvl.w).unwrap_or(0);
 
-    let mut workspace = match(coarse_gradient) {
+    let mut workspace = match coarse_gradient {
         Some(grad) => RefinementWorkspace::from_coarsest_gradient(grad, pyramid.levels.len()),
-        None => RefinementWorkspace::new(pyramid.levels.len())
+        None => RefinementWorkspace::new(pyramid.levels.len()),
     };
 
     let mut result = SegmentsRefinementResult::default();
@@ -144,13 +144,13 @@ pub fn refine_coarse_segments(
         current_segments = refined_segments;
         result.levels.push(SegmentsRefinementLevelResult {
             elapsed_ms,
-            accepted: current_segments.len()
+            accepted: current_segments.len(),
         });
     }
-    
+
     #[cfg(feature = "profile_refine")]
     set_profile(&result, &workspace);
-    
+
     result
 }
 
@@ -165,35 +165,15 @@ fn set_profile(data: &mut SegmentsRefinementResult, workspace: &RefinementWorksp
 pub struct RefineResult {
     /// Refined segment (or the fallback seed when `ok == false`).
     pub seg: Segment,
-    /// Mean absolute normal-projected gradient across inlier samples.
-    pub score: f32,
-    /// Whether the refinement satisfied the length and score thresholds.
-    pub ok: bool,
-    /// Number of inlier samples supporting the endpoints.
-    pub inliers: usize,
-    /// Total number of centreline samples considered.
-    pub total: usize,
 }
 
 impl RefineResult {
     pub(crate) fn failed(seg: Segment) -> Self {
-        Self {
-            seg,
-            score: 0.0,
-            ok: false,
-            inliers: 0,
-            total: 0,
-        }
+        Self { seg }
     }
 
-    pub(crate) fn rejected(seg: Segment, inliers: usize, total: usize, score: f32) -> Self {
-        Self {
-            seg,
-            score,
-            ok: false,
-            inliers,
-            total,
-        }
+    pub(crate) fn rejected(seg: Segment) -> Self {
+        Self { seg }
     }
 }
 
@@ -246,7 +226,7 @@ pub fn refine_segment(
         return RefineResult::failed(fallback);
     };
 
-    let (p0_f, p1_f, support_count, score) = refine_endpoints(&snapshot, lvl, params);
+    let (p0_f, p1_f, _, score) = refine_endpoints(&snapshot, lvl, params);
     let refined_segment = Segment::new(
         snapshot.seg.id,
         p0_f,
@@ -254,21 +234,16 @@ pub fn refine_segment(
         snapshot.seg.avg_mag,
         snapshot.seg.strength,
     );
-    let total_centers = snapshot.total_centers;
     let seed_len = fallback.length().max(EPS);
     let refined_len = refined_segment.length();
-    let ok = refined_len >= params.min_inlier_frac * seed_len && score >= params.tau_mag;
+    let ok: bool = refined_len >= params.min_inlier_frac * seed_len && score >= params.tau_mag;
 
     if !ok {
-        return RefineResult::rejected(fallback, support_count, total_centers, score);
+        return RefineResult::rejected(fallback);
     }
 
     RefineResult {
         seg: refined_segment,
-        score,
-        ok,
-        inliers: support_count,
-        total: total_centers,
     }
 }
 

@@ -1,6 +1,6 @@
 use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
-use grid_detector::pyramid::{PyramidOptions, build_pyramid, PyramidResult};
-use grid_detector::segments::{LsdOptions, lsd_extract_segments_coarse, Segment, LsdResult};
+use grid_detector::pyramid::{build_pyramid, PyramidOptions, PyramidResult};
+use grid_detector::segments::{lsd_extract_segments_coarse, LsdOptions, LsdResult, Segment};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::{env, fs};
@@ -42,7 +42,7 @@ struct Report {
     segments: Vec<Segment>,
     pyr_ms: f64,
     pyr_lo_ms: f64,
-    lsd_ms: f64
+    lsd_ms: f64,
 }
 
 fn run() -> Result<(), String> {
@@ -54,13 +54,13 @@ fn run() -> Result<(), String> {
     let PyramidResult {
         pyramid,
         elapsed_ms: pyr_ms,
-        elapsed_convert_l0_ms: pyr_lo_ms
+        elapsed_convert_l0_ms: pyr_lo_ms,
     } = build_pyramid(gray.as_view(), config.pyramid);
 
     let LsdResult {
         segments,
         grad: _,
-        elapsed_ms: lsd_ms
+        elapsed_ms: lsd_ms,
     } = lsd_extract_segments_coarse(&pyramid, config.lsd);
 
     let coarsest = pyramid
@@ -70,7 +70,10 @@ fn run() -> Result<(), String> {
     save_grayscale_f32(coarsest, &config.output.coarsest_image)?;
 
     let summary = Report {
-        segments, pyr_ms, pyr_lo_ms, lsd_ms
+        segments,
+        pyr_ms,
+        pyr_lo_ms,
+        lsd_ms,
     };
     write_json_file(&config.output.segments_json, &summary)?;
 

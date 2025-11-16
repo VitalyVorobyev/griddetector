@@ -105,9 +105,7 @@ impl RefinementWorkspace {
 
         let coarse_idx = levels - 1;
         if coarse_idx >= instance.full_tiles.len() {
-            instance
-                .full_tiles
-                .resize_with(coarse_idx + 1, || None);
+            instance.full_tiles.resize_with(coarse_idx + 1, || None);
         }
 
         let gx = grad.gx;

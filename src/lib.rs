@@ -3,10 +3,10 @@
 // Public modules (stable-ish surface)
 pub mod detector;
 pub mod diagnostics;
+pub mod grid;
 pub mod homography;
 pub mod image;
 pub mod types;
-pub mod grid;
 
 // “Expert” modules – still public, but considered unstable internals.
 // (You can tighten or feature-gate these later.)
@@ -57,12 +57,12 @@ pub mod prelude {
 
 // --- Stage-level diagnostics API (for tools & advanced users) --------------
 
-pub mod stages {
-    // Structured diagnostics types.
-    pub use crate::diagnostics::{
-        BundlingLevel, BundlingStage, FamilyIndexing, GradientRefineStage, GridIndexingStage,
-        GridLineIndex, InputDescriptor, LsdStage, OutlierFilterStage, RefinementIteration, RefinementOutcome, RefinementStage, SegmentClass,
-        SegmentId, SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage, SegmentSample,
-        StageTiming, TimingBreakdown,
-    };
-}
+// pub mod stages {
+//     // Structured diagnostics types.
+//     pub use crate::diagnostics::{
+//         BundlingLevel, BundlingStage, FamilyIndexing, GradientRefineStage, GridIndexingStage,
+//         GridLineIndex, InputDescriptor, LsdStage, OutlierFilterStage, RefinementIteration, RefinementOutcome, RefinementStage, SegmentClass,
+//         SegmentId, SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage, SegmentSample,
+//         StageTiming, TimingBreakdown,
+//     };
+// }

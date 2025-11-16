@@ -1,11 +1,11 @@
-use super::roi::SegmentRoi;
-use super::workspace::PyramidLevel;
 use super::fit::{distance, project_point_to_line, weighted_line_fit};
-use super::sampling::search_along_normal;
 use super::options::RefineOptions;
+use super::roi::SegmentRoi;
+use super::sampling::search_along_normal;
+use super::workspace::PyramidLevel;
 
-use crate::segments::Segment;
 use crate::angle::angle_between;
+use crate::segments::Segment;
 
 /// Snapshot produced by the outer carrier update loop.
 #[derive(Clone, Debug)]
@@ -13,7 +13,6 @@ pub(crate) struct IterationSnapshot {
     pub seg: Segment,
     pub mu: [f32; 2],
     pub normal: [f32; 2],
-    pub total_centers: usize,
     pub roi: SegmentRoi,
 }
 
@@ -28,7 +27,6 @@ pub(crate) fn run_iterations(
     let mut p1 = seg0.p1;
     let mut last_mu = seg0.midpoint();
     let mut last_normal = seg0.normal();
-    let mut total_centers = 0usize;
 
     for _ in 0..params.max_iters.max(1) {
         let dir = seg0.direction();
@@ -39,7 +37,6 @@ pub(crate) fn run_iterations(
         if length < 3.0 {
             n_centers = 1;
         }
-        total_centers = n_centers;
         let mut supports = Vec::with_capacity(n_centers);
         for i in 0..n_centers {
             let t = if n_centers <= 1 {
@@ -77,7 +74,6 @@ pub(crate) fn run_iterations(
         seg: Segment::new(seg0.id, p0, p1, seg0.avg_mag, seg0.strength),
         mu: last_mu,
         normal: last_normal,
-        total_centers,
         roi: *roi,
     })
 }

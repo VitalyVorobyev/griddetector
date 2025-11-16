@@ -1,7 +1,5 @@
 use grid_detector::detector::GridParams;
-use grid_detector::image::io::{
-    load_grayscale_image, write_json_file,
-};
+use grid_detector::image::io::{load_grayscale_image, write_json_file};
 use grid_detector::GridDetector;
 use serde::Deserialize;
 use std::env;

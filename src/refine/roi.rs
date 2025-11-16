@@ -1,4 +1,3 @@
-
 /// Axis-aligned region of interest around a segment in full-resolution coordinates.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SegmentRoi {

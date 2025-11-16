@@ -1,10 +1,10 @@
 //! Grid-related utilities and structures.
-//! 
-//! 
-//! 
+//!
+//!
+//!
 
-mod cluster1d;
-mod histogram;
+// mod cluster1d;
+// mod histogram;
 // mod families;
 // mod bundling;
 // mod irls;

@@ -1,6 +1,5 @@
 //! Angle utilities used across the detector pipeline.
 
-
 /// Normalizes an angle into the range [0, π).
 #[inline]
 pub fn normalize_half_pi(angle: f32) -> f32 {

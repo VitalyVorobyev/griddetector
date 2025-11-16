@@ -40,12 +40,12 @@
 // - `refinement::homography`: IRLS-driven homography update and confidence blend.
 // - `refinement::indexing`: bundle-to-grid indexing in rectified space.
 
-use super::options::{GridParams};
+use super::options::GridParams;
 use crate::edges::Grad;
 use crate::image::ImageU8;
 use crate::pyramid::build_pyramid;
-use crate::segments::lsd_extract_segments_coarse;
 use crate::refine::refine_coarse_segments;
+use crate::segments::lsd_extract_segments_coarse;
 use crate::types::GridResult;
 use std::time::Instant;
 
@@ -58,9 +58,7 @@ pub struct GridDetector {
 impl GridDetector {
     /// Create a detector with the supplied parameters.
     pub fn new(params: GridParams) -> Self {
-        Self {
-            params,
-        }
+        Self { params }
     }
 
     /// Run the full coarse-to-fine pipeline and capture detailed diagnostics.
@@ -73,7 +71,7 @@ impl GridDetector {
             &pyramid.pyramid,
             &lsd.segments,
             &self.params.refine,
-            Some(lsd.grad)
+            Some(lsd.grad),
         );
         let elapsed_ms = total_start.elapsed().as_secs_f64() * 1000.0;
         lsd.grad = Grad::default();

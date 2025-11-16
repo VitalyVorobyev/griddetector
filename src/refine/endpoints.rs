@@ -1,11 +1,8 @@
 //! Endpoint refinement along the carrier direction.
 
 use super::{
-    sampling::bilinear_grad,
+    iteration::IterationSnapshot, options::RefineOptions, roi::SegmentRoi, sampling::bilinear_grad,
     workspace::PyramidLevel,
-    roi::SegmentRoi,
-    options::RefineOptions,
-    iteration::IterationSnapshot,
 };
 
 const EPS: f32 = 1e-6;

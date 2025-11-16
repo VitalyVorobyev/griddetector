@@ -1,6 +1,6 @@
 use nalgebra::Vector3;
-use std::cell::OnceCell;
 use serde::{Deserialize, Serialize};
+use std::cell::OnceCell;
 
 /// Identifier referencing a segment recorded in the pipeline trace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

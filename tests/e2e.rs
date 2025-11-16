@@ -24,7 +24,7 @@ fn checkerboard_image_triggers_detection() {
         pyramid: PyramidOptions {
             levels: 3,
             blur_levels: 0,
-            filter: GAUSSIAN_5TAP
+            filter: GAUSSIAN_5TAP,
         },
         confidence_thresh: 0.2,
         kmtx: Matrix3::identity(),

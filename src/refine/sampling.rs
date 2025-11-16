@@ -1,16 +1,11 @@
 //! Gradient sampling along the carrier normal.
-//! 
+//!
 
 const EPS: f32 = 1e-6;
 
 #[cfg(feature = "profile_refine")]
 use super::profile;
-use super::{
-    fit::SupportPoint,
-    workspace::PyramidLevel,
-    roi::SegmentRoi,
-    options::RefineOptions
-};
+use super::{fit::SupportPoint, options::RefineOptions, roi::SegmentRoi, workspace::PyramidLevel};
 
 pub(crate) fn search_along_normal(
     lvl: &PyramidLevel<'_>,

@@ -16,10 +16,7 @@ fn step_image(width: usize, height: usize, split_x: usize) -> ImageF32 {
 #[test]
 fn lsd_extractor_finds_vertical_segment() {
     let img = step_image(32, 32, 16);
-    let LsdResult {
-        segments: segs,
-        ..
-    } = LsdExtractor::new(&img, LsdOptions::default()).extract();
+    let LsdResult { segments: segs, .. } = LsdExtractor::new(&img, LsdOptions::default()).extract();
     assert!(
         !segs.is_empty(),
         "expected at least one segment on a vertical edge"
@@ -40,14 +37,10 @@ fn lsd_extractor_finds_vertical_segment() {
     );
 }
 
-
 #[test]
 fn lsd_extractor_rejects_flat_image() {
     let img = ImageF32::new(16, 16);
-    let LsdResult {
-        segments: segs,
-        ..
-    } = LsdExtractor::new(&img, LsdOptions::default()).extract();
+    let LsdResult { segments: segs, .. } = LsdExtractor::new(&img, LsdOptions::default()).extract();
     assert!(
         segs.is_empty(),
         "no segments should be detected in a flat image, got {:?}",

@@ -45,20 +45,20 @@
 //! - `crate::refine` for coarse-to-fine Huber-weighted refinement using bundles.
 
 mod extractor;
+mod options;
 mod region_accumulator;
 mod segment;
-mod options;
 
-pub use segment::{Segment, SegmentId};
-pub use options::LsdOptions;
 pub use extractor::LsdResult;
+pub use options::LsdOptions;
+pub use segment::{Segment, SegmentId};
 
 use crate::edges::Grad;
 use crate::image::ImageF32;
-use crate::pyramid::{Pyramid};
+use crate::pyramid::Pyramid;
 
 /// Lightweight LSD-like extractor (region growing on gradient orientation, PCA fit, simple significance test)
-pub fn lsd_extract_segments(l: &ImageF32, options: LsdOptions) -> LsdResult{
+pub fn lsd_extract_segments(l: &ImageF32, options: LsdOptions) -> LsdResult {
     extractor::LsdExtractor::new(l, options).extract()
 }
 

@@ -47,7 +47,7 @@ impl Pyramid {
     pub fn build_u8(gray: ImageU8<'_>, options: PyramidOptions) -> Self {
         assert!(options.levels >= 1, "pyramid requires at least one level");
         let image_l0 = convert_l0(gray);
-    
+
         Pyramid::build_f32(image_l0, options)
     }
 
@@ -65,7 +65,7 @@ pub struct PyramidResult {
     #[serde(skip)]
     pub pyramid: Pyramid,
     pub elapsed_ms: f64,
-    pub elapsed_convert_l0_ms: f64
+    pub elapsed_convert_l0_ms: f64,
 }
 
 pub fn build_pyramid(gray: ImageU8<'_>, options: PyramidOptions) -> PyramidResult {
@@ -78,7 +78,9 @@ pub fn build_pyramid(gray: ImageU8<'_>, options: PyramidOptions) -> PyramidResul
     let elapsed_ms = pyr_start.elapsed().as_secs_f64() * 1000.0;
 
     PyramidResult {
-        pyramid, elapsed_ms, elapsed_convert_l0_ms
+        pyramid,
+        elapsed_ms,
+        elapsed_convert_l0_ms,
     }
 }
 

@@ -1,5 +1,5 @@
-use super::region_accumulator::RegionAccumulator;
 use super::options::LsdOptions;
+use super::region_accumulator::RegionAccumulator;
 use super::segment::{Segment, SegmentId};
 use crate::angle::{angular_difference, normalize_half_pi};
 use crate::edges::{scharr_gradients, Grad};
@@ -66,8 +66,11 @@ impl LsdExtractor {
             self.process_seed(idx);
         }
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-        LsdResult { segments: self.segments, grad: self.grad, elapsed_ms }
-
+        LsdResult {
+            segments: self.segments,
+            grad: self.grad,
+            elapsed_ms,
+        }
     }
 
     fn process_seed(&mut self, idx: usize) {
