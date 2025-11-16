@@ -7,9 +7,10 @@
 //!
 //! The filter surfaces useful diagnostics (per-family counts, thresholds), and
 //! is lightweight enough to be applied on every frame before refinement.
-use crate::angle::{angle_between_dirless, vp_direction};
-use crate::detector::params::OutlierFilterParams;
-use crate::lsd_vp::FamilyLabel;
+use super::vp::vp_direction;
+use crate::angle::angle_between_dirless;
+use crate::detector::options::OutlierFilterOptions;
+use crate::grid::FamilyLabel;
 use crate::segments::{LsdOptions, Segment};
 use nalgebra::Matrix3;
 
@@ -38,7 +39,7 @@ impl OutlierFilterDiagnostics {
 pub fn filter_segments(
     segments: Vec<Segment>,
     h_coarse: &Matrix3<f32>,
-    filter_params: &OutlierFilterParams,
+    filter_params: &OutlierFilterOptions,
     lsd_params: &LsdOptions,
 ) -> (Vec<Segment>, OutlierFilterDiagnostics) {
     let (decisions, diag) =
@@ -72,7 +73,7 @@ pub struct SegmentDecision {
 pub fn classify_segments_with_details(
     segments: &[Segment],
     h_coarse: &Matrix3<f32>,
-    filter_params: &OutlierFilterParams,
+    filter_params: &OutlierFilterOptions,
     lsd_params: &LsdOptions,
 ) -> (Vec<SegmentDecision>, OutlierFilterDiagnostics) {
     let angle_thresh_deg = lsd_params.angle_tolerance_deg + filter_params.angle_margin_deg;
@@ -214,7 +215,7 @@ mod tests {
         let seg_ok = make_segment(0, [1.0, 0.0]); // horizontal line y=0
         let r2 = std::f32::consts::FRAC_1_SQRT_2;
         let seg_bad = make_segment(1, [r2, r2]);
-        let filter_params = OutlierFilterParams {
+        let filter_params = OutlierFilterOptions {
             angle_margin_deg: 0.0,
         };
         let lsd_params = LsdOptions {
@@ -240,7 +241,7 @@ mod tests {
             nalgebra::Vector3::new(0.0, 0.0, 1.0),  // anchor at origin
         ]);
         let seg = make_segment(0, [1.0, 0.0]); // horizontal line y=2
-        let filter_params = OutlierFilterParams {
+        let filter_params = OutlierFilterOptions {
             angle_margin_deg: 20.0,
         };
         let lsd_params = LsdOptions {
@@ -266,7 +267,7 @@ mod tests {
         // Two segments with opposite tangents along x-axis; both should pass.
         let seg_pos = make_segment(0, [1.0, 0.0]);
         let seg_neg = make_segment(1, [-1.0, 0.0]);
-        let filter_params = OutlierFilterParams {
+        let filter_params = OutlierFilterOptions {
             angle_margin_deg: 0.0,
         };
         let lsd_params = LsdOptions {

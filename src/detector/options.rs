@@ -6,7 +6,7 @@
 //! Defaults aim for robust, real-time behaviour at common resolutions. For
 //! tuning, start with the LSD thresholds and the refinement schedule.
 
-use crate::refine::segment::RefineOptions as SegmentRefineParams;
+use crate::refine::RefineOptions;
 use crate::pyramid::PyramidOptions;
 use crate::segments::LsdOptions;
 use nalgebra::Matrix3;
@@ -25,13 +25,13 @@ pub struct GridParams {
     /// Confidence gate applied to the refined homography.
     pub confidence_thresh: f32,
     /// Gradient-driven segment refinement parameters.
-    pub segment_refine_params: SegmentRefineParams,
+    pub segment_refine_params: RefineOptions,
     /// Parameters exposed by the coarse LSD→VP engine.
     pub lsd_params: LsdOptions,
     /// Bundling configuration shared by the refinement stages.
-    pub bundling_params: BundlingParams,
+    pub bundling_params: BundlingOptions,
     /// Segment outlier rejection prior to refinement.
-    pub outlier_filter: OutlierFilterParams,
+    pub outlier_filter: OutlierFilterOptions,
 }
 
 impl Default for GridParams {
@@ -46,10 +46,10 @@ impl Default for GridParams {
             kmtx: Matrix3::identity(),
             min_cells: 6,
             confidence_thresh: 0.35,
-            segment_refine_params: SegmentRefineParams::default(),
+            segment_refine_params: RefineOptions::default(),
             lsd_params: LsdOptions::default(),
-            bundling_params: BundlingParams::default(),
-            outlier_filter: OutlierFilterParams::default(),
+            bundling_params: BundlingOptions::default(),
+            outlier_filter: OutlierFilterOptions::default(),
         }
     }
 }
@@ -61,13 +61,13 @@ impl Default for GridParams {
 ///   `ax + by + c = 0` to consider two constraints co-located.
 /// - `min_weight`: minimum segment strength required to contribute.
 #[derive(Clone, Debug, Deserialize)]
-pub struct BundlingParams {
+pub struct BundlingOptions {
     pub orientation_tol_deg: f32,
     pub merge_dist_px: f32,
     pub min_weight: f32,
 }
 
-impl Default for BundlingParams {
+impl Default for BundlingOptions {
     fn default() -> Self {
         Self {
             orientation_tol_deg: 22.5,
@@ -83,12 +83,12 @@ impl Default for BundlingParams {
 /// check (relative to the H-implied vanishing directions) and a residual
 /// check that evaluates how well the segment line intersects the family VP.
 #[derive(Clone, Debug, Deserialize)]
-pub struct OutlierFilterParams {
+pub struct OutlierFilterOptions {
     /// Additional angular margin (degrees) beyond the LSD tolerance.
     pub angle_margin_deg: f32,
 }
 
-impl Default for OutlierFilterParams {
+impl Default for OutlierFilterOptions {
     fn default() -> Self {
         Self {
             angle_margin_deg: 8.0,

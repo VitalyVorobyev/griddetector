@@ -1,4 +1,6 @@
 use crate::segments::Segment;
+
+use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 
 const EPS: f32 = 1e-6;
@@ -245,6 +247,8 @@ fn max_endpoint_distance(p0: &[f32; 2], p1: &[f32; 2], line: &[f32; 3]) -> f32 {
 
 #[cfg(test)]
 mod tests {
+use super::*;
+use crate::segments::SegmentId;
 
 fn make_test_segment(angle: f32) -> Segment {
     let dir = [angle.cos(), angle.sin()];

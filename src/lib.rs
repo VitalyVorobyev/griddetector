@@ -6,6 +6,7 @@ pub mod diagnostics;
 pub mod homography;
 pub mod image;
 pub mod types;
+pub mod grid;
 
 // “Expert” modules – still public, but considered unstable internals.
 // (You can tighten or feature-gate these later.)
@@ -57,11 +58,6 @@ pub mod prelude {
 // --- Stage-level diagnostics API (for tools & advanced users) --------------
 
 pub mod stages {
-    // Stage runners / builders.
-    pub use crate::diagnostics::builders::{
-        run_lsd_stage, run_outlier_stage, LsdStageOutput, OutlierStageOutput,
-    };
-
     // Structured diagnostics types.
     pub use crate::diagnostics::{
         BundlingLevel, BundlingStage, FamilyIndexing, GradientRefineStage, GridIndexingStage,

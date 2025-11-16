@@ -1,7 +1,12 @@
-use crate::angle::{angular_difference, normalize_half_pi};
+use super::bundling::Bundle;
+use super::histogram::OrientationHistogram;
+use super::vp::vp_direction;
+
+use crate::angle::{angular_difference, normalize_half_pi, angle_between_dirless};
 use crate::segments::Segment;
 
-use super::histogram::OrientationHistogram;
+use serde::{Serialize};
+use nalgebra::{Vector3, Matrix3};
 
 const MIN_SEGS: usize = 12;
 const MIN_FAMILY: usize = 6;
@@ -117,7 +122,7 @@ pub fn analyze_families(
 }
 
 fn build_orientation_histogram(segments: &[Segment]) -> (Vec<f32>, OrientationHistogram) {
-    let mut hist = OrientationHistogram::new(DEFAULT_BINS);
+    let mut hist = OrientationHistogram::default();
     let mut angles = Vec::with_capacity(segments.len());
     for seg in segments.iter() {
         let th = seg.theta();

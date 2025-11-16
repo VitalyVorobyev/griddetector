@@ -24,5 +24,7 @@ mod roi;
 mod sampling;
 mod workspace;
 
+pub use options::RefineOptions;
+
 #[cfg(feature = "profile_refine")]
 mod profile;

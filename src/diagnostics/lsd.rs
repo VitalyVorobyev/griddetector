@@ -1,5 +1,5 @@
 use crate::diagnostics::SegmentId;
-use crate::lsd_vp::FamilyLabel;
+use crate::grid::FamilyLabel;
 use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize)]

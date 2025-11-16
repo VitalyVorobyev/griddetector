@@ -5,7 +5,6 @@
 //! describes gradients in a small, contiguous window of the level together with
 //! enough metadata to interpret positions in full-image coordinates.
 
-use crate::segments::Segment;
 use serde::Deserialize;
 
 /// Parameters controlling the gradient-driven refinement.

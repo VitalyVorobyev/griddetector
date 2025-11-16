@@ -53,6 +53,7 @@ use super::options::RefineOptions;
 use super::iteration::run_iterations;
 
 use crate::segments::Segment;
+use crate::pyramid::ScaleMap;
 
 use super::endpoints::refine_endpoints;
 #[cfg(feature = "profile_refine")]
@@ -60,14 +61,6 @@ use profile::{take_profile, LevelProfile};
 use super::roi::{SegmentRoi, segment_roi_from_points};
 
 const EPS: f32 = 1e-6;
-
-/// Coordinate mapping from pyramid level `l+1` to level `l`.
-///
-/// Implementors can model pure dyadic scaling, fractional pixel offsets, or
-/// any bespoke decimation geometry used to build the image pyramid.
-pub trait ScaleMap {
-    fn up(&self, p_coarse: [f32; 2]) -> [f32; 2];
-}
 
 /// Outcome of a refinement attempt.
 #[derive(Clone, Debug)]

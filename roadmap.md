@@ -161,7 +161,7 @@ pub struct GridParams {
     pub lsd: LsdParams,
     pub vp: VpParams,
     pub refine: RefineOptions,
-    pub bundling: BundlingParams,
+    pub bundling: BundlingOptions,
     pub indexing: IndexingParams,
     pub diagnostics: DiagnosticParams,
 }
@@ -179,7 +179,7 @@ pub struct PipelineConfig {
     pub lsd: LsdParams,
     pub vp: VpParams,
     pub outlier: OutlierParams,
-    pub bundling: BundlingParams,
+    pub bundling: BundlingOptions,
     pub refine: RefineOptions,
 }
 

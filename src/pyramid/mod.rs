@@ -8,6 +8,8 @@
 mod filters;
 mod options;
 mod pyramid;
+mod scaling;
 
 pub use options::PyramidOptions;
-pub use pyramid::Pyramid;
+pub use pyramid::{Pyramid, build_pyramid, PyramidResult};
+pub use scaling::{ScaleMap, LevelScaleMap};

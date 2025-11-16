@@ -1,9 +1,14 @@
-use crate::segments::bundling::Bundle;
+use super::bundling::Bundle;
 use log::warn;
 use nalgebra::Vector3;
 
-use super::types::VpStats;
-use super::EPS;
+const EPS: f32 = 1e-6;
+
+struct VpStats {
+    confidence: f32,
+    total_weight: f32,
+    inlier_weight: f32,
+}
 
 fn normalize_vp(vp: &mut Vector3<f32>) {
     if vp[2].abs() <= 1e-3 {

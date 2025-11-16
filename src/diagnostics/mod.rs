@@ -5,7 +5,6 @@
 //! the detector, bundling both the coarse result (`GridResult`) and a detailed
 //! `PipelineTrace` describing every stage the pipeline executed.
 
-pub mod builders;
 pub mod bundles;
 pub mod gradient_refine;
 pub mod grid_indexing;

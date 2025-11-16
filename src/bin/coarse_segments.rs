@@ -1,8 +1,6 @@
-use grid_detector::diagnostics::pyramid::PyramidStage;
 use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
-use grid_detector::pyramid::{Pyramid, PyramidOptions};
-use grid_detector::segments::LsdOptions;
-use grid_detector::segments::{lsd_extract_segments, Segment};
+use grid_detector::pyramid::{PyramidOptions, build_pyramid, PyramidResult};
+use grid_detector::segments::{LsdOptions, lsd_extract_segments_coarse, Segment, LsdResult};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::{env, fs};
@@ -39,37 +37,46 @@ fn main() {
     }
 }
 
+#[derive(Serialize)]
+struct Report {
+    segments: Vec<Segment>,
+    pyr_ms: f64,
+    pyr_lo_ms: f64,
+    lsd_ms: f64
+}
+
 fn run() -> Result<(), String> {
     let config_path = env::args().nth(1).ok_or_else(usage)?;
     let config = load_config(Path::new(&config_path))?;
 
     let gray = load_grayscale_image(&config.input)?;
-    let levels = config.pyramid.levels.max(1);
-    let pyramid_opts = PyramidOptions::new(levels).with_blur_levels(config.pyramid.blur_levels);
-    let pyramid = Pyramid::build_u8(gray.as_view(), pyramid_opts);
-    let coarsest_index = pyramid
-        .levels
-        .len()
-        .checked_sub(1)
-        .ok_or("Pyramid has no levels")?;
-    let coarsest = &pyramid.levels[coarsest_index];
-    let pyramid_stage = PyramidStage::from_pyramid(&pyramid, 0.0);
 
-    let scale = 1_f32 / (1 << pyramid.levels.len()) as f32;
-    let segments = lsd_extract_segments(coarsest, config.lsd.with_scale(scale));
+    let PyramidResult {
+        pyramid,
+        elapsed_ms: pyr_ms,
+        elapsed_convert_l0_ms: pyr_lo_ms
+    } = build_pyramid(gray.as_view(), config.pyramid);
 
-    let summary = CoarseSegmentsReport {
-        pyramid: pyramid_stage,
+    let LsdResult {
         segments,
-    };
+        elapsed_ms: lsd_ms
+    } = lsd_extract_segments_coarse(&pyramid, config.lsd);
 
+    let coarsest = pyramid
+        .levels
+        .last()
+        .ok_or_else(|| "Pyramid must have at least one level".to_string())?;
     save_grayscale_f32(coarsest, &config.output.coarsest_image)?;
+
+    let summary = Report {
+        segments, pyr_ms, pyr_lo_ms, lsd_ms
+    };
     write_json_file(&config.output.segments_json, &summary)?;
 
     println!(
         "Saved coarsest level image to {} (level {})",
         config.output.coarsest_image.display(),
-        coarsest_index
+        pyramid.levels.len()
     );
     println!(
         "Saved {} line segments to {}",
@@ -82,11 +89,4 @@ fn run() -> Result<(), String> {
 
 fn usage() -> String {
     "Usage: coarse_segments <config.json>".to_string()
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CoarseSegmentsReport {
-    pyramid: PyramidStage,
-    segments: Vec<Segment>,
 }

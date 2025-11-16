@@ -31,11 +31,8 @@
 //!
 //! See `README.md` for a gentle overview and `doc/*.md` for deep dives.
 
-pub mod outliers;
-pub mod params;
+pub mod options;
 mod pipeline;
-mod scaling;
 
-pub use params::{BundlingParams, GridParams, OutlierFilterParams};
+pub use options::{BundlingOptions, GridParams, OutlierFilterOptions};
 pub use pipeline::GridDetector;
-pub use scaling::{LevelScaleMap, LevelScaling};

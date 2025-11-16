@@ -1,6 +1,9 @@
+use super::families::split_bundles;
+use super::bundling::Bundle;
+
 use crate::diagnostics::{FamilyIndexing, GridIndexingStage, GridLineIndex};
-use crate::lsd_vp::FamilyLabel;
-use crate::segments::Bundle;
+use crate::grid::FamilyLabel;
+
 use nalgebra::Matrix3;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -23,7 +26,7 @@ pub fn index_grid_from_bundles(
     }
     let h_inv = h.try_inverse()?;
     let h_inv_t = h_inv.transpose();
-    let buckets = crate::refine::split_bundles(h, bundles, orientation_tol_rad)?;
+    let buckets = split_bundles(h, bundles, orientation_tol_rad)?;
 
     let mut index_map: HashMap<*const Bundle, usize> = HashMap::new();
     for (idx, bundle) in bundles.iter().enumerate() {

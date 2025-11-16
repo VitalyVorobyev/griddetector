@@ -1,4 +1,4 @@
-use grid_detector::detector::{BundlingParams, OutlierFilterParams};
+use grid_detector::detector::{BundlingOptions, OutlierFilterOptions};
 use grid_detector::image::io::{
     load_grayscale_image, save_grayscale_f32, write_json_file, GrayImageU8,
 };
@@ -19,9 +19,9 @@ pub struct VpOutlierDemoConfig {
     #[serde(default)]
     pub lsd: LsdOptions,
     #[serde(default)]
-    pub outlier: OutlierFilterParams,
+    pub outlier: OutlierFilterOptions,
     #[serde(default)]
-    pub bundling: BundlingParams,
+    pub bundling: BundlingOptions,
     #[serde(default)]
     pub refine: RefineOptions,
     pub output: DemoOutputConfig,

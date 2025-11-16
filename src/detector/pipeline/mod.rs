@@ -19,8 +19,6 @@
 //! }
 //! # }
 //! ```
-mod bundling;
-mod lsd;
 mod outliers;
 mod reporting;
 
@@ -41,10 +39,10 @@ mod reporting;
 // - `refinement::homography`: IRLS-driven homography update and confidence blend.
 // - `refinement::indexing`: bundle-to-grid indexing in rectified space.
 
-use super::params::{BundlingParams, GridParams, OutlierFilterParams};
+use super::options::{BundlingOptions, GridParams, OutlierFilterOptions};
 use crate::image::ImageU8;
 use crate::pyramid::{Pyramid};
-use crate::refine::segment::RefineOptions as SegmentRefineParams;
+use crate::refine::RefineOptions;
 use crate::segments::{LsdOptions, LsdResult, lsd_extract_segments_coarse};
 use crate::types::GridResult;
 use nalgebra::Matrix3;
@@ -111,7 +109,7 @@ impl GridDetector {
     }
 
     /// Update gradient-driven segment refinement parameters.
-    pub fn set_segment_refine_params(&mut self, params: SegmentRefineParams) {
+    pub fn set_segment_refine_params(&mut self, params: RefineOptions) {
         self.params.segment_refine_params = params;
     }
 
@@ -121,12 +119,12 @@ impl GridDetector {
     }
 
     /// Update bundling parameters (orientation/distance/scale mode).
-    pub fn set_bundling_params(&mut self, params: BundlingParams) {
+    pub fn set_bundling_params(&mut self, params: BundlingOptions) {
         self.params.bundling_params = params;
     }
 
     /// Update coarse segment outlier filter thresholds.
-    pub fn set_outlier_filter(&mut self, params: OutlierFilterParams) {
+    pub fn set_outlier_filter(&mut self, params: OutlierFilterOptions) {
         self.params.outlier_filter = params;
     }
 }

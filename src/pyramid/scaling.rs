@@ -2,7 +2,15 @@
 //!
 //! - Adapts bundling thresholds to the current level when operating in a
 //!   full-resolution invariant mode.
-use crate::refine::segment::ScaleMap;
+
+
+/// Coordinate mapping from pyramid level `l+1` to level `l`.
+///
+/// Implementors can model pure dyadic scaling, fractional pixel offsets, or
+/// any bespoke decimation geometry used to build the image pyramid.
+pub trait ScaleMap {
+    fn up(&self, p_coarse: [f32; 2]) -> [f32; 2];
+}
 
 /// Per-level scaling factors between a pyramid level and the full-resolution image.
 #[derive(Clone, Copy, Debug)]
