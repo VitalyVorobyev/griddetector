@@ -56,16 +56,7 @@ use crate::image::ImageF32;
 
 /// Lightweight LSD-like extractor (region growing on gradient orientation, PCA fit, simple significance test)
 pub fn lsd_extract_segments(l: &ImageF32, options: LsdOptions) -> Vec<Segment> {
-    lsd_extract_segments_masked(l, options, None)
-}
-
-/// Masked variant with explicit options.
-pub fn lsd_extract_segments_masked(
-    l: &ImageF32,
-    options: LsdOptions,
-    mask: Option<&[u8]>,
-) -> Vec<Segment> {
-    extractor::LsdExtractor::new(l, options, mask).extract()
+    extractor::LsdExtractor::new(l, options).extract()
 }
 
 #[cfg(test)]

@@ -16,7 +16,7 @@ const NEIGH_OFFSETS: [(isize, isize); 8] = [
     (1, 1),
 ];
 
-pub(super) struct LsdExtractor<'a> {
+pub(super) struct LsdExtractor {
     grad: Grad,
     width: usize,
     height: usize,
@@ -26,28 +26,15 @@ pub(super) struct LsdExtractor<'a> {
     stack: Vec<usize>,
     region: RegionAccumulator,
     segments: Vec<Segment>,
-    mask: Option<&'a [u8]>,
-    enforce_polarity: bool,
-    normal_span_limit: Option<f32>,
     next_id: u32,
 }
 
-impl<'a> LsdExtractor<'a> {
-    pub(super) fn new(l: &ImageF32, options: LsdOptions, mask: Option<&'a [u8]>) -> Self {
+impl LsdExtractor {
+    pub(super) fn new(l: &ImageF32, options: LsdOptions) -> Self {
         let grad = scharr_gradients(l);
         let width = l.w;
         let height = l.h;
         let n = width * height;
-        if cfg!(debug_assertions) {
-            if let Some(m) = mask {
-                debug_assert!(
-                    m.len() >= n,
-                    "mask length {} must be at least width*height ({})",
-                    m.len(),
-                    n
-                );
-            }
-        }
         Self {
             grad,
             width,
@@ -58,11 +45,6 @@ impl<'a> LsdExtractor<'a> {
             stack: Vec::with_capacity(64),
             region: RegionAccumulator::with_capacity(128),
             segments: Vec::new(),
-            mask,
-            enforce_polarity: options.enforce_polarity,
-            normal_span_limit: options
-                .normal_span_limit_px
-                .filter(|v| v.is_finite() && *v > 0.0),
             next_id: 0,
         }
     }
@@ -77,11 +59,6 @@ impl<'a> LsdExtractor<'a> {
     fn process_seed(&mut self, idx: usize) {
         if self.used[idx] != 0 {
             return;
-        }
-        if let Some(mask) = self.mask {
-            if mask[idx] == 0 {
-                return;
-            }
         }
         let x = idx % self.width;
         let y = idx / self.width;
@@ -123,11 +100,6 @@ impl<'a> LsdExtractor<'a> {
                     continue;
                 }
                 let neighbor_idx = yn as usize * self.width + xn as usize;
-                if let Some(mask) = self.mask {
-                    if mask[neighbor_idx] == 0 {
-                        continue;
-                    }
-                }
                 if self.used[neighbor_idx] != 0 {
                     continue;
                 }
@@ -198,7 +170,7 @@ impl<'a> LsdExtractor<'a> {
             if s > smax {
                 smax = s;
             }
-            if self.normal_span_limit.is_some() {
+            if self.options.normal_span_limit_px.is_some() {
                 let n = dx * nx + dy * ny;
                 if n < nmin {
                     nmin = n;
@@ -222,7 +194,7 @@ impl<'a> LsdExtractor<'a> {
             return None;
         }
 
-        if let Some(limit) = self.normal_span_limit {
+        if let Some(limit) = self.options.normal_span_limit_px {
             if nmin.is_finite() && nmax.is_finite() {
                 let normal_span = nmax - nmin;
                 if !normal_span.is_finite() || normal_span > limit {
@@ -247,7 +219,7 @@ impl<'a> LsdExtractor<'a> {
             let x = idx % self.width;
             let y = idx / self.width;
             let raw_angle = self.grad.gy.get(x, y).atan2(self.grad.gx.get(x, y));
-            let angle = if self.enforce_polarity {
+            let angle = if self.options.enforce_polarity {
                 normalize_signed_pi(raw_angle)
             } else {
                 normalize_half_pi(raw_angle)
@@ -260,7 +232,7 @@ impl<'a> LsdExtractor<'a> {
     }
 
     fn angle_difference(&self, a: f32, b: f32) -> f32 {
-        if self.enforce_polarity {
+        if self.options.enforce_polarity {
             let mut diff = (a - b).abs();
             if diff > std::f32::consts::PI {
                 diff = 2.0 * std::f32::consts::PI - diff;
