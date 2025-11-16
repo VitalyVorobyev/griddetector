@@ -25,9 +25,9 @@ pub struct GridParams {
     /// Confidence gate applied to the refined homography.
     pub confidence_thresh: f32,
     /// Gradient-driven segment refinement parameters.
-    pub segment_refine_params: RefineOptions,
+    pub refine: RefineOptions,
     /// Parameters exposed by the coarse LSD→VP engine.
-    pub lsd_params: LsdOptions,
+    pub lsd: LsdOptions,
     /// Bundling configuration shared by the refinement stages.
     pub bundling_params: BundlingOptions,
     /// Segment outlier rejection prior to refinement.
@@ -46,8 +46,8 @@ impl Default for GridParams {
             kmtx: Matrix3::identity(),
             min_cells: 6,
             confidence_thresh: 0.35,
-            segment_refine_params: RefineOptions::default(),
-            lsd_params: LsdOptions::default(),
+            refine: RefineOptions::default(),
+            lsd: LsdOptions::default(),
             bundling_params: BundlingOptions::default(),
             outlier_filter: OutlierFilterOptions::default(),
         }

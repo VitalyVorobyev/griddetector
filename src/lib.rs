@@ -23,7 +23,7 @@ pub use crate::detector::{GridDetector, GridParams};
 pub use crate::types::GridResult;
 
 // High-level diagnostics returned by the detector.
-pub use crate::diagnostics::{DetectionReport, PipelineTrace};
+// pub use crate::diagnostics::{DetectionReport, PipelineTrace};
 
 // Convenience homography helpers that are generally useful.
 pub use crate::homography::{apply_homography_points, rescale_homography_image_space};

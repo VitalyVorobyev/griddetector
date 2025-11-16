@@ -1,22 +1,15 @@
 //! Demonstration binary for the gradient-based segment refiner.
 //!
-//! The demo mirrors the early detector pipeline stages:
+//! Flow:
 //! 1. Build an image pyramid.
 //! 2. Run LSD on the coarsest level.
-//! 3. Build an orientation histogram and assign segment families.
-//! 4. Refine the segments down the pyramid using only local gradients.
-//! 5. Emit diagnostics identical to the pipeline (pyramid, LSD stage, refinement levels).
+//! 3. Refine coarse segments down the pyramid using only local gradients.
+//! 4. Emit a small JSON report and optional images.
 
-use grid_detector::image::io::{
-    load_grayscale_image, save_grayscale_f32
-};
-use grid_detector::pyramid::{PyramidOptions, PyramidResult, build_pyramid};
-use grid_detector::refine::{RefineOptions, refine_coarse_segments, SegmentsRefinementResult};
-use grid_detector::segments::{LsdOptions, LsdResult, lsd_extract_segments_coarse};
-use grid_detector::diagnostics::{run_with_timer, ResultWithTime};
-
-#[cfg(feature = "profile_refine")]
-use grid_detector::refine::segment::take_profile;
+use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
+use grid_detector::pyramid::{build_pyramid, Pyramid, PyramidOptions, PyramidResult};
+use grid_detector::refine::{refine_coarse_segments, RefineOptions, SegmentsRefinementResult};
+use grid_detector::segments::{lsd_extract_segments_coarse, LsdOptions, LsdResult};
 
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -44,11 +37,91 @@ struct SegmentRefineDemoOutputConfig {
     pub dir: PathBuf,
 }
 
-#[derive(Serialize, Debug, Default)]
+#[derive(Debug, Serialize, Default)]
 struct DemoReport {
     pub pyramid: PyramidResult,
     pub lsd: LsdResult,
-    pub refine: SegmentsRefinementResult
+    pub refine: SegmentsRefinementResult,
+}
+
+fn main() {
+    if let Err(err) = run() {
+        eprintln!("Error: {err}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), String> {
+    let config = load_config_from_args()?;
+    ensure_output_dir(&config)?;
+
+    let gray = load_grayscale_image(&config.input)?;
+    println!(
+        "Loaded image {} ({}×{})",
+        config.input.display(),
+        gray.width(),
+        gray.height()
+    );
+
+    let total_start = Instant::now();
+
+    // Pyramid, LSD, and refinement share the same pyramid instance.
+    let pyramid_result = build_pyramid(gray.as_view(), config.pyramid);
+    let refine_result;
+    let lsd_result;
+    {
+        let pyramid = &pyramid_result.pyramid;
+        println!(
+            "Pyramid built in {:.2} ms (L0 convert {:.2} ms, levels={})",
+            pyramid_result.elapsed_ms,
+            pyramid_result.elapsed_convert_l0_ms,
+            pyramid.levels.len()
+        );
+
+        // Coarse LSD
+        lsd_result = lsd_extract_segments_coarse(pyramid, config.lsd);
+        println!(
+            "LSD detected {} segments in {:.2} ms",
+            lsd_result.segments.len(),
+            lsd_result.elapsed_ms
+        );
+
+        // Gradient-driven refinement
+        refine_result = refine_coarse_segments(
+            pyramid,
+            &lsd_result.segments,
+            &config.refine,
+            Some(lsd_result.grad.clone()),
+        );
+        println!(
+            "Refinement over {} levels took {:.2} ms",
+            refine_result.levels.len(),
+            refine_result.elapsed_ms
+        );
+
+        if !config.performance_mode {
+            save_pyramid_images(pyramid, &config.output.dir)?;
+        }
+    }
+
+    let total_ms = total_start.elapsed().as_secs_f64() * 1000.0;
+    println!("Total execution time: {:.2} ms", total_ms);
+
+    // Save report and optional images.
+    let report = DemoReport {
+        pyramid: pyramid_result,
+        lsd: lsd_result,
+        refine: refine_result,
+    };
+
+    let report_path = config.output.dir.join("report.json");
+    write_json_file(&report_path, &report)?;
+    println!(
+        "Segment refinement report written to {}",
+        report_path.display()
+    );
+
+    Ok(())
 }
 
 fn load_config(path: &Path) -> Result<SegmentRefineDemoConfig, String> {
@@ -56,47 +129,6 @@ fn load_config(path: &Path) -> Result<SegmentRefineDemoConfig, String> {
         .map_err(|e| format!("Failed to read config {}: {e}", path.display()))?;
     serde_json::from_str(&data)
         .map_err(|e| format!("Failed to parse config {}: {e}", path.display()))
-}
-
-
-fn main() {
-    let config = load_config_from_args().map_err(
-
-    );
-    ensure_output_dir(&config).map_err();
-
-    let ResultWithTime {
-        result: gray,
-        elapsed_ms: load_ms,
-    } = run_with_timer(|| load_grayscale_image(&config.input))?;
-    println!("Image loaded in {} ms", load_ms);
-
-    let total_start = Instant::now();
-    run(config, gray.as_slice()).unwrap_or_else(|err| {
-        eprintln!("Error: {err}");
-        std::process::exit(1);
-    })
-    let total_ms = total_start.elapsed().as_secs_f64() * 1000.0;
-    println!("Total execution time: {:.2} ms", total_ms);
-
-    let report_path = config.output.dir.join("report.json");
-    // write_json_file(&report_path, &stage)?;
-    println!(
-        "Segment refinement report written to {}",
-        report_path.display()
-    );
-
-    save_pyramid_images(gray.as_slice(), out_dir);
-}
-
-fn run(config: SegmentRefineDemoConfig, gray:ImageU8) -> Result<DemoReport, String> {
-    let diagnostics_enabled = !config.performance_mode;
-
-    let pyramid = build_pyramid(gray);
-    let lsd  = lsd_extract_segments_coarse(&pyramid, self.params.lsd);
-    let refine = refine_coarse_segments(&pyramid, &segments, self.params.refine, grad);
-
-    Ok(DemoReport {pyramid, lsd, refine})
 }
 
 fn usage() -> String {
@@ -113,8 +145,7 @@ fn ensure_output_dir(config: &SegmentRefineDemoConfig) -> Result<(), String> {
         .map_err(|e| format!("Failed to create {}: {e}", config.output.dir.display()))
 }
 
-fn save_pyramid_images(gray:ImageU8, out_dir: &Path) -> Result<(), String> {
-    let pyramid = build_pyramid(gray);
+fn save_pyramid_images(pyramid: &Pyramid, out_dir: &Path) -> Result<(), String> {
     for (idx, level) in pyramid.levels.iter().enumerate() {
         let path = out_dir.join(format!("pyramid_L{idx}.png"));
         save_grayscale_f32(level, &path)?;

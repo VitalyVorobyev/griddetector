@@ -1,3 +1,7 @@
+use crate::segments::LsdResult;
+use crate::refine::SegmentsRefinementResult;
+use crate::pyramid::PyramidResult;
+
 use nalgebra::{Matrix3, Isometry3};
 use serde::Serialize;
 
@@ -12,4 +16,8 @@ pub struct GridResult {
     pub reproj_rmse: f32,
     pub confidence: f32,
     pub latency_ms: f64,
+    pub pyramid: PyramidResult,
+    pub lsd: LsdResult,
+    pub refine: SegmentsRefinementResult,
+    pub elapsed_ms: f64
 }

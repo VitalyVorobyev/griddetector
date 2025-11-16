@@ -19,7 +19,7 @@ const NEIGH_OFFSETS: [(isize, isize); 8] = [
     (1, 1),
 ];
 
-#[derive(Default, Serialize, Debug)]
+#[derive(Default, Serialize, Debug, Clone)]
 pub struct LsdResult {
     pub segments: Vec<Segment>,
     #[serde(skip)]

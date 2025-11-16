@@ -21,7 +21,7 @@
 //! ```
 
 // mod outliers;
-mod reporting;
+// mod reporting;
 
 // Stages
 // - Pyramid: build multi-level grayscale pyramid (float levels with optional blur).
@@ -40,24 +40,19 @@ mod reporting;
 // - `refinement::homography`: IRLS-driven homography update and confidence blend.
 // - `refinement::indexing`: bundle-to-grid indexing in rectified space.
 
-use super::options::{BundlingOptions, GridParams, OutlierFilterOptions};
+use super::options::{GridParams};
+use crate::edges::Grad;
 use crate::image::ImageU8;
-use crate::pyramid::{Pyramid};
-use crate::refine::RefineOptions;
-use crate::segments::{LsdOptions, LsdResult, lsd_extract_segments_coarse};
+use crate::pyramid::build_pyramid;
+use crate::segments::lsd_extract_segments_coarse;
+use crate::refine::refine_coarse_segments;
 use crate::types::GridResult;
-use nalgebra::Matrix3;
 use std::time::Instant;
 
 /// Grid detector orchestrating pyramid construction, LSD→VP, outlier
 /// filtering, coarse-to-fine segment refinement and homography IRLS.
 pub struct GridDetector {
     params: GridParams,
-    last_hmtx: Option<Matrix3<f32>>,
-}
-struct PyramidBuildResult {
-    pyramid: Pyramid,
-    elapsed_ms: f64,
 }
 
 impl GridDetector {
@@ -65,7 +60,6 @@ impl GridDetector {
     pub fn new(params: GridParams) -> Self {
         Self {
             params,
-            last_hmtx: None,
         }
     }
 
@@ -73,60 +67,23 @@ impl GridDetector {
     pub fn process(&mut self, gray: ImageU8) -> GridResult {
         let total_start = Instant::now();
 
-        let PyramidBuildResult {
-            pyramid,
-            elapsed_ms: pyr_ms,
-        } = self.build_pyramid(gray);
-
-        let LsdResult {
-            segments: coarse_segments,
-            grad,
-            elapsed_ms: lsd_ms,
-        } = lsd_extract_segments_coarse(&pyramid, self.params.lsd_params);
-
+        let pyramid = build_pyramid(gray, self.params.pyramid);
+        let mut lsd = lsd_extract_segments_coarse(&pyramid.pyramid, self.params.lsd);
+        let refine = refine_coarse_segments(
+            &pyramid.pyramid,
+            &lsd.segments,
+            &self.params.refine,
+            Some(lsd.grad)
+        );
         let elapsed_ms = total_start.elapsed().as_secs_f64() * 1000.0;
+        lsd.grad = Grad::default();
 
-        let grid = GridResult::default();
-        grid
-    }
-
-    fn build_pyramid(&self, gray: ImageU8) -> PyramidBuildResult {
-        let pyr_start = Instant::now();
-        let pyramid = Pyramid::build_u8(gray, self.params.pyramid);
-        let elapsed_ms = pyr_start.elapsed().as_secs_f64() * 1000.0;
-        PyramidBuildResult {
+        GridResult {
             pyramid,
+            lsd,
+            refine,
             elapsed_ms,
+            ..GridResult::default()
         }
-    }
-
-    /// Update the camera intrinsics used for pose recovery.
-    pub fn set_intrinsics(&mut self, k: Matrix3<f32>) {
-        self.params.kmtx = k;
-    }
-
-    /// Update the assumed grid spacing (millimetres).
-    pub fn set_spacing(&mut self, s_mm: f32) {
-        self.params.spacing_mm = s_mm;
-    }
-
-    /// Update gradient-driven segment refinement parameters.
-    pub fn set_segment_refine_params(&mut self, params: RefineOptions) {
-        self.params.segment_refine_params = params;
-    }
-
-    /// Update LSD coarse stage parameters.
-    pub fn set_lsd_params(&mut self, params: LsdOptions) {
-        self.params.lsd_params = params;
-    }
-
-    /// Update bundling parameters (orientation/distance/scale mode).
-    pub fn set_bundling_params(&mut self, params: BundlingOptions) {
-        self.params.bundling_params = params;
-    }
-
-    /// Update coarse segment outlier filter thresholds.
-    pub fn set_outlier_filter(&mut self, params: OutlierFilterOptions) {
-        self.params.outlier_filter = params;
     }
 }

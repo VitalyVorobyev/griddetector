@@ -1,5 +1,4 @@
 use crate::diagnostics::SegmentId;
-use crate::grid::FamilyLabel;
 use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize)]
@@ -20,7 +19,6 @@ pub struct LsdStage {
     pub family_counts: FamilyCounts,
     /// Per-segment family assignments. The indices align with the descriptors in
     /// [`PipelineTrace::segments`](crate::diagnostics::pipeline::PipelineTrace).
-    pub segment_families: Vec<Option<FamilyLabel>>,
     /// Optional sample of segment identifiers highlighted by demos for JSON size
     /// control. When empty, downstream tooling should assume that all segments
     /// are part of the report.

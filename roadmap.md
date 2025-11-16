@@ -56,7 +56,7 @@ src/
     irls.rs
     types.rs
   detector/
-    mod.rs               // GridDetector, DetectorWorkspace
+    mod.rs               // GridDetector, RefinementWorkspace
     pipeline.rs          // orchestration
     bundling.rs
     indexing.rs          // future: grid indexing/u,v lattice
@@ -172,7 +172,7 @@ Tier-1 users mostly tweak lsd and pyramid and ignore the rest.
 
 Goal: allow you (and advanced users) to run or swap individual stages, but still within a guided structure.
 
-You already have run_lsd_stage, run_outlier_stage, DetectorWorkspace, and a bunch of diagnostic types re-exported.  ￼ I’d formalize this a bit:
+You already have run_lsd_stage, run_outlier_stage, RefinementWorkspace, and a bunch of diagnostic types re-exported.  ￼ I’d formalize this a bit:
 
 pub struct PipelineConfig {
     pub pyramid: PyramidParams,
@@ -183,11 +183,11 @@ pub struct PipelineConfig {
     pub refine: RefineOptions,
 }
 
-pub struct DetectorWorkspace {
+pub struct RefinementWorkspace {
     // preallocated buffers, per-level caches, etc.
 }
 
-impl DetectorWorkspace {
+impl RefinementWorkspace {
     pub fn new(max_w: usize, max_h: usize, max_levels: usize) -> Self;
 }
 
@@ -196,13 +196,13 @@ Stage runners:
 pub fn run_pyramid(
     img: ImageU8<'_>,
     cfg: &PyramidParams,
-    ws: &mut DetectorWorkspace,
+    ws: &mut RefinementWorkspace,
 ) -> PyramidStageOutput;
 
 pub fn run_lsd_stage(
     pyr: &PyramidStageOutput,
     cfg: &LsdParams,
-    ws: &mut DetectorWorkspace,
+    ws: &mut RefinementWorkspace,
 ) -> LsdStageOutput;
 
 pub fn run_vp_stage(
@@ -324,7 +324,7 @@ This ties directly to “I am going to investigate the results using python visu
 Phase 5 – Performance & parallelism
 
 Once correctness + tests are in place:
-	1.	Use DetectorWorkspace to pre-allocate everything and avoid per-frame allocations.
+	1.	Use RefinementWorkspace to pre-allocate everything and avoid per-frame allocations.
 	2.	Turn on rayon for:
 	•	pyramid construction,
 	•	gradient computation,
@@ -366,4 +366,4 @@ If you’re okay with this direction, I’d suggest we do this next, concretely:
 
 If you want, in the next step I can draft:
 	•	a concrete lib.rs with the proposed prelude and public modules; and
-	•	skeletons for GridParams, DetectorWorkspace, and PipelineConfig matching what you already have, so you can adapt the actual code with minimal churn.
+	•	skeletons for GridParams, RefinementWorkspace, and PipelineConfig matching what you already have, so you can adapt the actual code with minimal churn.

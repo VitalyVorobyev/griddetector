@@ -1,5 +1,5 @@
 use crate::diagnostics::{
-    BundlingStage, GradientRefineStage, GridIndexingStage, LsdStage, OutlierFilterStage,
+    BundlingStage, GradientRefineStage, LsdStage, OutlierFilterStage,
     RefinementStage, TimingBreakdown,
 };
 use crate::segments::Segment;
@@ -13,11 +13,6 @@ use serde::Serialize;
 pub struct DetectionReport {
     pub grid: GridResult,
     pub trace: PipelineTrace,
-}
-
-fn format_optional(val: Option<f32>) -> String {
-    val.map(|v| format!("{:.3}", v))
-        .unwrap_or_else(|| "-".to_string())
 }
 
 /// End-to-end trace describing the internal execution of the detector.
