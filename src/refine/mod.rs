@@ -20,10 +20,8 @@ const EPS: f32 = 1e-6;
 
 mod anchor;
 mod families;
-pub mod homography;
 mod irls;
 pub mod segment;
 mod types;
 
 pub(crate) use families::split_bundles;
-pub use homography::{RefineLevel, RefineParams, RefinementResult, Refiner};

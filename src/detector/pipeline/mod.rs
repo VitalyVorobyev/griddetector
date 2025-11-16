@@ -20,10 +20,8 @@
 //! # }
 //! ```
 mod bundling;
-mod gradient_refine;
 mod lsd;
 mod outliers;
-mod refinement;
 mod reporting;
 
 // Stages
@@ -43,26 +41,13 @@ mod reporting;
 // - `refinement::homography`: IRLS-driven homography update and confidence blend.
 // - `refinement::indexing`: bundle-to-grid indexing in rectified space.
 
-use super::params::{BundlingParams, GridParams, OutlierFilterParams, RefinementSchedule};
-use super::workspace::DetectorWorkspace;
-use crate::diagnostics::{
-    DetectionReport, InputDescriptor, PipelineTrace, PyramidStage, TimingBreakdown,
-};
+use super::params::{BundlingParams, GridParams, OutlierFilterParams};
 use crate::image::ImageU8;
-use crate::lsd_vp::Engine as LsdVpEngine;
-use crate::pyramid::{Pyramid, PyramidOptions};
+use crate::pyramid::{Pyramid};
 use crate::refine::segment::RefineParams as SegmentRefineParams;
-use crate::refine::RefineParams as HomographyRefineParams;
-use crate::refine::Refiner;
-use crate::segments::{Bundle, LsdOptions};
+use crate::segments::{LsdOptions, LsdResult, lsd_extract_segments_coarse};
 use crate::types::GridResult;
-use bundling::BundleStack;
-use log::debug;
-use lsd::LsdComputation;
 use nalgebra::Matrix3;
-use outliers::OutlierComputation;
-use refinement::{PreparedLevels, RefinementComputation};
-use reporting::pose_from_h;
 use std::time::Instant;
 
 /// Grid detector orchestrating pyramid construction, LSD→VP, outlier
@@ -70,480 +55,48 @@ use std::time::Instant;
 pub struct GridDetector {
     params: GridParams,
     last_hmtx: Option<Matrix3<f32>>,
-    refiner: Refiner,
-    workspace: DetectorWorkspace,
 }
 struct PyramidBuildResult {
     pyramid: Pyramid,
-    stage: Option<PyramidStage>,
     elapsed_ms: f64,
 }
 
 impl GridDetector {
     /// Create a detector with the supplied parameters.
     pub fn new(params: GridParams) -> Self {
-        let refiner = Refiner::new(params.refine_params.clone());
         Self {
             params,
             last_hmtx: None,
-            refiner,
-            workspace: DetectorWorkspace::new(),
         }
     }
 
     /// Run the full coarse-to-fine pipeline and capture detailed diagnostics.
-    pub fn process(&mut self, gray: ImageU8) -> DetectionReport {
-        let (width, height) = (gray.w, gray.h);
-        debug!(
-            "GridDetector::process start w={} h={} levels={}",
-            width, height, self.params.pyramid_levels
-        );
+    pub fn process(&mut self, gray: ImageU8) -> GridResult {
         let total_start = Instant::now();
 
         let PyramidBuildResult {
             pyramid,
-            stage: pyramid_stage,
             elapsed_ms: pyr_ms,
         } = self.build_pyramid(gray);
 
-        let bundler = BundleStack::new(&self.params.bundling_params);
-        let lsd_engine = LsdVpEngine {
-            options: self.params.lsd_params,
-        };
-        let LsdComputation {
-            stage: mut lsd_stage,
+        let LsdResult {
             segments: coarse_segments,
-            coarse_h,
-            mut full_h,
-            mut confidence,
             elapsed_ms: lsd_ms,
-            ..
-        } = lsd::run_on_coarsest(&lsd_engine, &pyramid, width, height);
-        let mut lsd_ms_total = lsd_ms;
+        } = lsd_extract_segments_coarse(&pyramid, self.params.lsd_params);
 
-        if let Some(stage) = lsd_stage.as_mut() {
-            stage.elapsed_ms = lsd_ms;
-            stage.used_gradient_refinement = false;
-        }
+        let elapsed_ms = total_start.elapsed().as_secs_f64() * 1000.0;
 
-        let OutlierComputation {
-            stage: outlier_stage,
-            segments: filtered_segments,
-            elapsed_ms: outlier_filter_ms,
-        } = outliers::filter_segments(
-            &coarse_segments,
-            coarse_h.as_ref(),
-            &self.params.outlier_filter,
-            &self.params.lsd_params,
-        );
-
-        self.workspace.reset(pyramid.levels.len());
-        let gradient_outcome = if filtered_segments.is_empty() {
-            gradient_refine::GradientRefineComputation {
-                stage: None,
-                segments: Vec::new(),
-                elapsed_ms: 0.0,
-            }
-        } else {
-            gradient_refine::refine_coarsest_with_gradients(
-                &mut self.workspace,
-                &pyramid,
-                &filtered_segments,
-                &self.params.segment_refine_params,
-            )
-        };
-        let gradient_refine_stage = gradient_outcome.stage.clone();
-        let gradient_refine_ms = gradient_outcome.elapsed_ms;
-        let mut coarse_segments_final = if filtered_segments.is_empty() {
-            Vec::new()
-        } else {
-            gradient_outcome.segments
-        };
-
-        if !coarse_segments_final.is_empty() {
-            let mut vp_outcome = lsd::refit_with_segments(
-                &lsd_engine,
-                &pyramid,
-                width,
-                height,
-                coarse_segments_final.clone(),
-            );
-            lsd_ms_total += vp_outcome.elapsed_ms;
-            if let Some(mut stage) = vp_outcome.stage.take() {
-                stage.elapsed_ms += lsd_ms;
-                confidence = vp_outcome.confidence;
-                lsd_stage = Some(stage);
-            }
-            if let Some(h) = vp_outcome.full_h {
-                full_h = Some(h);
-            }
-            if !vp_outcome.segments.is_empty() {
-                coarse_segments_final = vp_outcome.segments;
-            }
-        }
-
-        let initial_h_full = full_h;
-        let coarse_h_matrix = full_h;
-
-        let mut prepared_levels = PreparedLevels::empty();
-        if !coarse_segments_final.is_empty() && !pyramid.levels.is_empty() {
-            prepared_levels = refinement::prepare_levels(
-                &mut self.workspace,
-                &bundler,
-                &self.params.segment_refine_params,
-                &pyramid,
-                full_h.as_ref(),
-                coarse_segments_final.clone(),
-                width,
-                height,
-            );
-        }
-
-        let bundling_stage = refinement::build_bundling_stage(
-            &self.params.bundling_params,
-            &prepared_levels,
-            coarse_segments_final.len(),
-        );
-
-        let RefinementComputation {
-            hmtx: refined_h,
-            confidence: refined_confidence,
-            stage: refinement_stage,
-            elapsed_ms: refine_ms,
-        } = refinement::refine_homography(
-            &mut self.refiner,
-            &prepared_levels,
-            initial_h_full,
-            confidence,
-            &self.params.refinement_schedule,
-            self.params.enable_refine,
-            self.last_hmtx,
-        );
-
-        let hmtx = refined_h;
-        confidence = refined_confidence;
-
-        let mut origin_uv = (0, 0);
-        let mut visible_range = (0, 0, 0, 0);
-        let grid_indexing_stage = if let Some(level) = prepared_levels.levels.first() {
-            let stage = refinement::index_grid_from_bundles(
-                level.bundles.as_slice(),
-                Some(&hmtx),
-                self.params.refine_params.orientation_tol_deg.to_radians(),
-            );
-            if let Some(stage_ref) = stage.as_ref() {
-                origin_uv = stage_ref.origin_uv;
-                visible_range = stage_ref.visible_range;
-            }
-            stage
-        } else {
-            None
-        };
-
-        if hmtx != Matrix3::identity() {
-            self.last_hmtx = Some(hmtx);
-        }
-
-        let found = hmtx != Matrix3::identity() && confidence >= self.params.confidence_thresh;
-        let pose = if found {
-            Some(pose_from_h(self.params.kmtx, hmtx))
-        } else {
-            None
-        };
-        let latency = total_start.elapsed().as_secs_f64() * 1000.0;
-        debug!(
-            "GridDetector::process done found={} confidence={:.3} latency_ms={:.3}",
-            found, confidence, latency
-        );
-        let result = GridResult {
-            found,
-            hmtx,
-            pose: pose.clone(),
-            origin_uv,
-            visible_range,
-            coverage: 0.0,
-            reproj_rmse: 0.0,
-            confidence,
-            latency_ms: latency,
-        };
-
-        let mut timings = TimingBreakdown::with_total(latency);
-        if pyr_ms > 0.0 {
-            timings.push("pyramid", pyr_ms);
-        }
-        if lsd_ms_total > 0.0 {
-            timings.push("lsd_vp", lsd_ms_total);
-        }
-        if outlier_filter_ms > 0.0 {
-            timings.push("outlier_filter", outlier_filter_ms);
-        }
-        if gradient_refine_ms > 0.0 {
-            timings.push("gradient_refine", gradient_refine_ms);
-        }
-        if prepared_levels.segment_refine_ms > 0.0 {
-            timings.push("segment_refine", prepared_levels.segment_refine_ms);
-        }
-        if prepared_levels.bundling_ms > 0.0 {
-            timings.push("bundling", prepared_levels.bundling_ms);
-        }
-        if refine_ms > 0.0 {
-            timings.push("refinement", refine_ms);
-        }
-        if let Some(stage) = grid_indexing_stage.as_ref() {
-            if stage.elapsed_ms > 0.0 {
-                timings.push("grid_indexing", stage.elapsed_ms);
-            }
-        }
-
-        let trace = PipelineTrace {
-            input: InputDescriptor {
-                width,
-                height,
-                pyramid_levels: pyramid.levels.len(),
-            },
-            timings,
-            segments: coarse_segments_final,
-            pyramid: pyramid_stage,
-            lsd: lsd_stage,
-            outlier_filter: outlier_stage,
-            gradient_refine: gradient_refine_stage,
-            bundling: bundling_stage,
-            grid_indexing: grid_indexing_stage,
-            refinement: refinement_stage,
-            coarse_homography: coarse_h_matrix,
-            pose: pose.clone(),
-        };
-
-        DetectionReport {
-            grid: result,
-            trace,
-        }
+        let grid = GridResult::default();
+        grid
     }
 
     fn build_pyramid(&self, gray: ImageU8) -> PyramidBuildResult {
         let pyr_start = Instant::now();
-        let pyramid_opts = PyramidOptions::new(self.params.pyramid_levels)
-            .with_blur_levels(self.params.pyramid_blur_levels);
-        let pyramid = Pyramid::build_u8(gray, pyramid_opts);
+        let pyramid = Pyramid::build_u8(gray, self.params.pyramid);
         let elapsed_ms = pyr_start.elapsed().as_secs_f64() * 1000.0;
-        let stage = if pyramid.levels.is_empty() {
-            None
-        } else {
-            Some(PyramidStage::from_pyramid(&pyramid, elapsed_ms))
-        };
         PyramidBuildResult {
             pyramid,
-            stage,
             elapsed_ms,
-        }
-    }
-
-    /// Execute the coarse-only pipeline (pyramid → LSD → outlier filter → bundling) with diagnostics.
-    pub fn process_coarsest(&mut self, gray: ImageU8) -> DetectionReport {
-        let (width, height) = (gray.w, gray.h);
-        debug!(
-            "GridDetector::process_coarsest start w={} h={} levels={}",
-            width, height, self.params.pyramid_levels
-        );
-        let total_start = Instant::now();
-
-        let PyramidBuildResult {
-            pyramid,
-            stage: pyramid_stage,
-            elapsed_ms: pyr_ms,
-        } = self.build_pyramid(gray);
-
-        let scale = 1_f32 / (1 << pyramid.levels.len()) as f32;
-        let lsd_engine = LsdVpEngine {
-            options: self.params.lsd_params.with_scale(scale),
-        };
-        let LsdComputation {
-            stage: mut lsd_stage,
-            segments: coarse_segments,
-            mut coarse_h,
-            mut full_h,
-            mut confidence,
-            elapsed_ms: lsd_ms,
-            ..
-        } = lsd::run_on_coarsest(&lsd_engine, &pyramid, width, height);
-        let mut lsd_ms_total = lsd_ms;
-
-        println!("Coarse hmtx:\n{coarse_h:?}");
-        println!("Full hmtx:\n{full_h:?}");
-
-        if let Some(stage) = lsd_stage.as_mut() {
-            stage.elapsed_ms = lsd_ms;
-            stage.used_gradient_refinement = false;
-        }
-
-        let OutlierComputation {
-            stage: outlier_stage,
-            segments: filtered_segments,
-            elapsed_ms: outlier_filter_ms,
-        } = outliers::filter_segments(
-            &coarse_segments,
-            coarse_h.as_ref(),
-            &self.params.outlier_filter,
-            &self.params.lsd_params,
-        );
-
-        self.workspace.reset(pyramid.levels.len());
-        let gradient_outcome = if filtered_segments.is_empty() {
-            gradient_refine::GradientRefineComputation {
-                stage: None,
-                segments: Vec::new(),
-                elapsed_ms: 0.0,
-            }
-        } else {
-            gradient_refine::refine_coarsest_with_gradients(
-                &mut self.workspace,
-                &pyramid,
-                &filtered_segments,
-                &self.params.segment_refine_params,
-            )
-        };
-        let gradient_refine_stage = gradient_outcome.stage.clone();
-        let gradient_refine_ms = gradient_outcome.elapsed_ms;
-        let mut coarse_segments_final = if filtered_segments.is_empty() {
-            Vec::new()
-        } else {
-            gradient_outcome.segments
-        };
-
-        if !coarse_segments_final.is_empty() {
-            let mut vp_outcome = lsd::refit_with_segments(
-                &lsd_engine,
-                &pyramid,
-                width,
-                height,
-                coarse_segments_final.clone(),
-            );
-            lsd_ms_total += vp_outcome.elapsed_ms;
-            if let Some(mut stage) = vp_outcome.stage.take() {
-                stage.elapsed_ms += lsd_ms;
-                confidence = vp_outcome.confidence;
-                lsd_stage = Some(stage);
-            }
-            if let Some(h) = vp_outcome.coarse_h {
-                coarse_h = Some(h);
-            }
-            if let Some(h) = vp_outcome.full_h {
-                full_h = Some(h);
-            }
-            if !vp_outcome.segments.is_empty() {
-                coarse_segments_final = vp_outcome.segments;
-            }
-        }
-
-        println!("Refit coarse hmtx:\n{coarse_h:?}");
-        println!("Refit full hmtx:\n{full_h:?}");
-
-        let bundler = BundleStack::new(&self.params.bundling_params);
-        let mut bundling_stage = None;
-        let mut coarse_bundles: Vec<Bundle> = Vec::new();
-        if let Some((stage, bundles)) = bundling::bundle_coarsest(
-            &bundler,
-            &pyramid,
-            coarse_h.as_ref(),
-            &coarse_segments_final,
-            width,
-            height,
-        ) {
-            coarse_bundles = bundles;
-            bundling_stage = Some(stage);
-        }
-        let bundling_ms = bundling_stage
-            .as_ref()
-            .map(|stage| stage.elapsed_ms)
-            .unwrap_or(0.0);
-
-        let hmtx = full_h.unwrap_or_else(Matrix3::identity);
-        let coarse_h_matrix = full_h;
-
-        if hmtx != Matrix3::identity() {
-            self.last_hmtx = Some(hmtx);
-        }
-
-        let mut origin_uv = (0, 0);
-        let mut visible_range = (0, 0, 0, 0);
-        let grid_indexing_stage = refinement::index_grid_from_bundles(
-            &coarse_bundles,
-            full_h.as_ref(),
-            self.params.refine_params.orientation_tol_deg.to_radians(),
-        );
-        if let Some(stage) = grid_indexing_stage.as_ref() {
-            origin_uv = stage.origin_uv;
-            visible_range = stage.visible_range;
-        }
-
-        let found = hmtx != Matrix3::identity() && confidence >= self.params.confidence_thresh;
-        let pose = if found {
-            Some(pose_from_h(self.params.kmtx, hmtx))
-        } else {
-            None
-        };
-        let latency = total_start.elapsed().as_secs_f64() * 1000.0;
-        debug!(
-            "GridDetector::process_coarsest done found={} confidence={:.3} latency_ms={:.3}",
-            found, confidence, latency
-        );
-
-        let result = GridResult {
-            found,
-            hmtx,
-            pose: pose.clone(),
-            origin_uv,
-            visible_range,
-            coverage: 0.0,
-            reproj_rmse: 0.0,
-            confidence,
-            latency_ms: latency,
-        };
-
-        let mut timings = TimingBreakdown::with_total(latency);
-        if pyr_ms > 0.0 {
-            timings.push("pyramid", pyr_ms);
-        }
-        if lsd_ms_total > 0.0 {
-            timings.push("lsd_vp", lsd_ms_total);
-        }
-        if outlier_filter_ms > 0.0 {
-            timings.push("outlier_filter", outlier_filter_ms);
-        }
-        if gradient_refine_ms > 0.0 {
-            timings.push("gradient_refine", gradient_refine_ms);
-        }
-        if bundling_ms > 0.0 {
-            timings.push("bundling", bundling_ms);
-        }
-        if let Some(stage) = grid_indexing_stage.as_ref() {
-            if stage.elapsed_ms > 0.0 {
-                timings.push("grid_indexing", stage.elapsed_ms);
-            }
-        }
-
-        let trace = PipelineTrace {
-            input: InputDescriptor {
-                width,
-                height,
-                pyramid_levels: pyramid.levels.len(),
-            },
-            timings,
-            segments: coarse_segments_final,
-            pyramid: pyramid_stage,
-            lsd: lsd_stage,
-            outlier_filter: outlier_stage,
-            gradient_refine: gradient_refine_stage,
-            bundling: bundling_stage,
-            grid_indexing: grid_indexing_stage,
-            refinement: None,
-            coarse_homography: coarse_h_matrix,
-            pose: pose.clone(),
-        };
-
-        DetectionReport {
-            grid: result,
-            trace,
         }
     }
 
@@ -555,12 +108,6 @@ impl GridDetector {
     /// Update the assumed grid spacing (millimetres).
     pub fn set_spacing(&mut self, s_mm: f32) {
         self.params.spacing_mm = s_mm;
-    }
-
-    /// Update IRLS parameters for the homography refinement.
-    pub fn set_refine_params(&mut self, params: HomographyRefineParams) {
-        self.params.refine_params = params.clone();
-        self.refiner = Refiner::new(params);
     }
 
     /// Update gradient-driven segment refinement parameters.
@@ -581,10 +128,5 @@ impl GridDetector {
     /// Update coarse segment outlier filter thresholds.
     pub fn set_outlier_filter(&mut self, params: OutlierFilterParams) {
         self.params.outlier_filter = params;
-    }
-
-    /// Update the refinement schedule (number of passes and threshold).
-    pub fn set_refinement_schedule(&mut self, schedule: RefinementSchedule) {
-        self.params.refinement_schedule = schedule;
     }
 }

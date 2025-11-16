@@ -1,9 +1,17 @@
 use crate::angle::normalize_half_pi;
 
+const DEFAULT_BINS: usize = 36;
+
 /// Circular histogram over [0, π) used to find dominant line orientations.
 pub(crate) struct OrientationHistogram {
     bins: Vec<f32>,
     bin_width: f32,
+}
+
+impl Default for OrientationHistogram {
+    fn default() -> Self {
+        Self::new(DEFAULT_BINS)
+    }
 }
 
 impl OrientationHistogram {

@@ -1,4 +1,4 @@
-use super::extractor::LsdExtractor;
+use super::extractor::{LsdExtractor, LsdResult};
 use super::*;
 use crate::image::ImageF32;
 
@@ -25,7 +25,10 @@ fn make_test_segment(angle: f32) -> Segment {
 #[test]
 fn lsd_extractor_finds_vertical_segment() {
     let img = step_image(32, 32, 16);
-    let segs = LsdExtractor::new(&img, LsdOptions::default(), None).extract();
+    let LsdResult {
+        segments: segs,
+        ..
+    } = LsdExtractor::new(&img, LsdOptions::default()).extract();
     assert!(
         !segs.is_empty(),
         "expected at least one segment on a vertical edge"
@@ -97,7 +100,10 @@ fn bundle_segments_merges_across_orientation_bins() {
 #[test]
 fn lsd_extractor_rejects_flat_image() {
     let img = ImageF32::new(16, 16);
-    let segs = LsdExtractor::new(&img, LsdOptions::default(), None).extract();
+    let LsdResult {
+        segments: segs,
+        ..
+    } = LsdExtractor::new(&img, LsdOptions::default()).extract();
     assert!(
         segs.is_empty(),
         "no segments should be detected in a flat image, got {:?}",

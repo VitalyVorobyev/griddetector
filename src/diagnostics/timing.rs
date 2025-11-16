@@ -1,3 +1,4 @@
+use std::time::Instant;
 use serde::{Deserialize, Serialize};
 
 /// Timing entry describing a single stage of the pipeline or one of the helper
@@ -37,4 +38,18 @@ impl TimingBreakdown {
     pub fn push(&mut self, label: impl Into<String>, elapsed_ms: f64) {
         self.stages.push(StageTiming::new(label, elapsed_ms));
     }
+}
+
+pub struct ResultWithTime<R> {
+    result: R,
+    elapsed_ms: f64,
+}
+
+/// Run a closure while timing its execution and reporting the elapsed time. Should return the same
+/// result as the closure.
+pub fn run_with_timer<R, F: FnOnce() -> Result<R, String>>(f: F) -> Result<ResultWithTime<R>, String> {
+    let start = Instant::now();
+    let result = f()?;
+    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    Ok(ResultWithTime { result, elapsed_ms })
 }

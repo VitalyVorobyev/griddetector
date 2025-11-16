@@ -3,25 +3,6 @@
 //! - Adapts bundling thresholds to the current level when operating in a
 //!   full-resolution invariant mode.
 use crate::refine::segment::ScaleMap;
-use crate::segments::bundling::Bundle;
-
-/// Rescales a bundle into full-resolution coordinates.
-pub fn rescale_bundle_to_full_res(mut bundle: Bundle, scale_x: f32, scale_y: f32) -> Bundle {
-    bundle.center[0] *= scale_x;
-    bundle.center[1] *= scale_y;
-
-    let mut a = bundle.line[0] / scale_x;
-    let mut b = bundle.line[1] / scale_y;
-    let mut c = bundle.line[2];
-    let norm = (a * a + b * b).sqrt().max(1e-6);
-    a /= norm;
-    b /= norm;
-    c /= norm;
-
-    bundle.line = [a, b, c];
-    bundle.weight *= 0.5 * (scale_x + scale_y);
-    bundle
-}
 
 /// Per-level scaling factors between a pyramid level and the full-resolution image.
 #[derive(Clone, Copy, Debug)]

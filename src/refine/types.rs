@@ -1,5 +1,4 @@
 use crate::diagnostics::RefinementIteration;
-use crate::segments::bundling::Bundle;
 use nalgebra::Matrix3;
 use serde::Deserialize;
 

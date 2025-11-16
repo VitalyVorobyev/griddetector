@@ -44,19 +44,35 @@
 //! - `crate::lsd_vp` for orientation clustering and VP estimation.
 //! - `crate::refine` for coarse-to-fine Huber-weighted refinement using bundles.
 
-pub mod bundling;
+mod bundling;
 mod extractor;
 mod region_accumulator;
-pub mod types;
+mod segment;
+mod options;
 
 pub use bundling::{bundle_segments, Bundle};
-pub use types::{LsdOptions, Segment, SegmentId};
+pub use segment::{Segment, SegmentId};
+pub use options::LsdOptions;
+pub use extractor::LsdResult;
 
 use crate::image::ImageF32;
+use crate::pyramid::{Pyramid};
 
 /// Lightweight LSD-like extractor (region growing on gradient orientation, PCA fit, simple significance test)
-pub fn lsd_extract_segments(l: &ImageF32, options: LsdOptions) -> Vec<Segment> {
+pub fn lsd_extract_segments(l: &ImageF32, options: LsdOptions) -> LsdResult{
     extractor::LsdExtractor::new(l, options).extract()
+}
+
+pub fn lsd_extract_segments_coarse(pyramid: &Pyramid, options: LsdOptions) -> LsdResult {
+    if let Some(coarse_level) = pyramid.levels.last() {
+        let scale = pyramid.scale_for_level(coarse_level);
+        extractor::LsdExtractor::new(&coarse_level, options.with_scale(scale)).extract()
+    } else {
+        LsdResult {
+            segments: Vec::new(),
+            elapsed_ms: 0.0,
+        }
+    }
 }
 
 #[cfg(test)]

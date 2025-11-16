@@ -26,7 +26,7 @@ use grid_detector::segments::LsdOptions;
 #[cfg(feature = "profile_refine")]
 use grid_detector::refine::segment::take_profile;
 use grid_detector::refine::segment::{self, PyramidLevel as SegmentGradientLevel, ScaleMap};
-use grid_detector::segments::{lsd_extract_segments, Segment};
+use grid_detector::segments::{lsd_extract_segments_coarse, Segment};
 use serde::Deserialize;
 use std::env;
 use std::fs;
@@ -60,25 +60,12 @@ pub fn load_config(path: &Path) -> Result<SegmentRefineDemoConfig, String> {
         .map_err(|e| format!("Failed to parse config {}: {e}", path.display()))
 }
 
-/// Run a closure while timing its execution and reporting the elapsed time. Should return the same
-/// result as the closure.
-fn run_with_timer<R, F: FnOnce() -> Result<R, String>>(f: F) -> Result<ResultWithTime<R>, String> {
-    let start = Instant::now();
-    let result = f()?;
-    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-    Ok(ResultWithTime { result, elapsed_ms })
-}
 
 fn main() {
     run().unwrap_or_else(|err| {
         eprintln!("Error: {err}");
         std::process::exit(1);
     })
-}
-
-struct ResultWithTime<R> {
-    result: R,
-    elapsed_ms: f64,
 }
 
 fn run() -> Result<(), String> {
@@ -93,19 +80,23 @@ fn run() -> Result<(), String> {
 
     let total_start = Instant::now();
 
-    let (pyramid, pyramid_stage, pyramid_ms) = build_pyramid_stage(&gray, &config)?;
-    if diagnostics_enabled {
-        save_pyramid_images(&pyramid, &config.output.dir)?;
-    }
+    let PyramidBuildResult {
+        pyramid,
+        elapsed_ms: pyr_ms,
+    } = self.build_pyramid(gray);
+
+    let LsdResult {
+        segments: segments,
+        elapsed_ms: lsd_ms,
+    } = lsd_extract_segments_coarse(&pyramid, self.params.lsd_params);
 
     let mut workspace = DetectorWorkspace::new();
     workspace.reset(pyramid.levels.len());
 
-    let (lsd_segments, lsd_stage, lsd_elapsed_ms) = run_lsd_demo(&pyramid, &config)?;
     let (levels_report, refine_total_ms) = run_refinement_levels(
         &pyramid,
         &mut workspace,
-        &lsd_segments,
+        &segments,
         &config.refine,
         diagnostics_enabled,
     )?;
@@ -148,7 +139,6 @@ fn run() -> Result<(), String> {
 
     if diagnostics_enabled {
         let stage = SegmentRefineStage {
-            pyramid: pyramid_stage.expect("pyramid stage missing"),
             lsd: lsd_stage,
             lsd_segments: Some(lsd_segments.clone()),
             levels: levels_report,
@@ -183,24 +173,6 @@ fn load_config_from_args() -> Result<SegmentRefineDemoConfig, String> {
 fn ensure_output_dir(config: &SegmentRefineDemoConfig) -> Result<(), String> {
     fs::create_dir_all(&config.output.dir)
         .map_err(|e| format!("Failed to create {}: {e}", config.output.dir.display()))
-}
-
-fn build_pyramid_stage(
-    gray: &GrayImageU8,
-    config: &SegmentRefineDemoConfig,
-) -> Result<(Pyramid, Option<PyramidStage>, f64), String> {
-    let levels = config.pyramid.levels.max(1);
-    let pyramid_opts = PyramidOptions::new(levels).with_blur_levels(config.pyramid.blur_levels);
-    let ResultWithTime {
-        result: pyramid,
-        elapsed_ms,
-    } = run_with_timer(|| {
-        let pyramid = Pyramid::build_u8(gray.as_view(), pyramid_opts);
-        Ok(pyramid)
-    })?;
-    let stage =
-        (!config.performance_mode).then(|| PyramidStage::from_pyramid(&pyramid, elapsed_ms));
-    Ok((pyramid, stage, elapsed_ms))
 }
 
 fn save_pyramid_images(pyramid: &Pyramid, out_dir: &Path) -> Result<(), String> {

@@ -3,6 +3,11 @@ use std::collections::HashMap;
 
 const EPS: f32 = 1e-6;
 
+/// Identifier referencing a segment recorded in the pipeline trace.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct BundleId(pub u32);
+
 /// Aggregated constraint built by merging near-collinear segments.
 #[derive(Clone, Debug)]
 pub struct Bundle {

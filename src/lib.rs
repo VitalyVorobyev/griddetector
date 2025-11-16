@@ -20,7 +20,7 @@ pub mod segments;
 
 // Main entry points: detector + results.
 pub use crate::detector::{DetectorWorkspace, GridDetector, GridParams};
-pub use crate::types::{GridResult, Pose};
+pub use crate::types::GridResult;
 
 // High-level diagnostics returned by the detector.
 pub use crate::diagnostics::{DetectionReport, PipelineTrace};
