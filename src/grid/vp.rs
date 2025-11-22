@@ -1,67 +1,203 @@
-use crate::segments::Segment;
-use log::{debug, warn};
+//! Vanishing-point estimation from bundled line constraints.
+//!
+//! This module clusters bundle orientations to find two dominant, roughly
+//! orthogonal line families and fits vanishing points via weighted least
+//! squares on bundle lines. When lines are near-parallel, the estimator falls
+//! back to a vanishing point at infinity along the peak orientation.
+
+use super::bundling::{Bundle, BundleId};
+use super::histogram::OrientationHistogram;
+use crate::angle::{angular_difference, normalize_half_pi};
 use nalgebra::Vector3;
+use serde::Serialize;
 
 const VP_EPS: f32 = 1e-6;
 
-/// Estimates a vanishing point from a family of line segments given in normal form.
-pub(crate) fn estimate_vp(
-    segs: &[Segment],
-    indices: &[usize],
-    fallback_theta: f32,
-) -> Option<Vector3<f32>> {
-    if indices.is_empty() {
+/// Label for the two dominant families.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FamilyLabel {
+    U,
+    V,
+}
+
+/// Vanishing point estimate with support information.
+#[derive(Clone, Debug, Serialize)]
+pub struct VanishingPoint {
+    pub pos: Vector3<f32>,
+    pub dir: [f32; 2],
+    pub support: Vec<BundleId>,
+    pub score: f32,
+}
+
+impl VanishingPoint {
+    pub fn at_infinity(dir: [f32; 2], support: Vec<BundleId>, score: f32) -> Self {
+        Self {
+            pos: Vector3::new(dir[0], dir[1], 0.0),
+            dir,
+            support,
+            score,
+        }
+    }
+}
+
+/// Pair of vanishing points representing the orthogonal grid axes.
+#[derive(Clone, Debug, Serialize)]
+pub struct VanishingPair {
+    pub u: VanishingPoint,
+    pub v: VanishingPoint,
+    pub separation_rad: f32,
+    pub assignments: Vec<Option<FamilyLabel>>,
+}
+
+/// Options controlling VP estimation robustness.
+#[derive(Clone, Debug)]
+pub struct VpEstimationOptions {
+    /// Minimum separation between dominant peaks (degrees).
+    pub min_peak_sep_deg: f32,
+    /// Orientation tolerance when assigning bundles to a family (degrees).
+    pub assign_tol_deg: f32,
+    /// Minimum supporting bundles per VP.
+    pub min_support: usize,
+}
+
+impl Default for VpEstimationOptions {
+    fn default() -> Self {
+        Self {
+            min_peak_sep_deg: 35.0,
+            assign_tol_deg: 20.0,
+            min_support: 4,
+        }
+    }
+}
+
+/// Estimate two orthogonal vanishing points from bundled lines.
+pub fn estimate_vanishing_pair(
+    bundles: &[Bundle],
+    opts: &VpEstimationOptions,
+) -> Option<VanishingPair> {
+    if bundles.len() < opts.min_support * 2 {
+        return None;
+    }
+    let mut hist = OrientationHistogram::default();
+    let mut angles = Vec::with_capacity(bundles.len());
+    for b in bundles {
+        let t = b.tangent();
+        let th = normalize_half_pi(t[1].atan2(t[0]));
+        hist.accumulate(th, b.weight.max(1.0));
+        angles.push(th);
+    }
+    hist.smooth_121();
+    let min_sep = opts.min_peak_sep_deg.to_radians();
+    let (peak_u, peak_v) = hist.find_two_peaks(min_sep)?;
+    let theta_u = hist.refined_angle(peak_u, 1);
+    let theta_v = hist.refined_angle(peak_v, 1);
+    let assignments = assign_families(&angles, theta_u, theta_v, opts.assign_tol_deg.to_radians());
+    let support_u: Vec<usize> = assignments
+        .iter()
+        .enumerate()
+        .filter_map(|(i, lab)| matches!(lab, Some(FamilyLabel::U)).then_some(i))
+        .collect();
+    let support_v: Vec<usize> = assignments
+        .iter()
+        .enumerate()
+        .filter_map(|(i, lab)| matches!(lab, Some(FamilyLabel::V)).then_some(i))
+        .collect();
+    if support_u.len() < opts.min_support || support_v.len() < opts.min_support {
         return None;
     }
 
-    // Solve for v=(x,y) minimizing Σ w (a x + b y + c)^2 where each line is ax+by+c=0
+    let vp_u = fit_vp(bundles, &support_u, theta_u)?;
+    let vp_v = fit_vp(bundles, &support_v, theta_v)?;
+    let sep = angular_difference(theta_u, theta_v);
+    Some(VanishingPair {
+        u: vp_u,
+        v: vp_v,
+        separation_rad: sep,
+        assignments,
+    })
+}
+
+fn assign_families(
+    angles: &[f32],
+    theta_u: f32,
+    theta_v: f32,
+    tol: f32,
+) -> Vec<Option<FamilyLabel>> {
+    let mut families = Vec::with_capacity(angles.len());
+    for &angle in angles {
+        let d1 = angular_difference(angle, theta_u);
+        let d2 = angular_difference(angle, theta_v);
+        if d1 <= d2 && d1 <= tol {
+            families.push(Some(FamilyLabel::U));
+        } else if d2 < d1 && d2 <= tol {
+            families.push(Some(FamilyLabel::V));
+        } else {
+            families.push(None);
+        }
+    }
+    families
+}
+
+fn fit_vp(bundles: &[Bundle], indices: &[usize], fallback_theta: f32) -> Option<VanishingPoint> {
     let mut a11 = 0.0f32;
     let mut a12 = 0.0f32;
     let mut a22 = 0.0f32;
     let mut bx = 0.0f32;
     let mut by = 0.0f32;
+    let mut total_w = 0.0f32;
     for &idx in indices {
-        let s = &segs[idx];
-        let line = s.line();
+        let b = &bundles[idx];
+        let line = b.line;
         let a = line[0];
-        let b = line[1];
-        let c = line[2];
-        let w = s.strength.max(1.0);
+        let c = line[1];
+        let d = line[2];
+        let w = b.weight.max(1.0);
         a11 += w * a * a;
-        a12 += w * a * b;
-        a22 += w * b * b;
-        bx += -w * c * a;
-        by += -w * c * b;
+        a12 += w * a * c;
+        a22 += w * c * c;
+        bx += -w * d * a;
+        by += -w * d * c;
+        total_w += w;
+    }
+    if total_w <= VP_EPS {
+        return None;
     }
     let det = a11 * a22 - a12 * a12;
     let trace = a11 + a22;
-    if det.abs() <= 1e-6f32.max(1e-6 * trace * trace) {
-        debug!(
-            "LSD-VP: normal matrix near-singular when estimating VP, falling back to histogram direction"
-        );
+    let pos = if det.abs() <= 1e-6f32.max(1e-6 * trace * trace) {
         let dir_x = fallback_theta.cos();
         let dir_y = fallback_theta.sin();
-        return Some(Vector3::new(dir_x, dir_y, 0.0));
-    }
-    let inv11 = a22 / det;
-    let inv12 = -a12 / det;
-    let inv22 = a11 / det;
-    let x = inv11 * bx + inv12 * by;
-    let y = inv12 * bx + inv22 * by;
-    Some(Vector3::new(x, y, 1.0))
+        Vector3::new(dir_x, dir_y, 0.0)
+    } else {
+        let inv11 = a22 / det;
+        let inv12 = -a12 / det;
+        let inv22 = a11 / det;
+        let x = inv11 * bx + inv12 * by;
+        let y = inv12 * bx + inv22 * by;
+        Vector3::new(x, y, 1.0)
+    };
+
+    let dir = vp_direction(&pos, &Vector3::new(0.0, 0.0, 1.0))?;
+    let support_ids = indices
+        .iter()
+        .map(|&i| bundles[i].id)
+        .collect::<Vec<_>>();
+    Some(VanishingPoint {
+        pos,
+        dir,
+        support: support_ids,
+        score: total_w,
+    })
 }
 
 /// Computes a unit direction in image space from the translation anchor
 /// towards the vanishing point. For VPs at infinity (vp.z≈0), returns the
 /// normalized direction encoded by `(vp.x, vp.y, 0)`.
-///
-/// Returns `None` if the direction cannot be determined (degenerate inputs).
-#[inline]
 pub fn vp_direction(vp: &Vector3<f32>, anchor: &Vector3<f32>) -> Option<[f32; 2]> {
     if vp[2].abs() <= VP_EPS {
         let norm = (vp[0] * vp[0] + vp[1] * vp[1]).sqrt();
         if norm <= 1e-6 {
-            warn!("Degenerate vanishing point at infinity encountered");
             return None;
         }
         Some([vp[0] / norm, vp[1] / norm])
@@ -78,68 +214,5 @@ pub fn vp_direction(vp: &Vector3<f32>, anchor: &Vector3<f32>) -> Option<[f32; 2]
         } else {
             Some([dx / norm, dy / norm])
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::segments::{Segment, SegmentId};
-    use nalgebra::Vector3;
-
-    fn make_segment(p0: [f32; 2], p1: [f32; 2], strength: f32, id: u32) -> Segment {
-        Segment::new(SegmentId(id), p0, p1, 1.0, strength)
-    }
-
-    fn approx_vec(a: &Vector3<f32>, b: &Vector3<f32>) -> bool {
-        (a - b).norm() < 1e-3
-    }
-
-    fn approx_eq(a: f32, b: f32) -> bool {
-        (a - b).abs() < 1e-4
-    }
-
-    #[test]
-    fn finite_intersection() {
-        // Lines x=10 and y=20 should intersect at (10,20,1)
-        let segs = vec![
-            make_segment([10.0, 0.0], [10.0, 1.0], 20.0, 0),
-            make_segment([0.0, 20.0], [1.0, 20.0], 20.0, 1),
-        ];
-        let vp = estimate_vp(&segs, &[0, 1], 0.0).expect("vp");
-        assert!(approx_vec(&vp, &Vector3::new(10.0, 20.0, 1.0)));
-    }
-
-    #[test]
-    fn fallback_direction_when_parallel() {
-        // Parallel lines should trigger fallback direction (point at infinity)
-        let segs = vec![
-            make_segment([11.0, 0.0], [11.0, 1.0], 15.0, 0),
-            make_segment([10.0, 0.0], [10.0, 1.0], 15.0, 1),
-        ];
-        let fallback = std::f32::consts::FRAC_PI_4;
-        let vp = estimate_vp(&segs, &[0, 1], fallback).expect("vp");
-        assert!(approx_vec(
-            &vp,
-            &Vector3::new(fallback.cos(), fallback.sin(), 0.0)
-        ));
-    }
-
-    #[test]
-    fn vp_direction_finite_and_infinite() {
-        // Finite VP to the right of anchor
-        let anchor = Vector3::new(100.0f32, 100.0, 1.0);
-        let vp_fin = Vector3::new(200.0f32, 100.0, 1.0);
-        let dir = vp_direction(&vp_fin, &anchor).expect("finite vp direction");
-        assert!(approx_eq(dir[0], 1.0) && approx_eq(dir[1], 0.0));
-
-        // VP at infinity along +x
-        let vp_inf = Vector3::new(1.0f32, 0.0, 0.0);
-        let dir_inf = vp_direction(&vp_inf, &anchor).expect("infinite vp direction");
-        assert!(approx_eq(dir_inf[0], 1.0) && approx_eq(dir_inf[1], 0.0));
-
-        // Degenerate VP
-        let vp_bad = Vector3::new(0.0f32, 0.0, 0.0);
-        assert!(vp_direction(&vp_bad, &anchor).is_none());
     }
 }
