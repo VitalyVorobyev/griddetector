@@ -10,7 +10,8 @@
         "min_length_px": 60.0,
         "enforce_polarity": true,
         "limit_normal_span": false,
-        "normal_span_limit_px": 3.0
+        "normal_span_limit_px": 3.0,
+        "min_aligned_fraction": 0.6
     },
     "output": {
         "coarsest_image": "out/coarsest_level_segments.png",

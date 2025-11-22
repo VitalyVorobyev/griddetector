@@ -69,9 +69,17 @@ impl RegionAccumulator {
         }
     }
 
-    pub(crate) fn release(&self, used: &mut [u8]) {
+    /// Mark all pixels of the current region with the provided state.
+    pub(crate) fn mark_as(&self, used: &mut [u8], state: u8) {
         for &idx in &self.indices {
-            used[idx] = 0;
+            used[idx] = state;
+        }
+    }
+
+    /// OR a bitmask into all pixels of the current region.
+    pub(crate) fn mark_mask(&self, mask: &mut [u8], bit: u8) {
+        for &idx in &self.indices {
+            mask[idx] |= bit;
         }
     }
 }
