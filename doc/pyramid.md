@@ -46,4 +46,4 @@ let pyr = Pyramid::build_u8(gray, options);
 
 - By default, blur is applied before every 2× downscale step (`PyramidOptions::blur_levels = None`).
 - Limit blurring to only the first N downscale steps by setting `PyramidOptions::new(levels).with_blur_levels(Some(n))`. Use `Some(0)` to skip blur entirely.
-- CLI tools (`coarse_edges`, `coarse_segments`, `lsd_vp_demo`, `grid_demo`) expose this via their `pyramid.blur_levels` configuration entry.
+- CLI tools (`coarse_edges`, `coarse_segments`, `grid_demo`) expose this via their `pyramid.blur_levels` configuration entry.

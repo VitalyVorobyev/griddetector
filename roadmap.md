@@ -7,7 +7,7 @@ Below is a concrete proposal you can start implementing.
 1. Where the project is now (from the outside)
 
 From README + docs and exports in lib.rs, the current picture looks like this:
-	•	Single crate griddetector, library name grid_detector, crate-type rlib + cdylib, plus binaries grid_demo and lsd_vp_demo.  ￼
+	•	Single crate griddetector, library name grid_detector, crate-type rlib + cdylib, plus binaries grid_demo.  ￼
 	•	Modules documented in doc/: image, pyramid, edges, segments, lsd_vp, refine, detector, types, diagnostics, homography, config, angle.  ￼
 	•	lib.rs re-exports a lot of stuff at the crate root: the detector, params, workspace, homography helpers, result types, and a big block of diagnostic stage types.  ￼
 	•	Algorithmically (in docs):
@@ -56,7 +56,7 @@ src/
     irls.rs
     types.rs
   detector/
-    mod.rs               // GridDetector, DetectorWorkspace
+    mod.rs               // GridDetector, RefinementWorkspace
     pipeline.rs          // orchestration
     bundling.rs
     indexing.rs          // future: grid indexing/u,v lattice
@@ -68,7 +68,6 @@ src/
     grid_demo.rs
     coarse_edges.rs
     coarse_segments.rs
-    lsd_vp_demo.rs
     vp_outlier_demo.rs
 
 Key ideas:
@@ -104,7 +103,7 @@ Crates:
 	•	Depends on grid-core.
 	•	Exposes the main Rust API surface for detection and diagnostics.
 	3.	grid-cli
-	•	All binaries (moved from root crate): grid_demo, lsd_vp_demo, coarse_edges, etc.
+	•	All binaries (moved from root crate): grid_demo, coarse_edges, etc.
 	•	Depends on grid-algo.
 	•	Reads JSON configs, writes JSON diagnostics/images.
 	4.	(Optional later) grid-ffi
@@ -160,8 +159,8 @@ pub struct GridParams {
     pub pyramid: PyramidParams,
     pub lsd: LsdParams,
     pub vp: VpParams,
-    pub refine: RefineParams,
-    pub bundling: BundlingParams,
+    pub refine: RefineOptions,
+    pub bundling: BundlingOptions,
     pub indexing: IndexingParams,
     pub diagnostics: DiagnosticParams,
 }
@@ -172,22 +171,22 @@ Tier-1 users mostly tweak lsd and pyramid and ignore the rest.
 
 Goal: allow you (and advanced users) to run or swap individual stages, but still within a guided structure.
 
-You already have run_lsd_stage, run_outlier_stage, DetectorWorkspace, and a bunch of diagnostic types re-exported.  ￼ I’d formalize this a bit:
+You already have run_lsd_stage, run_outlier_stage, RefinementWorkspace, and a bunch of diagnostic types re-exported.  ￼ I’d formalize this a bit:
 
 pub struct PipelineConfig {
     pub pyramid: PyramidParams,
     pub lsd: LsdParams,
     pub vp: VpParams,
     pub outlier: OutlierParams,
-    pub bundling: BundlingParams,
-    pub refine: RefineParams,
+    pub bundling: BundlingOptions,
+    pub refine: RefineOptions,
 }
 
-pub struct DetectorWorkspace {
+pub struct RefinementWorkspace {
     // preallocated buffers, per-level caches, etc.
 }
 
-impl DetectorWorkspace {
+impl RefinementWorkspace {
     pub fn new(max_w: usize, max_h: usize, max_levels: usize) -> Self;
 }
 
@@ -196,13 +195,13 @@ Stage runners:
 pub fn run_pyramid(
     img: ImageU8<'_>,
     cfg: &PyramidParams,
-    ws: &mut DetectorWorkspace,
+    ws: &mut RefinementWorkspace,
 ) -> PyramidStageOutput;
 
 pub fn run_lsd_stage(
     pyr: &PyramidStageOutput,
     cfg: &LsdParams,
-    ws: &mut DetectorWorkspace,
+    ws: &mut RefinementWorkspace,
 ) -> LsdStageOutput;
 
 pub fn run_vp_stage(
@@ -224,7 +223,7 @@ pub mod image;     // ImageU8, ImageF32
 pub mod pyramid;   // Pyramid, PyramidOptions
 pub mod segments;  // Segment, LsdOptions, etc.
 pub mod vp;        // VpEstimate, etc.
-pub mod refine;    // RefineParams, segment_refine(), homography_refine()
+pub mod refine;    // RefineOptions, segment_refine(), homography_refine()
 
 But don’t re-export every type at crate root; instead provide a small prelude:
 
@@ -306,7 +305,6 @@ Phase 4 – Examples & diagnostics for real work
 	1.	Curate demo binaries:
 	•	coarse_edges
 	•	coarse_segments
-	•	lsd_vp_demo
 	•	vp_outlier_demo
 	•	grid_demo (full pipeline)
 	2.	For each binary:
@@ -324,7 +322,7 @@ This ties directly to “I am going to investigate the results using python visu
 Phase 5 – Performance & parallelism
 
 Once correctness + tests are in place:
-	1.	Use DetectorWorkspace to pre-allocate everything and avoid per-frame allocations.
+	1.	Use RefinementWorkspace to pre-allocate everything and avoid per-frame allocations.
 	2.	Turn on rayon for:
 	•	pyramid construction,
 	•	gradient computation,
@@ -366,4 +364,4 @@ If you’re okay with this direction, I’d suggest we do this next, concretely:
 
 If you want, in the next step I can draft:
 	•	a concrete lib.rs with the proposed prelude and public modules; and
-	•	skeletons for GridParams, DetectorWorkspace, and PipelineConfig matching what you already have, so you can adapt the actual code with minimal churn.
+	•	skeletons for GridParams, RefinementWorkspace, and PipelineConfig matching what you already have, so you can adapt the actual code with minimal churn.

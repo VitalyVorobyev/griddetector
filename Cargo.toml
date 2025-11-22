@@ -16,10 +16,6 @@ crate-type = ["rlib", "cdylib"]
 name = "grid_demo"
 path = "src/bin/grid_demo.rs"
 
-[[bin]]
-name = "lsd_vp_demo"
-path = "src/bin/lsd_vp_demo.rs"
-
 [features]
 default = ["parallel"]
 parallel = ["dep:rayon"]

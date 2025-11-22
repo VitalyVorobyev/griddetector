@@ -20,7 +20,7 @@ const SCHARR_KERNEL_X: Kernel3 = [[-3.0, 0.0, 3.0], [-10.0, 0.0, 10.0], [-3.0, 0
 const SCHARR_KERNEL_Y: Kernel3 = [[-3.0, -10.0, -3.0], [0.0, 0.0, 0.0], [3.0, 10.0, 3.0]];
 
 /// Per‑pixel gradient buffers and orientation quantization.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Grad {
     /// Horizontal derivative (convolution with kernel X)
     pub gx: ImageF32,
@@ -28,14 +28,6 @@ pub struct Grad {
     pub gy: ImageF32,
     /// Euclidean magnitude per pixel: `sqrt(gx^2 + gy^2)`
     pub mag: ImageF32,
-    /// Per‑pixel quantized orientation in 8 bins (π‑periodic)
-    pub ori_q8: Vec<u8>,
-}
-
-#[inline]
-fn quantize_orientation(angle: f32) -> u8 {
-    let wrapped = (angle + std::f32::consts::PI).rem_euclid(2.0 * std::f32::consts::PI);
-    ((wrapped * (4.0 / std::f32::consts::PI)).floor() as i32 & 7) as u8
 }
 
 fn gradients_with_kernels(l: &ImageF32, kernel_x: &Kernel3, kernel_y: &Kernel3) -> Grad {
@@ -44,15 +36,9 @@ fn gradients_with_kernels(l: &ImageF32, kernel_x: &Kernel3, kernel_y: &Kernel3) 
     let mut gx = ImageF32::new(w, h);
     let mut gy = ImageF32::new(w, h);
     let mut mag = ImageF32::new(w, h);
-    let mut ori_q8 = vec![0u8; w * h];
 
     if w == 0 || h == 0 {
-        return Grad {
-            gx,
-            gy,
-            mag,
-            ori_q8,
-        };
+        return Grad { gx, gy, mag };
     }
 
     for y in 0..h {
@@ -81,17 +67,15 @@ fn gradients_with_kernels(l: &ImageF32, kernel_x: &Kernel3, kernel_y: &Kernel3) 
             out_gy[x] = sum_y;
             let magnitude = (sum_x * sum_x + sum_y * sum_y).sqrt();
             out_mag[x] = magnitude;
-            let idx = y * w + x;
-            ori_q8[idx] = quantize_orientation(sum_y.atan2(sum_x));
         }
     }
 
-    Grad {
-        gx,
-        gy,
-        mag,
-        ori_q8,
-    }
+    Grad { gx, gy, mag }
+}
+
+pub enum GradientKernel {
+    Sobel,
+    Scharr,
 }
 
 /// Compute Sobel gradients on a single‑channel float image.
@@ -102,6 +86,13 @@ pub fn sobel_gradients(l: &ImageF32) -> Grad {
 /// Compute Scharr gradients (better rotational symmetry than Sobel).
 pub fn scharr_gradients(l: &ImageF32) -> Grad {
     gradients_with_kernels(l, &SCHARR_KERNEL_X, &SCHARR_KERNEL_Y)
+}
+
+pub fn image_gradients(l: &ImageF32, kernel: GradientKernel) -> Grad {
+    match kernel {
+        GradientKernel::Sobel => sobel_gradients(l),
+        GradientKernel::Scharr => scharr_gradients(l),
+    }
 }
 
 /// Horizontal/vertical Scharr gradients restricted to an axis-aligned window.

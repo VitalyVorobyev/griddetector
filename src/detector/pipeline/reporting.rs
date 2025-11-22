@@ -1,7 +1,6 @@
-use crate::types::Pose;
-use nalgebra::Matrix3;
+use nalgebra::{Matrix3, Isometry3, Rotation3};
 
-pub fn pose_from_h(k: Matrix3<f32>, h: Matrix3<f32>) -> Pose {
+pub fn pose_from_h(k: Matrix3<f32>, h: Matrix3<f32>) -> Isometry3<f32> {
     let k_inv = k.try_inverse().unwrap_or_else(Matrix3::identity);
     let normalized_h = k_inv * h;
 
@@ -31,5 +30,6 @@ pub fn pose_from_h(k: Matrix3<f32>, h: Matrix3<f32>) -> Pose {
     }
 
     let t = t_raw * inv_scale;
-    Pose { r: rot, t }
+    let rot = Rotation3::from_matrix(&rot);
+    Isometry3::from_parts(t.into(), rot.into())
 }

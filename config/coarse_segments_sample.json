@@ -7,8 +7,11 @@
     "lsd": {
         "magnitude_threshold": 0.2,
         "angle_tolerance_deg": 12.0,
-        "min_length": 10.0,
-        "enforce_polarity": false
+        "min_length_px": 60.0,
+        "enforce_polarity": true,
+        "limit_normal_span": false,
+        "normal_span_limit_px": 3.0,
+        "min_aligned_fraction": 0.6
     },
     "output": {
         "coarsest_image": "out/coarsest_level_segments.png",

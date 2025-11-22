@@ -1,9 +1,23 @@
+use super::options::LsdOptions;
 use super::region_accumulator::RegionAccumulator;
-use super::types::{LsdOptions, Segment, SegmentId};
-use crate::angle::{angular_difference, normalize_half_pi};
-use crate::edges::{sobel_gradients, Grad};
+use super::segment::{Segment, SegmentId};
+use crate::edges::nms::EdgeElement;
+use crate::edges::{scharr_gradients, Grad};
 use crate::image::ImageF32;
 use nalgebra::{Matrix2, SymmetricEigen};
+use serde::Serialize;
+use std::time::Instant;
+
+/// Pixel visitation states:
+/// - UNSEEN: never processed
+/// - CLAIMED: currently part of an accepted region
+/// - RETRY1/RETRY2: rejected once/twice, allow up to two re-seeds
+/// - DISCARDED: rejected thrice (or deemed noise), never revisit
+const STATE_UNSEEN: u8 = 0;
+const STATE_CLAIMED: u8 = 1;
+const STATE_RETRY1: u8 = 2;
+const STATE_RETRY2: u8 = 3;
+const STATE_DISCARDED: u8 = 4;
 
 const NEIGH_OFFSETS: [(isize, isize); 8] = [
     (-1, -1),
@@ -16,72 +30,101 @@ const NEIGH_OFFSETS: [(isize, isize); 8] = [
     (1, 1),
 ];
 
-pub(super) struct LsdExtractor<'a> {
+#[derive(Default, Serialize, Debug, Clone)]
+pub struct LsdResult {
+    pub segments: Vec<Segment>,
+    #[serde(skip)]
+    pub grad: Grad,
+    pub elapsed_ms: f64,
+}
+
+pub(super) struct LsdExtractor {
     grad: Grad,
     width: usize,
     height: usize,
     options: LsdOptions,
     used: Vec<u8>,
-    angle_cache: Vec<f32>,
+    bins: Vec<u8>,
     stack: Vec<usize>,
     region: RegionAccumulator,
     segments: Vec<Segment>,
-    mask: Option<&'a [u8]>,
-    enforce_polarity: bool,
-    normal_span_limit: Option<f32>,
     next_id: u32,
+    cos_tol: f32,
 }
 
-impl<'a> LsdExtractor<'a> {
-    pub(super) fn new(l: &ImageF32, options: LsdOptions, mask: Option<&'a [u8]>) -> Self {
-        let grad = sobel_gradients(l);
-        let width = l.w;
-        let height = l.h;
+impl LsdExtractor {
+    /// Build a new extractor for a single image. This keeps allocations local to the
+    /// extractor instance; reuse an extractor if you need zero-allocation across frames.
+    pub(super) fn from_image(l: &ImageF32, options: LsdOptions) -> Self {
+        let grad = scharr_gradients(l);
+        Self::from_grad(grad, options)
+    }
+
+    /// Build an extractor reusing precomputed gradients (e.g. from NMS).
+    pub(super) fn from_grad(grad: Grad, options: LsdOptions) -> Self {
+        let width = grad.gx.w;
+        let height = grad.gx.h;
         let n = width * height;
-        if cfg!(debug_assertions) {
-            if let Some(m) = mask {
-                debug_assert!(
-                    m.len() >= n,
-                    "mask length {} must be at least width*height ({})",
-                    m.len(),
-                    n
-                );
-            }
-        }
+        let cos_tol = options.angle_tolerance_deg.to_radians().cos();
         Self {
             grad,
             width,
             height,
             options,
-            used: vec![0u8; n],
-            angle_cache: vec![f32::NAN; n],
+            used: vec![STATE_UNSEEN; n],
+            bins: vec![0u8; n],
             stack: Vec::with_capacity(64),
             region: RegionAccumulator::with_capacity(128),
             segments: Vec::new(),
-            mask,
-            enforce_polarity: options.enforce_polarity,
-            normal_span_limit: options
-                .normal_span_limit_px
-                .filter(|v| v.is_finite() && *v > 0.0),
             next_id: 0,
+            cos_tol,
         }
     }
 
-    pub(super) fn extract(mut self) -> Vec<Segment> {
+    pub(super) fn extract_full_scan(mut self) -> LsdResult {
+        let start = Instant::now();
         for idx in 0..(self.width * self.height) {
-            self.process_seed(idx);
+            self.process_seed_full(idx);
         }
-        self.segments
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        LsdResult {
+            segments: self.segments,
+            grad: self.grad,
+            elapsed_ms,
+        }
     }
 
-    fn process_seed(&mut self, idx: usize) {
-        if self.used[idx] != 0 {
+    pub(super) fn extract_from_seeds(mut self, seeds: &[Seed]) -> LsdResult {
+        let start = Instant::now();
+        for seed in seeds {
+            if seed.idx >= self.used.len() {
+                continue;
+            }
+            self.process_seed_with_dir(seed.idx, seed.dir, seed.bin_bit);
+        }
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        LsdResult {
+            segments: self.segments,
+            grad: self.grad,
+            elapsed_ms,
+        }
+    }
+
+    fn process_seed_full(&mut self, idx: usize) {
+        let (dir, bin_bit) = match self.seed_direction_and_bin(idx) {
+            Some(v) => v,
+            None => return,
+        };
+        self.process_seed_with_dir(idx, dir, bin_bit);
+    }
+
+    fn process_seed_with_dir(&mut self, idx: usize, seed_dir: [f32; 2], bin_bit: u8) {
+        let state = self.used[idx];
+        if state == STATE_CLAIMED || state == STATE_DISCARDED {
             return;
         }
-        if let Some(mask) = self.mask {
-            if mask[idx] == 0 {
-                return;
-            }
+        if self.bins[idx] & bin_bit != 0 {
+            return;
         }
         let x = idx % self.width;
         let y = idx / self.width;
@@ -92,28 +135,34 @@ impl<'a> LsdExtractor<'a> {
         self.region.reset();
         self.stack.clear();
 
-        let seed_angle = self.angle_at(idx);
-        self.used[idx] = 1;
+        self.used[idx] = STATE_CLAIMED;
         self.stack.push(idx);
 
-        self.grow_region(seed_angle);
+        self.grow_region(seed_dir);
 
         if let Some(segment) = self.build_segment() {
             self.segments.push(segment);
         } else {
-            self.region.release(&mut self.used);
+            // Record this bin attempt for all pixels in the region.
+            self.region.mark_mask(&mut self.bins, bin_bit);
+            let new_state = match state {
+                STATE_RETRY2 => STATE_DISCARDED,
+                STATE_RETRY1 => STATE_RETRY2,
+                _ => STATE_RETRY1,
+            };
+            self.region.mark_as(&mut self.used, new_state);
         }
         self.region.reset();
     }
 
-    fn grow_region(&mut self, seed_angle: f32) {
-        let angle_tol_rad = self.options.angle_tolerance_deg.to_radians();
+    fn grow_region(&mut self, seed_dir: [f32; 2]) {
+        let cos_tol = self.cos_tol;
+        let mag_thresh = self.options.magnitude_threshold;
         while let Some(idx) = self.stack.pop() {
             let x = idx % self.width;
             let y = idx / self.width;
-            let angle = self.angle_at(idx);
-            let aligned = self.angle_difference(angle, seed_angle) <= angle_tol_rad;
             let mag = self.grad.mag.get(x, y);
+            let aligned = self.is_aligned(seed_dir, x, y, mag, cos_tol);
             self.region.push(idx, x, y, mag, aligned);
 
             for (dx, dy) in NEIGH_OFFSETS {
@@ -123,22 +172,19 @@ impl<'a> LsdExtractor<'a> {
                     continue;
                 }
                 let neighbor_idx = yn as usize * self.width + xn as usize;
-                if let Some(mask) = self.mask {
-                    if mask[neighbor_idx] == 0 {
-                        continue;
-                    }
-                }
-                if self.used[neighbor_idx] != 0 {
+                if self.used[neighbor_idx] == STATE_CLAIMED
+                    || self.used[neighbor_idx] == STATE_DISCARDED
+                {
                     continue;
                 }
                 let nx = xn as usize;
                 let ny = yn as usize;
-                if self.grad.mag.get(nx, ny) < self.options.magnitude_threshold {
+                let nmag = self.grad.mag.get(nx, ny);
+                if nmag < mag_thresh {
                     continue;
                 }
-                let neighbor_angle = self.angle_at(neighbor_idx);
-                if self.angle_difference(neighbor_angle, seed_angle) <= angle_tol_rad {
-                    self.used[neighbor_idx] = 1;
+                if self.is_aligned(seed_dir, nx, ny, nmag, cos_tol) {
+                    self.used[neighbor_idx] = STATE_CLAIMED;
                     self.stack.push(neighbor_idx);
                 }
             }
@@ -198,7 +244,7 @@ impl<'a> LsdExtractor<'a> {
             if s > smax {
                 smax = s;
             }
-            if self.normal_span_limit.is_some() {
+            if self.options.normal_span_limit_px.is_some() {
                 let n = dx * nx + dy * ny;
                 if n < nmin {
                     nmin = n;
@@ -218,11 +264,11 @@ impl<'a> LsdExtractor<'a> {
             return None;
         }
 
-        if self.region.aligned_fraction() < 0.6 {
+        if self.region.aligned_fraction() < self.options.min_aligned_fraction {
             return None;
         }
 
-        if let Some(limit) = self.normal_span_limit {
+        if let Some(limit) = self.options.normal_span_limit_px {
             if nmin.is_finite() && nmax.is_finite() {
                 let normal_span = nmax - nmin;
                 if !normal_span.is_finite() || normal_span > limit {
@@ -241,42 +287,67 @@ impl<'a> LsdExtractor<'a> {
         Some(Segment::new(id, p0, p1, avg_mag, strength))
     }
 
-    fn angle_at(&mut self, idx: usize) -> f32 {
-        let cached = self.angle_cache[idx];
-        if cached.is_nan() {
-            let x = idx % self.width;
-            let y = idx / self.width;
-            let raw_angle = self.grad.gy.get(x, y).atan2(self.grad.gx.get(x, y));
-            let angle = if self.enforce_polarity {
-                normalize_signed_pi(raw_angle)
-            } else {
-                normalize_half_pi(raw_angle)
-            };
-            self.angle_cache[idx] = angle;
-            angle
+    #[inline]
+    fn seed_direction_and_bin(&self, idx: usize) -> Option<([f32; 2], u8)> {
+        let x = idx % self.width;
+        let y = idx / self.width;
+        let gx = self.grad.gx.get(x, y);
+        let gy = self.grad.gy.get(x, y);
+        let norm = (gx * gx + gy * gy).sqrt();
+        if norm <= 0.0 || !norm.is_finite() {
+            None
         } else {
-            cached
+            let dir = [gx / norm, gy / norm];
+            let bin = direction_bin(dir[0], dir[1]);
+            Some((dir, 1u8 << bin))
         }
     }
 
-    fn angle_difference(&self, a: f32, b: f32) -> f32 {
-        if self.enforce_polarity {
-            let mut diff = (a - b).abs();
-            if diff > std::f32::consts::PI {
-                diff = 2.0 * std::f32::consts::PI - diff;
-            }
-            diff
+    #[inline]
+    fn is_aligned(&self, seed_dir: [f32; 2], x: usize, y: usize, mag: f32, cos_tol: f32) -> bool {
+        let gx = self.grad.gx.get(x, y);
+        let gy = self.grad.gy.get(x, y);
+        // dot == |g| * |seed| * cos(theta); |seed| is 1.
+        let dot = gx * seed_dir[0] + gy * seed_dir[1];
+        if self.options.enforce_polarity {
+            dot >= mag * cos_tol
         } else {
-            angular_difference(a, b)
+            dot.abs() >= mag * cos_tol
         }
     }
 }
 
+/// Quantize a unit direction vector into 8 bins over [0, π), modulo polarity.
 #[inline]
-fn normalize_signed_pi(angle: f32) -> f32 {
-    let mut norm = angle.rem_euclid(2.0 * std::f32::consts::PI);
-    if norm > std::f32::consts::PI {
-        norm -= 2.0 * std::f32::consts::PI;
+fn direction_bin(dx: f32, dy: f32) -> u8 {
+    // Map angle to [0, π) by folding polarity.
+    let angle = dy.atan2(dx).rem_euclid(std::f32::consts::PI);
+    let scaled = angle * (8.0 / std::f32::consts::PI);
+    let bin = scaled.floor() as i32;
+    bin.clamp(0, 7) as u8
+}
+
+#[derive(Clone)]
+pub(super) struct Seed {
+    pub idx: usize,
+    pub dir: [f32; 2],
+    pub bin_bit: u8,
+}
+
+/// Build seeds from NMS edges using their direction for binning.
+pub(super) fn seeds_from_edges(edges: &[EdgeElement], width: usize) -> Vec<Seed> {
+    let mut seeds = Vec::with_capacity(edges.len());
+    for e in edges {
+        let x = e.x as usize;
+        let y = e.y as usize;
+        let dx = e.direction.cos();
+        let dy = e.direction.sin();
+        let bin_bit = 1u8 << direction_bin(dx, dy);
+        seeds.push(Seed {
+            idx: y * width + x,
+            dir: [dx, dy],
+            bin_bit,
+        });
     }
-    norm
+    seeds
 }

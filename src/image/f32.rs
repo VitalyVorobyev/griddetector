@@ -2,7 +2,7 @@
 //!
 //! Suited for numeric processing in the pipeline. Provides row access and a
 //! contiguous slice when `stride == width`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ImageF32 {
     /// Image width in pixels
     pub w: usize,

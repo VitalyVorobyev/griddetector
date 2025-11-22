@@ -7,7 +7,6 @@ use crate::diagnostics::{timing::TimingBreakdown, LsdStage};
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SegmentRefineStage {
-    pub pyramid: crate::diagnostics::PyramidStage,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lsd: Option<LsdStage>,
     #[serde(skip_serializing_if = "Option::is_none")]

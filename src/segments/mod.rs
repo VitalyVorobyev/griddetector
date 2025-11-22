@@ -44,28 +44,53 @@
 //! - `crate::lsd_vp` for orientation clustering and VP estimation.
 //! - `crate::refine` for coarse-to-fine Huber-weighted refinement using bundles.
 
-pub mod bundling;
 mod extractor;
+mod options;
 mod region_accumulator;
-pub mod types;
+mod segment;
 
-pub use bundling::{bundle_segments, Bundle};
-pub use types::{LsdOptions, Segment, SegmentId};
+pub use extractor::LsdResult;
+pub use options::LsdOptions;
+pub use segment::{Segment, SegmentId};
 
+use crate::edges::nms::detect_edges_nms;
+use crate::edges::Grad;
 use crate::image::ImageF32;
+use crate::pyramid::Pyramid;
+use extractor::{seeds_from_edges, LsdExtractor};
 
-/// Lightweight LSD-like extractor (region growing on gradient orientation, PCA fit, simple significance test)
-pub fn lsd_extract_segments(l: &ImageF32, options: LsdOptions) -> Vec<Segment> {
-    lsd_extract_segments_masked(l, options, None)
+/// Lightweight LSD-like extractor (region growing on gradient orientation, PCA fit, significance tests).
+pub fn lsd_extract_segments(l: &ImageF32, options: LsdOptions) -> LsdResult {
+    LsdExtractor::from_image(l, options).extract_full_scan()
 }
 
-/// Masked variant with explicit options.
-pub fn lsd_extract_segments_masked(
+/// Run the extractor on the coarsest pyramid level (scaled thresholds).
+pub fn lsd_extract_segments_coarse(pyramid: &Pyramid, options: LsdOptions) -> LsdResult {
+    if let Some(coarse_level) = pyramid.levels.last() {
+        let scale = pyramid.scale_for_level(coarse_level);
+        LsdExtractor::from_image(coarse_level, options.with_scale(scale)).extract_full_scan()
+    } else {
+        LsdResult {
+            segments: Vec::new(),
+            grad: Grad::default(),
+            elapsed_ms: 0.0,
+        }
+    }
+}
+
+/// NMS-seeded LSD: reuse gradients from Scharr+NMS, and grow segments only from sparse edge seeds.
+///
+/// This path avoids a full image scan and can reduce runtime on large frames.
+pub fn lsd_extract_segments_nms(
     l: &ImageF32,
     options: LsdOptions,
-    mask: Option<&[u8]>,
-) -> Vec<Segment> {
-    extractor::LsdExtractor::new(l, options, mask).extract()
+    nms_mag_threshold: f32,
+) -> (LsdResult, crate::edges::nms::NmsEdgesResult) {
+    let mut nms = detect_edges_nms(l, nms_mag_threshold);
+    let seeds = seeds_from_edges(&nms.edges, l.w);
+    let grad = std::mem::take(&mut nms.grad);
+    let lsd = LsdExtractor::from_grad(grad, options).extract_from_seeds(&seeds);
+    (lsd, nms)
 }
 
 #[cfg(test)]

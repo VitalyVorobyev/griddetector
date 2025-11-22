@@ -14,10 +14,7 @@
 //!   improvement exceeds a small threshold.
 //!
 //! Modules
-//! - [`params`] – configuration types used by the detector and CLI.
 //! - `pipeline` – the main [`GridDetector`] implementation.
-//! - `scaling` – helpers for rescaling segments/bundles across pyramid levels.
-//! - [`outliers`] – filters for rejecting segment outliers before refinement.
 //! - `workspace` – reusable buffers that amortise allocations across frames.
 //!
 //! Key Ideas
@@ -31,13 +28,8 @@
 //!
 //! See `README.md` for a gentle overview and `doc/*.md` for deep dives.
 
-pub mod outliers;
-pub mod params;
+pub mod options;
 mod pipeline;
-mod scaling;
-mod workspace;
 
-pub use params::{BundlingParams, GridParams, OutlierFilterParams, RefinementSchedule};
+pub use options::{BundlingOptions, GridParams, OutlierFilterOptions};
 pub use pipeline::GridDetector;
-pub use scaling::{rescale_bundle_to_full_res, LevelScaleMap, LevelScaling};
-pub use workspace::DetectorWorkspace;

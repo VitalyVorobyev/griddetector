@@ -1,8 +1,4 @@
 //! Angle utilities used across the detector pipeline.
-use log::warn;
-use nalgebra::Vector3;
-
-const VP_EPS: f32 = 1e-6;
 
 /// Normalizes an angle into the range [0, π).
 #[inline]
@@ -58,40 +54,9 @@ pub fn angle_between_dirless(a: &[f32; 2], b: &[f32; 2]) -> f32 {
     cos.acos()
 }
 
-/// Computes a unit direction in image space from the translation anchor
-/// towards the vanishing point. For VPs at infinity (vp.z≈0), returns the
-/// normalized direction encoded by `(vp.x, vp.y, 0)`.
-///
-/// Returns `None` if the direction cannot be determined (degenerate inputs).
-#[inline]
-pub fn vp_direction(vp: &Vector3<f32>, anchor: &Vector3<f32>) -> Option<[f32; 2]> {
-    if vp[2].abs() <= VP_EPS {
-        let norm = (vp[0] * vp[0] + vp[1] * vp[1]).sqrt();
-        if norm <= 1e-6 {
-            warn!("Degenerate vanishing point at infinity encountered");
-            return None;
-        }
-        Some([vp[0] / norm, vp[1] / norm])
-    } else {
-        let vx = vp[0] / vp[2];
-        let vy = vp[1] / vp[2];
-        let ax = anchor[0] / anchor[2];
-        let ay = anchor[1] / anchor[2];
-        let dx = vx - ax;
-        let dy = vy - ay;
-        let norm = (dx * dx + dy * dy).sqrt();
-        if norm <= 1e-6 {
-            None
-        } else {
-            Some([dx / norm, dy / norm])
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::Vector3;
 
     fn approx_eq(a: f32, b: f32) -> bool {
         (a - b).abs() < 1e-4
@@ -151,23 +116,5 @@ mod tests {
             angle_between(&a, &d),
             std::f32::consts::FRAC_PI_2
         ));
-    }
-
-    #[test]
-    fn vp_direction_finite_and_infinite() {
-        // Finite VP to the right of anchor
-        let anchor = Vector3::new(100.0f32, 100.0, 1.0);
-        let vp_fin = Vector3::new(200.0f32, 100.0, 1.0);
-        let dir = vp_direction(&vp_fin, &anchor).expect("finite vp direction");
-        assert!(approx_eq(dir[0], 1.0) && approx_eq(dir[1], 0.0));
-
-        // VP at infinity along +x
-        let vp_inf = Vector3::new(1.0f32, 0.0, 0.0);
-        let dir_inf = vp_direction(&vp_inf, &anchor).expect("infinite vp direction");
-        assert!(approx_eq(dir_inf[0], 1.0) && approx_eq(dir_inf[1], 0.0));
-
-        // Degenerate VP
-        let vp_bad = Vector3::new(0.0f32, 0.0, 0.0);
-        assert!(vp_direction(&vp_bad, &anchor).is_none());
     }
 }

@@ -1,4 +1,4 @@
-use crate::lsd_vp::FamilyLabel;
+use crate::grid::FamilyLabel;
 use serde::Serialize;
 
 /// Per-bundle assignment within a grid family after rectification.

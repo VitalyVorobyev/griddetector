@@ -4,7 +4,7 @@
 [![Release](https://github.com/VitalyVorobyev/griddetector/actions/workflows/release.yml/badge.svg)](https://github.com/VitalyVorobyev/griddetector/actions/workflows/release.yml)
 [![Security Audit](https://github.com/VitalyVorobyev/griddetector/actions/workflows/audit.yml/badge.svg)](https://github.com/VitalyVorobyev/griddetector/actions/workflows/audit.yml)
 
-Edge-based grid/chessboard detector written in Rust. It builds an image pyramid, extracts line segments (LSD‑like), groups them into two dominant line families to estimate vanishing points, composes a coarse homography, filters outliers, refines across the pyramid, and recovers camera pose.
+Edge-based grid/chessboard detector written in Rust. It builds an image pyramid, extracts line segments (LSD‑like or NMS‑seeded), groups them into dominant line families to estimate vanishing points, composes a coarse homography, filters outliers, refines across the pyramid, and recovers camera pose.
 
 This repo contains both a library crate (`grid_detector`) and a tiny demo binary (`grid_demo`). The public API is intentionally small and focused.
 
@@ -15,7 +15,7 @@ This repo contains both a library crate (`grid_detector`) and a tiny demo binary
    - Optional blur limiting: apply the 5‑tap Gaussian only to the first `N` downscale steps.
 
 2. LSD→VP (coarsest level)
-   - Detect long, coherent line segments with an LSD‑like extractor (orientation growth → PCA fit → significance tests).
+   - Detect long, coherent line segments with an LSD‑like extractor (orientation growth → PCA fit → significance tests). Optionally seed growth from NMS edges to reuse gradients and reduce scan cost.
    - Build an orientation histogram in [0, π); pick two dominant peaks and estimate the family vanishing points.
    - Compose a coarse projective basis `H0 = [vpu | vpv | x0]` (anchor `x0` at image centre).
 
@@ -26,7 +26,7 @@ This repo contains both a library crate (`grid_detector`) and a tiny demo binary
 4. Coarse‑to‑Fine Refinement
    - Prepare (per level, coarse → fine):
      - Bundle near‑collinear constraints (image or rectified frame; thresholds adapt by scale mode).
-     - Refine segments on the next finer level using gradients; lift geometry forward.
+     - Refine segments on the next finer level using one shared Scharr gradient tile per level; segments that lack support are dropped rather than propagated.
    - Refine: run a Huber‑weighted IRLS update for the homography across prepared levels; stop when Frobenius improvement is small.
 
 5. Grid Indexing
@@ -52,13 +52,6 @@ Coarsest-level inspection helpers:
 ```sh
 cargo run --release --bin coarse_edges config/coarse_edges.json
 cargo run --release --bin coarse_segments config/coarse_segments.json
-```
-
-LSD→VP coarse hypothesis demo (writes the coarsest-level image and a JSON report with
-segment families and the estimated projective basis):
-
-```sh
-cargo run --release --bin lsd_vp_demo config/lsd_vp_demo_sample.json
 ```
 
 VP outlier classification and single-level refinement demo (produces per-segment labels,
@@ -92,6 +85,14 @@ python tools/plot_vp_outlier_demo.py \
     --save out/vp_outlier_demo/overlay.png
 ```
 
+Visualize segment refinement output (requires `matplotlib`, `numpy`, `Pillow`):
+
+```sh
+python tools/plot_segment_refinement.py \
+    -r out/segment_demo/report.json \
+    -l 0
+```
+
 LSD options in `config/coarse_segments.json`:
 
 - `magnitude_threshold`, `angle_tolerance_deg`, `min_length`
@@ -122,7 +123,7 @@ let img = ImageU8 { w, h, stride: w, data: &gray };
 // Configure detector (set your camera intrinsics)
 let mut det = GridDetector::new(GridParams { kmtx: Matrix3::identity(), ..Default::default() });
 let res = det.process(img);
-println!("found={} latency_ms={:.3}", res.grid.found, res.grid.latency_ms);
+println!("found={} latency_ms={:.3}", res.found, res.latency_ms);
 ```
 
 To enable optional parallelism:
@@ -136,9 +137,9 @@ cargo run --release --features parallel --bin grid_demo
 - `image`: lightweight image views/owners plus I/O helpers (see doc/image.md)
 - `pyramid`: grayscale `ImageU8` → multi‑level `ImageF32` pyramid ([doc/pyramid.md](doc/pyramid.md))
 - `edges`: Sobel/Scharr gradients and NMS ([doc/edges.md](doc/edges.md))
-- `segments`: LSD‑like region growing and PCA line fitting ([doc/segments.md](doc/segments.md))
+- `segments`: LSD‑like region growing, optional NMS-seeded path ([doc/segments.md](doc/segments.md))
 - `lsd_vp`: coarse vanishing-point hypothesis ([doc/lsd_vp.md](doc/lsd_vp.md))
-- `refine`: coarse‑to‑fine homography refinement ([doc/refine.md](doc/refine.md))
+- `refine`: coarse‑to‑fine segment + homography refinement (per-level cached gradients, drop-on-fail) ([doc/refine.md](doc/refine.md))
 - `detector`: end‑to‑end pipeline wrapper
   - `pipeline::bundling`: bundling strategies and coarsest-level helper
   - `pipeline::refinement::prepare`: per-level bundling + segment refinement

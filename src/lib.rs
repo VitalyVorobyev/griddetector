@@ -3,6 +3,7 @@
 // Public modules (stable-ish surface)
 pub mod detector;
 pub mod diagnostics;
+pub mod grid;
 pub mod homography;
 pub mod image;
 pub mod types;
@@ -10,9 +11,7 @@ pub mod types;
 // “Expert” modules – still public, but considered unstable internals.
 // (You can tighten or feature-gate these later.)
 pub mod angle;
-pub mod config;
 pub mod edges;
-pub mod lsd_vp;
 pub mod pyramid;
 pub mod refine;
 pub mod segments;
@@ -20,11 +19,11 @@ pub mod segments;
 // --- High-level re-exports -------------------------------------------------
 
 // Main entry points: detector + results.
-pub use crate::detector::{DetectorWorkspace, GridDetector, GridParams};
-pub use crate::types::{GridResult, Pose};
+pub use crate::detector::{GridDetector, GridParams};
+pub use crate::types::GridResult;
 
 // High-level diagnostics returned by the detector.
-pub use crate::diagnostics::{DetectionReport, PipelineTrace};
+// pub use crate::diagnostics::{DetectionReport, PipelineTrace};
 
 // Convenience homography helpers that are generally useful.
 pub use crate::homography::{apply_homography_points, rescale_homography_image_space};
@@ -48,7 +47,7 @@ pub use crate::homography::{apply_homography_points, rescale_homography_image_sp
 /// });
 ///
 /// let report = det.process(img);
-/// println!("found={} latency_ms={:.3}", report.grid.found, report.grid.latency_ms);
+/// println!("found={} latency_ms={:.3}", report.found, report.latency_ms);
 /// # }
 /// ```
 pub mod prelude {
@@ -58,18 +57,12 @@ pub mod prelude {
 
 // --- Stage-level diagnostics API (for tools & advanced users) --------------
 
-pub mod stages {
-    // Stage runners / builders.
-    pub use crate::diagnostics::builders::{
-        run_lsd_stage, run_outlier_stage, LsdStageOutput, OutlierStageOutput,
-    };
-
-    // Structured diagnostics types.
-    pub use crate::diagnostics::{
-        BundlingLevel, BundlingStage, FamilyIndexing, GradientRefineStage, GridIndexingStage,
-        GridLineIndex, InputDescriptor, LsdStage, OutlierFilterStage, PyramidLevelReport,
-        PyramidStage, RefinementIteration, RefinementOutcome, RefinementStage, SegmentClass,
-        SegmentId, SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage, SegmentSample,
-        StageTiming, TimingBreakdown,
-    };
-}
+// pub mod stages {
+//     // Structured diagnostics types.
+//     pub use crate::diagnostics::{
+//         BundlingLevel, BundlingStage, FamilyIndexing, GradientRefineStage, GridIndexingStage,
+//         GridLineIndex, InputDescriptor, LsdStage, OutlierFilterStage, RefinementIteration, RefinementOutcome, RefinementStage, SegmentClass,
+//         SegmentId, SegmentRefineLevel, SegmentRefineSample, SegmentRefineStage, SegmentSample,
+//         StageTiming, TimingBreakdown,
+//     };
+// }

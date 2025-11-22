@@ -1,5 +1,4 @@
-use crate::detector::outliers::SegmentDecision;
-use crate::lsd_vp::FamilyLabel;
+use crate::grid::{FamilyLabel, SegmentDecision};
 use crate::segments::SegmentId;
 use serde::{Deserialize, Serialize};
 
