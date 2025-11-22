@@ -72,32 +72,35 @@ fn run() -> Result<(), String> {
     let LsdResult {
         segments,
         grad,
-        elapsed_ms: lsd_ms
+        elapsed_ms: lsd_ms,
     } = lsd_extract_segments_coarse(pyramid, config.lsd);
 
     // Gradient-driven refinement
-    let refine_result = refine_coarse_segments(
-        pyramid,
-        &segments,
-        &config.refine,
-        Some(grad),
-    );
+    let refine_result = refine_coarse_segments(pyramid, &segments, &config.refine, Some(grad));
 
     let total_ms = total_start.elapsed().as_secs_f64() * 1000.0;
 
-    println!("L0 convert: {:5.2} ms", pyramid_result.elapsed_convert_l0_ms);
-    println!("   pyramid: {:5.2} ms ({} levels)", pyramid_result.elapsed_ms, pyramid.levels.len());
-    println!("       LSD: {:5.2} ms ({} segments)", lsd_ms, segments.len());
+    println!(
+        "L0 convert: {:5.2} ms",
+        pyramid_result.elapsed_convert_l0_ms
+    );
+    println!(
+        "   pyramid: {:5.2} ms ({} levels)",
+        pyramid_result.elapsed_ms,
+        pyramid.levels.len()
+    );
+    println!(
+        "       LSD: {:5.2} ms ({} segments)",
+        lsd_ms,
+        segments.len()
+    );
     println!("refinement: {:5.2} ms", refine_result.elapsed_ms);
     for (i, item) in refine_result.levels.iter().enumerate() {
         // Level indices descend from coarsest->finest; map back to the finer level index.
         let level_idx = pyramid.levels.len().saturating_sub(i + 2);
         println!(
             "  - level {}: {:5.2} ms, {:4} / {:4} accepted",
-            level_idx,
-            item.elapsed_ms,
-            item.accepted,
-            item.attempted
+            level_idx, item.elapsed_ms, item.accepted, item.attempted
         );
     }
     println!(
@@ -106,7 +109,7 @@ fn run() -> Result<(), String> {
         segments.len()
     );
     println!("total: {:5.2} ms", total_ms);
-    
+
     if !config.performance_mode {
         save_pyramid_images(pyramid, &config.output.dir)?;
     }

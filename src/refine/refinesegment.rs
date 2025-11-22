@@ -188,9 +188,7 @@ pub fn refine_segment(
         return None;
     }
 
-    let Some(roi) = compute_roi(&seg, params.pad, lvl.width, lvl.height, lvl.level_index) else {
-        return None;
-    };
+    let roi = compute_roi(&seg, params.pad, lvl.width, lvl.height, lvl.level_index)?;
 
     let mut snapshot = None;
     for attempt in 0..2 {
@@ -205,9 +203,7 @@ pub fn refine_segment(
         }
     }
 
-    let Some(snapshot) = snapshot else {
-        return None;
-    };
+    let snapshot = snapshot?;
 
     let (p0_f, p1_f, _, score) = refine_endpoints(&snapshot, lvl, params);
     let refined_segment = Segment::new(
@@ -221,7 +217,11 @@ pub fn refine_segment(
     let refined_len = refined_segment.length();
     let ok: bool = refined_len >= params.min_inlier_frac * seed_len && score >= params.tau_mag;
 
-    if ok { Some(refined_segment) } else { None }
+    if ok {
+        Some(refined_segment)
+    } else {
+        None
+    }
 }
 
 #[cfg_attr(not(feature = "profile_refine"), allow(unused_variables))]

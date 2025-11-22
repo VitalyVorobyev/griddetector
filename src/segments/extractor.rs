@@ -304,14 +304,7 @@ impl LsdExtractor {
     }
 
     #[inline]
-    fn is_aligned(
-        &self,
-        seed_dir: [f32; 2],
-        x: usize,
-        y: usize,
-        mag: f32,
-        cos_tol: f32,
-    ) -> bool {
+    fn is_aligned(&self, seed_dir: [f32; 2], x: usize, y: usize, mag: f32, cos_tol: f32) -> bool {
         let gx = self.grad.gx.get(x, y);
         let gy = self.grad.gy.get(x, y);
         // dot == |g| * |seed| * cos(theta); |seed| is 1.

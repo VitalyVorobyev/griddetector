@@ -27,7 +27,7 @@ pub struct EdgeElement {
     pub direction: f32,
 }
 
-const TAN_22_5_DEG: f32 = 0.41421356237;
+const TAN_22_5_DEG: f32 = 0.414_213_56;
 
 pub fn run_nms(grad: &Grad, mag_thresh: f32) -> Vec<EdgeElement> {
     let w = grad.gx.w;

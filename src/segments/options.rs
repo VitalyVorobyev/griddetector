@@ -18,7 +18,7 @@ pub struct LsdOptions {
     pub enforce_polarity: bool,
     /// Optional maximum span (in pixels) along the segment normal.
     pub normal_span_limit_px: Option<f32>,
-    pub min_aligned_fraction: f32
+    pub min_aligned_fraction: f32,
 }
 
 impl Default for LsdOptions {

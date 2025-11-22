@@ -75,17 +75,26 @@ fn run() -> Result<(), String> {
         elapsed_ms: lsd_full_ms,
     } = lsd_extract_segments_coarse(&pyramid, config.lsd);
 
-    let (lsd_nms, nms) = lsd_extract_segments_nms(
-        coarsest,
-        scaled_opts,
-        scaled_opts.magnitude_threshold,
-    );
+    let (lsd_nms, nms) =
+        lsd_extract_segments_nms(coarsest, scaled_opts, scaled_opts.magnitude_threshold);
 
     println!("        l0: {:5.2} ms", pyr_lo_ms);
     println!("       pyr: {:5.2} ms", pyr_ms);
-    println!("  lsd full: {:5.2} ms ({} segments)", lsd_full_ms, segments_full.len());
-    println!("       nms: {:5.2} ms (edges {})", nms.nms_ms, nms.edges.len());
-    println!("lsd seeded: {:5.2} ms ({} segments)", lsd_nms.elapsed_ms, lsd_nms.segments.len());
+    println!(
+        "  lsd full: {:5.2} ms ({} segments)",
+        lsd_full_ms,
+        segments_full.len()
+    );
+    println!(
+        "       nms: {:5.2} ms (edges {})",
+        nms.nms_ms,
+        nms.edges.len()
+    );
+    println!(
+        "lsd seeded: {:5.2} ms ({} segments)",
+        lsd_nms.elapsed_ms,
+        lsd_nms.segments.len()
+    );
 
     save_grayscale_f32(coarsest, &config.output.coarsest_image)?;
 
