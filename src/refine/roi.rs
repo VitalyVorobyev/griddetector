@@ -20,6 +20,7 @@ impl SegmentRoi {
 }
 
 /// Integer bounds (inclusive) around a segment ROI.
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IntBounds {
     pub x0: usize,
@@ -28,6 +29,7 @@ pub struct IntBounds {
     pub y1: usize,
 }
 
+#[allow(dead_code)]
 impl IntBounds {
     #[inline]
     pub fn width(&self) -> usize {
@@ -41,10 +43,12 @@ impl IntBounds {
 }
 
 /// Convert a floating-point ROI into integer bounds with a bilinear guard.
+#[allow(dead_code)]
 pub fn roi_to_int_bounds(roi: &SegmentRoi, width: usize, height: usize) -> Option<IntBounds> {
     convert_bounds(roi.x0, roi.x1, roi.y0, roi.y1, width, height)
 }
 
+#[allow(dead_code)]
 fn convert_bounds(
     min_x: f32,
     max_x: f32,

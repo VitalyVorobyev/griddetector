@@ -93,12 +93,18 @@ fn run() -> Result<(), String> {
         // Level indices descend from coarsest->finest; map back to the finer level index.
         let level_idx = pyramid.levels.len().saturating_sub(i + 2);
         println!(
-            "  - level {}: {:5.2} ms, {} segments",
+            "  - level {}: {:5.2} ms, {:4} / {:4} accepted",
             level_idx,
             item.elapsed_ms,
-            item.accepted
+            item.accepted,
+            item.attempted
         );
     }
+    println!(
+        "accepted segments: {} (from {} seeds)",
+        refine_result.segments.len(),
+        segments.len()
+    );
     println!("total: {:5.2} ms", total_ms);
     
     if !config.performance_mode {

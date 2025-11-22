@@ -27,17 +27,20 @@ pub(crate) fn run_iterations(
     let mut p1 = seg0.p1;
     let mut last_mu = seg0.midpoint();
     let mut last_normal = seg0.normal();
+    let mut last_seg = seg0.clone();
+    let mut supports = Vec::new();
 
     for _ in 0..params.max_iters.max(1) {
-        let dir = seg0.direction();
-        let normal = seg0.normal();
+        let dir = Segment::new(seg0.id, p0, p1, seg0.avg_mag, seg0.strength).direction();
+        let normal = [-dir[1], dir[0]];
         let length = distance(&p0, &p1);
         let samples = (length / params.delta_s).floor() as usize;
         let mut n_centers = samples.max(4) + 1;
         if length < 3.0 {
             n_centers = 1;
         }
-        let mut supports = Vec::with_capacity(n_centers);
+        supports.clear();
+        supports.reserve(n_centers);
         for i in 0..n_centers {
             let t = if n_centers <= 1 {
                 0.0
@@ -64,6 +67,7 @@ pub(crate) fn run_iterations(
         let angle_diff = angle_between(&dir, &d_final).to_degrees();
         p0 = new_p0;
         p1 = new_p1;
+        last_seg = Segment::new(seg0.id, p0, p1, seg0.avg_mag, seg0.strength);
 
         if moved < 0.05 && angle_diff < 0.25 {
             break;
@@ -71,7 +75,7 @@ pub(crate) fn run_iterations(
     }
 
     Some(IterationSnapshot {
-        seg: Segment::new(seg0.id, p0, p1, seg0.avg_mag, seg0.strength),
+        seg: last_seg,
         mu: last_mu,
         normal: last_normal,
         roi: *roi,

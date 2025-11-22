@@ -60,7 +60,7 @@ use crate::segments::Segment;
 use super::endpoints::refine_endpoints;
 #[cfg(feature = "profile_refine")]
 use super::profile::{take_profile, LevelProfile};
-use super::roi::{roi_to_int_bounds, segment_roi_from_points, SegmentRoi};
+use super::roi::{segment_roi_from_points, SegmentRoi};
 
 use serde::Serialize;
 use std::time::Instant;
@@ -71,6 +71,7 @@ const EPS: f32 = 1e-6;
 pub struct SegmentsRefinementLevelResult {
     pub elapsed_ms: f64,
     pub accepted: usize,
+    pub attempted: usize,
 }
 
 #[derive(Default, Debug, Serialize, Clone)]
@@ -82,6 +83,12 @@ pub struct SegmentsRefinementResult {
     pub profile: LevelProfile,
 }
 
+/// Refine a set of coarse segments down the pyramid using cached gradients.
+///
+/// The routine now computes Scharr gradients **once per level** (full-frame) and
+/// reuses them for all segments to avoid per-segment gradient recomputation.
+/// Segments that cannot gather sufficient support or fail geometric checks are
+/// dropped rather than propagated, improving alignment quality.
 pub fn refine_coarse_segments(
     pyramid: &Pyramid,
     source_segments: &[Segment],
@@ -106,43 +113,36 @@ pub fn refine_coarse_segments(
         let coarse_level = &pyramid.levels[coarse_idx];
         let scale_map = level_scale_map(coarse_level, finer_level);
         let level_params = refine_params.for_level(full_width, finer_level.w);
+        let grad_view = workspace.scharr_gradients_full(finer_idx, finer_level);
+        let grad_level = PyramidLevel {
+            width: finer_level.w,
+            height: finer_level.h,
+            origin_x: grad_view.origin_x,
+            origin_y: grad_view.origin_y,
+            tile_width: grad_view.tile_width,
+            tile_height: grad_view.tile_height,
+            gx: grad_view.gx,
+            gy: grad_view.gy,
+            level_index: finer_idx,
+        };
+
         let mut refined_segments = Vec::with_capacity(current_segments.len());
+        let attempted = current_segments.len();
+        let mut accepted = 0usize;
 
         for seg in &current_segments {
-            let grad_view = match segment_roi_from_points(
-                scale_map.up(seg.p0),
-                scale_map.up(seg.p1),
-                level_params.pad,
-                finer_level.w,
-                finer_level.h,
-            )
-            .and_then(|roi| roi_to_int_bounds(&roi, finer_level.w, finer_level.h))
-            {
-                Some(bounds) => workspace.scharr_gradients_window(finer_idx, finer_level, &bounds),
-                None => workspace.scharr_gradients_full(finer_idx, finer_level),
-            };
-            let grad_level = PyramidLevel {
-                width: finer_level.w,
-                height: finer_level.h,
-                origin_x: grad_view.origin_x,
-                origin_y: grad_view.origin_y,
-                tile_width: grad_view.tile_width,
-                tile_height: grad_view.tile_height,
-                gx: grad_view.gx,
-                gy: grad_view.gy,
-                level_index: finer_idx,
-            };
-            let result = refine_segment(&grad_level, seg, &scale_map, &level_params);
-            let updated = result.seg;
-
-            refined_segments.push(updated);
+            if let Some(updated) = refine_segment(&grad_level, seg, &scale_map, &level_params) {
+                accepted += 1;
+                refined_segments.push(updated);
+            }
         }
 
         let elapsed_ms = refine_start.elapsed().as_secs_f64() * 1000.0;
         current_segments = refined_segments;
         result.levels.push(SegmentsRefinementLevelResult {
             elapsed_ms,
-            accepted: current_segments.len(),
+            accepted,
+            attempted,
         });
     }
 
@@ -160,36 +160,20 @@ fn set_profile(data: &mut SegmentsRefinementResult, workspace: &RefinementWorksp
     dump_refine_profile(workspace);
 }
 
-/// Outcome of a refinement attempt.
-#[derive(Clone, Debug)]
-pub struct RefineResult {
-    /// Refined segment (or the fallback seed when `ok == false`).
-    pub seg: Segment,
-}
-
-impl RefineResult {
-    pub(crate) fn failed(seg: Segment) -> Self {
-        Self { seg }
-    }
-
-    pub(crate) fn rejected(seg: Segment) -> Self {
-        Self { seg }
-    }
-}
-
 /// Refine a coarse-level segment using gradient support on the finer level.
 ///
 /// The routine upsamples the coarse endpoints, iteratively fits a robust line
 /// to the collected support samples, and finally resizes the segment by looking
 /// for the strongest contiguous inlier run along the carrier.
+/// Returns `None` when no stable support is found (segment is dropped).
 pub fn refine_segment(
     lvl: &PyramidLevel<'_>,
     seg_coarse: &Segment,
     scale: &dyn ScaleMap,
     params: &RefineOptions,
-) -> RefineResult {
+) -> Option<Segment> {
     if lvl.width == 0 || lvl.height == 0 {
-        return RefineResult::failed(seg_coarse.clone());
+        return None;
     }
 
     let seg = Segment::new(
@@ -199,14 +183,13 @@ pub fn refine_segment(
         seg_coarse.avg_mag,
         seg_coarse.strength,
     );
-    let fallback = seg.clone();
 
     if seg.length_sq() < 1e-3 {
-        return RefineResult::failed(fallback);
+        return None;
     }
 
     let Some(roi) = compute_roi(&seg, params.pad, lvl.width, lvl.height, lvl.level_index) else {
-        return RefineResult::failed(fallback);
+        return None;
     };
 
     let mut snapshot = None;
@@ -223,7 +206,7 @@ pub fn refine_segment(
     }
 
     let Some(snapshot) = snapshot else {
-        return RefineResult::failed(fallback);
+        return None;
     };
 
     let (p0_f, p1_f, _, score) = refine_endpoints(&snapshot, lvl, params);
@@ -234,17 +217,11 @@ pub fn refine_segment(
         snapshot.seg.avg_mag,
         snapshot.seg.strength,
     );
-    let seed_len = fallback.length().max(EPS);
+    let seed_len = seg.length().max(EPS);
     let refined_len = refined_segment.length();
     let ok: bool = refined_len >= params.min_inlier_frac * seed_len && score >= params.tau_mag;
 
-    if !ok {
-        return RefineResult::rejected(fallback);
-    }
-
-    RefineResult {
-        seg: refined_segment,
-    }
+    if ok { Some(refined_segment) } else { None }
 }
 
 #[cfg_attr(not(feature = "profile_refine"), allow(unused_variables))]

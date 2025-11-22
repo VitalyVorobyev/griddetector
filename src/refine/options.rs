@@ -90,6 +90,7 @@ impl RefineOptions {
         params.delta_t = scale_spacing(self.delta_t);
         params.w_perp = scale_width(self.w_perp);
         params.pad = scale_width(self.pad);
+        params.tau_mag = scale_spacing(self.tau_mag).max(0.01);
         params
     }
 }

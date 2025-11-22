@@ -70,12 +70,13 @@ pub(super) fn refine_endpoints(
         }
     }
     let dominant_sign = if pos >= neg { 1.0 } else { -1.0 };
+    let mixed_polarity = pos > 0 && neg > 0 && (pos.min(neg) as f32 / (pos + neg) as f32) >= 0.25;
     let tau_ori = params.tau_ori_deg.to_radians();
     let mut inlier_flags = Vec::with_capacity(samples.len());
     for (_, dot, _, angle) in &samples {
         let ori_ok = *angle <= tau_ori;
-        let polarity_ok =
-            (*dot >= 0.0 && dominant_sign > 0.0) || (*dot < 0.0 && dominant_sign < 0.0);
+        let polarity_ok = mixed_polarity
+            || ((*dot >= 0.0 && dominant_sign > 0.0) || (*dot < 0.0 && dominant_sign < 0.0));
         inlier_flags.push(ori_ok && polarity_ok);
     }
 

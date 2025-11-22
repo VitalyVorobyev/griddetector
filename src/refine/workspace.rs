@@ -183,6 +183,7 @@ impl RefinementWorkspace {
     }
 
     /// Returns a cropped gradient tile computed on-demand for the requested window.
+    #[allow(dead_code)]
     pub fn scharr_gradients_window(
         &mut self,
         level_idx: usize,
