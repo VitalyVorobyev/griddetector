@@ -47,7 +47,7 @@ pub use crate::homography::{apply_homography_points, rescale_homography_image_sp
 /// });
 ///
 /// let report = det.process(img);
-/// println!("found={} latency_ms={:.3}", report.grid.found, report.grid.latency_ms);
+/// println!("found={} latency_ms={:.3}", report.found, report.latency_ms);
 /// # }
 /// ```
 pub mod prelude {

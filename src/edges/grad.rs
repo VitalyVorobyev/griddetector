@@ -94,6 +94,11 @@ fn gradients_with_kernels(l: &ImageF32, kernel_x: &Kernel3, kernel_y: &Kernel3) 
     }
 }
 
+pub enum GradientKernel {
+    Sobel,
+    Scharr
+}
+
 /// Compute Sobel gradients on a single‑channel float image.
 pub fn sobel_gradients(l: &ImageF32) -> Grad {
     gradients_with_kernels(l, &SOBEL_KERNEL_X, &SOBEL_KERNEL_Y)
@@ -102,6 +107,13 @@ pub fn sobel_gradients(l: &ImageF32) -> Grad {
 /// Compute Scharr gradients (better rotational symmetry than Sobel).
 pub fn scharr_gradients(l: &ImageF32) -> Grad {
     gradients_with_kernels(l, &SCHARR_KERNEL_X, &SCHARR_KERNEL_Y)
+}
+
+pub fn image_gradients(l: &ImageF32, kernel: GradientKernel) -> Grad {
+    match kernel {
+        GradientKernel::Sobel => sobel_gradients(l),
+        GradientKernel::Scharr => scharr_gradients(l)
+    }
 }
 
 /// Horizontal/vertical Scharr gradients restricted to an axis-aligned window.

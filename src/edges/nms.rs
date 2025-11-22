@@ -8,9 +8,10 @@
 //!
 //! Border handling uses clamping in gradient computation and ignores the outer
 //!most 1‑pixel frame in NMS to avoid out‑of‑bounds checks in neighbor lookup.
-use crate::edges::grad::sobel_gradients;
+use crate::edges::grad::{image_gradients, GradientKernel, Grad};
 use crate::image::ImageF32;
 use serde::Serialize;
+use std::time::Instant;
 
 /// A sparse edge sample after NMS suitable for visualization or simple post‑processing.
 #[derive(Clone, Debug, Serialize)]
@@ -26,20 +27,9 @@ pub struct EdgeElement {
     pub direction: f32,
 }
 
-/// Simple Sobel-based edge detector with 4-neighborhood non-maximum suppression.
-/// Detect edges by applying Sobel gradients followed by 4‑direction NMS.
-///
-/// - Direction quantization uses 4 bins (0°, 45°, 90°, 135°) to select the
-///   two comparison neighbors.
-/// - A pixel is kept if its magnitude is strictly greater than both neighbors
-///   along that direction and above `mag_thresh`.
-///
-/// Returns a vector of `EdgeElement` containing position, magnitude, and
-/// continuous gradient direction for visualization.
-pub fn detect_edges_sobel_nms(l: &ImageF32, mag_thresh: f32) -> Vec<EdgeElement> {
-    let grad = sobel_gradients(l);
-    let w = l.w;
-    let h = l.h;
+pub fn run_nms(grad: &Grad, mag_thresh: f32) -> Vec<EdgeElement> {
+    let w = grad.gx.w;
+    let h = grad.gx.h;
     if w < 3 || h < 3 {
         return Vec::new();
     }
@@ -86,4 +76,32 @@ pub fn detect_edges_sobel_nms(l: &ImageF32, mag_thresh: f32) -> Vec<EdgeElement>
     }
 
     edges
+}
+
+pub struct NmsEdgesResult {
+    pub edges: Vec<EdgeElement>,
+    pub gradient_ms: f64,
+    pub nms_ms: f64,
+}
+
+/// Simple Sobel-based edge detector with 4-neighborhood non-maximum suppression.
+/// Detect edges by applying Sobel gradients followed by 4‑direction NMS.
+///
+/// - Direction quantization uses 4 bins (0°, 45°, 90°, 135°) to select the
+///   two comparison neighbors.
+/// - A pixel is kept if its magnitude is strictly greater than both neighbors
+///   along that direction and above `mag_thresh`.
+///
+/// Returns a vector of `EdgeElement` containing position, magnitude, and
+/// continuous gradient direction for visualization.
+pub fn detect_edges_nms(l: &ImageF32, mag_thresh: f32) -> NmsEdgesResult {
+    let gradient_start = Instant::now();
+    let grad = image_gradients(l, GradientKernel::Scharr);
+    let gradient_ms = gradient_start.elapsed().as_secs_f64() * 1000.0;
+
+    let nms_start = Instant::now();
+    let edges = run_nms(&grad, mag_thresh);
+    let nms_ms = nms_start.elapsed().as_secs_f64() * 1000.0;
+    
+    NmsEdgesResult { edges, gradient_ms, nms_ms }
 }
