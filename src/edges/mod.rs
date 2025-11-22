@@ -21,4 +21,4 @@ pub mod nms;
 /// Per‑pixel gradients with magnitude and quantized orientation.
 pub use grad::{scharr_gradients, sobel_gradients, Grad};
 /// Simple Sobel NMS returning sparse edge elements suitable for visualization.
-pub use nms::{detect_edges_nms, EdgeElement};
+pub use nms::{detect_edges_nms, EdgeElement, NmsEdgesResult};

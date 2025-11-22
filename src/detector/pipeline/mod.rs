@@ -10,7 +10,7 @@
 //! ```no_run
 //! use grid_detector::{GridDetector, GridParams};
 //! use grid_detector::image::ImageU8;
-//! 
+//!
 //! use nalgebra::Isometry3;
 //!
 //! # fn example(gray: ImageU8) {
@@ -42,7 +42,7 @@
 // - `refinement::homography`: IRLS-driven homography update and confidence blend.
 // - `refinement::indexing`: bundle-to-grid indexing in rectified space.
 
-use nalgebra::{Isometry3, Matrix3, Rotation3, Vector3, Translation3, UnitQuaternion};
+use nalgebra::{Isometry3, Matrix3, Rotation3, Translation3, UnitQuaternion, Vector3};
 
 use super::options::GridParams;
 use crate::edges::Grad;

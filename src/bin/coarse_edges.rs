@@ -1,4 +1,4 @@
-use grid_detector::edges::{detect_edges_nms, EdgeElement};
+use grid_detector::edges::{detect_edges_nms, EdgeElement, NmsEdgesResult};
 use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
 use grid_detector::pyramid::{Pyramid, PyramidOptions};
 use serde::{Deserialize, Serialize};
@@ -67,7 +67,11 @@ fn run() -> Result<(), String> {
         .ok_or("Pyramid has no levels")?;
     let coarsest = &pyramid.levels[coarsest_index];
 
-    let edges = detect_edges_nms(coarsest, config.edge.magnitude_threshold);
+    let NmsEdgesResult {
+        edges,
+        gradient_ms,
+        nms_ms,
+    } = detect_edges_nms(coarsest, config.edge.magnitude_threshold);
     let summary = EdgeDetectionSummary {
         width: coarsest.w,
         height: coarsest.h,
@@ -76,6 +80,9 @@ fn run() -> Result<(), String> {
         edge_count: edges.len(),
         edges,
     };
+
+    println!("gradient {:.2} ms", gradient_ms);
+    println!(".    nms {:.2} ms", nms_ms);
 
     save_grayscale_f32(coarsest, &config.output.coarsest_image)?;
     write_json_file(&config.output.edges_json, &summary)?;

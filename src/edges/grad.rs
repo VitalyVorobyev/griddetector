@@ -28,14 +28,6 @@ pub struct Grad {
     pub gy: ImageF32,
     /// Euclidean magnitude per pixel: `sqrt(gx^2 + gy^2)`
     pub mag: ImageF32,
-    /// Per‑pixel quantized orientation in 8 bins (π‑periodic)
-    pub ori_q8: Vec<u8>,
-}
-
-#[inline]
-fn quantize_orientation(angle: f32) -> u8 {
-    let wrapped = (angle + std::f32::consts::PI).rem_euclid(2.0 * std::f32::consts::PI);
-    ((wrapped * (4.0 / std::f32::consts::PI)).floor() as i32 & 7) as u8
 }
 
 fn gradients_with_kernels(l: &ImageF32, kernel_x: &Kernel3, kernel_y: &Kernel3) -> Grad {
@@ -44,15 +36,9 @@ fn gradients_with_kernels(l: &ImageF32, kernel_x: &Kernel3, kernel_y: &Kernel3) 
     let mut gx = ImageF32::new(w, h);
     let mut gy = ImageF32::new(w, h);
     let mut mag = ImageF32::new(w, h);
-    let mut ori_q8 = vec![0u8; w * h];
 
     if w == 0 || h == 0 {
-        return Grad {
-            gx,
-            gy,
-            mag,
-            ori_q8,
-        };
+        return Grad { gx, gy, mag };
     }
 
     for y in 0..h {
@@ -81,22 +67,15 @@ fn gradients_with_kernels(l: &ImageF32, kernel_x: &Kernel3, kernel_y: &Kernel3) 
             out_gy[x] = sum_y;
             let magnitude = (sum_x * sum_x + sum_y * sum_y).sqrt();
             out_mag[x] = magnitude;
-            let idx = y * w + x;
-            ori_q8[idx] = quantize_orientation(sum_y.atan2(sum_x));
         }
     }
 
-    Grad {
-        gx,
-        gy,
-        mag,
-        ori_q8,
-    }
+    Grad { gx, gy, mag }
 }
 
 pub enum GradientKernel {
     Sobel,
-    Scharr
+    Scharr,
 }
 
 /// Compute Sobel gradients on a single‑channel float image.
@@ -112,7 +91,7 @@ pub fn scharr_gradients(l: &ImageF32) -> Grad {
 pub fn image_gradients(l: &ImageF32, kernel: GradientKernel) -> Grad {
     match kernel {
         GradientKernel::Sobel => sobel_gradients(l),
-        GradientKernel::Scharr => scharr_gradients(l)
+        GradientKernel::Scharr => scharr_gradients(l),
     }
 }
 
