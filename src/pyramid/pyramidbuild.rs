@@ -1,4 +1,4 @@
-use super::filters::apply as apply_filter;
+use super::filters::{SeparableFilter, StaticSeparableFilter};
 use super::options::PyramidOptions;
 use crate::image::{ImageF32, ImageU8, ImageView, ImageViewMut};
 
@@ -12,30 +12,31 @@ pub struct Pyramid {
 
 impl Pyramid {
     pub fn build_f32(image: ImageF32, options: PyramidOptions) -> Self {
+        assert!(options.levels >= 1, "pyramid requires at least one level");
         let mut levels = Vec::with_capacity(options.levels);
         levels.push(image);
+        if options.levels == 1 {
+            return Self { levels };
+        }
 
-        let blur_limit = options.blur_levels;
+        let blur_limit = options.blur_levels.min(options.levels.saturating_sub(1));
+        let mut horiz_cache = Vec::new();
+        let mut cached_rows = Vec::new();
         for lvl in 1..options.levels {
             let prev = levels.last().expect("previous level available");
-            let use_blur = lvl <= blur_limit;
-            let filtered = if use_blur {
-                Some(apply_filter(options.filter, prev))
-            } else {
-                None
-            };
-            let src_img = filtered.as_ref().unwrap_or(prev);
-
             let (nw, nh) = (prev.w.div_ceil(2), prev.h.div_ceil(2));
             let mut down = ImageF32::new(nw, nh);
-            for y in 0..nh {
-                let dst_row = down.row_mut(y);
-                let sy = (y * 2).min(src_img.h - 1);
-                let src_row = src_img.row(sy);
-                for (x, dst_px) in dst_row.iter_mut().enumerate() {
-                    let sx = (x * 2).min(src_img.w - 1);
-                    *dst_px = src_row[sx];
-                }
+            let use_blur = lvl <= blur_limit;
+            if use_blur {
+                downsample_with_filter(
+                    prev,
+                    &mut down,
+                    options.filter,
+                    &mut horiz_cache,
+                    &mut cached_rows,
+                );
+            } else {
+                downsample_without_filter(prev, &mut down);
             }
             levels.push(down);
         }
@@ -94,4 +95,99 @@ fn convert_l0(gray: ImageU8<'_>) -> ImageF32 {
         }
     }
     out
+}
+
+fn downsample_without_filter(src: &ImageF32, dst: &mut ImageF32) {
+    if src.w == 0 || src.h == 0 {
+        return;
+    }
+    let max_sx = src.w.saturating_sub(1);
+    let max_sy = src.h.saturating_sub(1);
+    let mut sy = 0usize;
+    for y in 0..dst.h {
+        let src_row = src.row(sy.min(max_sy));
+        let dst_row = dst.row_mut(y);
+        let mut sx = 0usize;
+        for dst_px in dst_row {
+            *dst_px = src_row[sx.min(max_sx)];
+            sx = sx.saturating_add(2);
+        }
+        sy = sy.saturating_add(2);
+    }
+}
+
+fn downsample_with_filter(
+    src: &ImageF32,
+    dst: &mut ImageF32,
+    filter: StaticSeparableFilter,
+    horiz_cache: &mut Vec<f32>,
+    cached_rows: &mut Vec<isize>,
+) {
+    if src.w == 0 || src.h == 0 || dst.w == 0 || dst.h == 0 {
+        return;
+    }
+    let taps = filter.taps();
+    assert!(
+        !taps.is_empty(),
+        "filter must provide at least one tap for downsampling"
+    );
+    let radius = taps.len() / 2;
+    let taps_len = taps.len();
+    let cache_width = dst.w;
+
+    horiz_cache.resize(cache_width * taps_len, 0.0);
+    cached_rows.resize(taps_len, -1);
+
+    for y in 0..dst.h {
+        let center_sy = (y * 2) as isize;
+        for ky in 0..taps_len {
+            let offset = ky as isize - radius as isize;
+            let sy = clamp_index(center_sy + offset, src.h) as isize;
+            if cached_rows[ky] != sy {
+                let src_row = src.row(sy as usize);
+                let cache_row = &mut horiz_cache[ky * cache_width..(ky + 1) * cache_width];
+                filter_row_downsample(src_row, cache_row, taps, radius);
+                cached_rows[ky] = sy;
+            }
+        }
+        let dst_row = dst.row_mut(y);
+        for x in 0..cache_width {
+            let mut acc = 0.0f32;
+            for ky in 0..taps_len {
+                acc += taps[ky] * horiz_cache[ky * cache_width + x];
+            }
+            dst_row[x] = acc;
+        }
+    }
+}
+
+fn filter_row_downsample(row: &[f32], out: &mut [f32], taps: &[f32], radius: usize) {
+    if row.is_empty() || out.is_empty() {
+        return;
+    }
+    let max_x = row.len();
+    let mut sx = 0isize;
+    for dst_px in out {
+        let mut acc = 0.0f32;
+        for (k, &tap) in taps.iter().enumerate() {
+            let offset = k as isize - radius as isize;
+            let idx = clamp_index(sx + offset, max_x);
+            acc += tap * row[idx];
+        }
+        *dst_px = acc;
+        sx = sx.saturating_add(2);
+    }
+}
+
+fn clamp_index(idx: isize, upper: usize) -> usize {
+    if upper == 0 {
+        return 0;
+    }
+    if idx < 0 {
+        0
+    } else if (idx as usize) >= upper {
+        upper - 1
+    } else {
+        idx as usize
+    }
 }
