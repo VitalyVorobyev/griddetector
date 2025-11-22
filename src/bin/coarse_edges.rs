@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 #[derive(Debug, Deserialize)]
 pub struct EdgeToolConfig {
@@ -57,9 +58,10 @@ fn run() -> Result<(), String> {
     let config = load_config(Path::new(&config_path))?;
 
     let gray = load_grayscale_image(&config.input)?;
-    let levels = config.pyramid.levels.max(1);
-    let pyramid_opts = PyramidOptions::new(levels).with_blur_levels(config.pyramid.blur_levels);
-    let pyramid = Pyramid::build_u8(gray.as_view(), pyramid_opts);
+
+    let pyr_start = Instant::now();
+    let pyramid = Pyramid::build_u8(gray.as_view(), config.pyramid);
+    let pyr_ms = pyr_start.elapsed().as_secs_f64() * 1000.0;
     let coarsest_index = pyramid
         .levels
         .len()
@@ -79,10 +81,14 @@ fn run() -> Result<(), String> {
         magnitude_threshold: config.edge.magnitude_threshold,
         edge_count: edges.len(),
         edges,
+        pyr_ms,
+        gradient_ms,
+        nms_ms
     };
 
+    println!(" pyramid {:.2} ms", pyr_ms);
     println!("gradient {:.2} ms", gradient_ms);
-    println!(".    nms {:.2} ms", nms_ms);
+    println!("     nms {:.2} ms", nms_ms);
 
     save_grayscale_f32(coarsest, &config.output.coarsest_image)?;
     write_json_file(&config.output.edges_json, &summary)?;
@@ -114,4 +120,7 @@ struct EdgeDetectionSummary {
     magnitude_threshold: f32,
     edge_count: usize,
     edges: Vec<EdgeElement>,
+    pyr_ms: f64,
+    gradient_ms: f64,
+    nms_ms: f64
 }
