@@ -7,10 +7,11 @@
     "lsd": {
         "magnitude_threshold": 1.5,
         "angle_tolerance_deg": 22.5,
-        "min_length": 3.0,
+        "min_length_px": 60.0,
         "enforce_polarity": true,
         "limit_normal_span": false,
-        "normal_span_limit_px": 2.0
+        "normal_span_limit_px": 2.0,
+        "min_aligned_fraction": 0.6
     },
     "refine": {
         "delta_s": 0.75,
@@ -22,6 +23,13 @@
         "huber_delta": 0.25,
         "max_iters": 3,
         "min_inlier_frac": 0.4
+    },
+    "timing": {
+        "warmup_runs": 0,
+        "runs": 1,
+        "max_threads": null,
+        "min_segments_for_parallel": 128,
+        "force_sequential": true
     },
     "performance_mode": false,
     "output": {

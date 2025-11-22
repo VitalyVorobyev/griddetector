@@ -77,6 +77,7 @@ pub struct SegmentsRefinementLevelResult {
 pub struct SegmentsRefinementResult {
     pub levels: Vec<SegmentsRefinementLevelResult>,
     pub elapsed_ms: f64,
+    pub segments: Vec<Segment>,
     #[cfg(feature = "profile_refine")]
     pub profile: LevelProfile,
 }
@@ -94,6 +95,8 @@ pub fn refine_coarse_segments(
         Some(grad) => RefinementWorkspace::from_coarsest_gradient(grad, pyramid.levels.len()),
         None => RefinementWorkspace::new(pyramid.levels.len()),
     };
+
+    let refine_total_start = Instant::now();
 
     let mut result = SegmentsRefinementResult::default();
     for coarse_idx in (1..pyramid.levels.len()).rev() {
@@ -136,11 +139,6 @@ pub fn refine_coarse_segments(
         }
 
         let elapsed_ms = refine_start.elapsed().as_secs_f64() * 1000.0;
-        println!(
-            "Refinement for level {} took {:.2} ms",
-            finer_idx, elapsed_ms
-        );
-
         current_segments = refined_segments;
         result.levels.push(SegmentsRefinementLevelResult {
             elapsed_ms,
@@ -151,6 +149,8 @@ pub fn refine_coarse_segments(
     #[cfg(feature = "profile_refine")]
     set_profile(&result, &workspace);
 
+    result.segments = current_segments;
+    result.elapsed_ms = refine_total_start.elapsed().as_secs_f64() * 1000.0;
     result
 }
 
