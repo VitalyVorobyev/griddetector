@@ -63,6 +63,10 @@ fn run() -> Result<(), String> {
         elapsed_ms: lsd_ms,
     } = lsd_extract_segments_coarse(&pyramid, config.lsd);
 
+    println!(" l0: {:5.2} ms", pyr_lo_ms);
+    println!("pyr: {:5.2} ms", pyr_ms);
+    println!("lsd: {:5.2} ms", lsd_ms);
+
     let coarsest = pyramid
         .levels
         .last()
