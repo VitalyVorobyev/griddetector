@@ -92,6 +92,7 @@ pub fn run_nms(grad: &Grad, mag_thresh: f32) -> Vec<EdgeElement> {
 
 pub struct NmsEdgesResult {
     pub edges: Vec<EdgeElement>,
+    pub grad: Grad,
     pub gradient_ms: f64,
     pub nms_ms: f64,
 }
@@ -117,6 +118,7 @@ pub fn detect_edges_nms(l: &ImageF32, mag_thresh: f32) -> NmsEdgesResult {
 
     NmsEdgesResult {
         edges,
+        grad,
         gradient_ms,
         nms_ms,
     }

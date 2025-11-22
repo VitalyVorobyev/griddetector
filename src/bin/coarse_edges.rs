@@ -72,9 +72,16 @@ fn run() -> Result<(), String> {
 
     let NmsEdgesResult {
         edges,
+        grad: _,
         gradient_ms,
         nms_ms,
     } = detect_edges_nms(coarsest, config.edge.magnitude_threshold);
+
+    println!(" convert {:5.2} ms", convert_f32_ms);
+    println!(" pyramid {:5.2} ms", pyr_ms);
+    println!("gradient {:5.2} ms", gradient_ms);
+    println!("     nms {:5.2} ms", nms_ms);
+
     let summary = EdgeDetectionSummary {
         width: coarsest.w,
         height: coarsest.h,
@@ -86,11 +93,6 @@ fn run() -> Result<(), String> {
         gradient_ms,
         nms_ms,
     };
-
-    println!(" convert {:5.2} ms", convert_f32_ms);
-    println!(" pyramid {:5.2} ms", pyr_ms);
-    println!("gradient {:5.2} ms", gradient_ms);
-    println!("     nms {:5.2} ms", nms_ms);
 
     save_grayscale_f32(coarsest, &config.output.coarsest_image)?;
     write_json_file(&config.output.edges_json, &summary)?;

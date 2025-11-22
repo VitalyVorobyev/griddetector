@@ -1,6 +1,8 @@
 use grid_detector::image::io::{load_grayscale_image, save_grayscale_f32, write_json_file};
 use grid_detector::pyramid::{build_pyramid, PyramidOptions, PyramidResult};
-use grid_detector::segments::{lsd_extract_segments_coarse, LsdOptions, LsdResult, Segment};
+use grid_detector::segments::{
+    lsd_extract_segments_coarse, lsd_extract_segments_nms, LsdOptions, LsdResult, Segment,
+};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::{env, fs};
@@ -42,7 +44,11 @@ struct Report {
     segments: Vec<Segment>,
     pyr_ms: f64,
     pyr_lo_ms: f64,
-    lsd_ms: f64,
+    lsd_full_ms: f64,
+    lsd_nms_ms: f64,
+    nms_ms: f64,
+    nms_gradient_ms: f64,
+    nms_edges: usize,
 }
 
 fn run() -> Result<(), String> {
@@ -56,28 +62,42 @@ fn run() -> Result<(), String> {
         elapsed_ms: pyr_ms,
         elapsed_convert_l0_ms: pyr_lo_ms,
     } = build_pyramid(gray.as_view(), config.pyramid);
-
-    let LsdResult {
-        segments,
-        grad: _,
-        elapsed_ms: lsd_ms,
-    } = lsd_extract_segments_coarse(&pyramid, config.lsd);
-
-    println!(" l0: {:5.2} ms", pyr_lo_ms);
-    println!("pyr: {:5.2} ms", pyr_ms);
-    println!("lsd: {:5.2} ms", lsd_ms);
-
     let coarsest = pyramid
         .levels
         .last()
         .ok_or_else(|| "Pyramid must have at least one level".to_string())?;
+    let scale = pyramid.scale_for_level(coarsest);
+    let scaled_opts = config.lsd.with_scale(scale);
+
+    let LsdResult {
+        segments: segments_full,
+        grad: _,
+        elapsed_ms: lsd_full_ms,
+    } = lsd_extract_segments_coarse(&pyramid, config.lsd);
+
+    let (lsd_nms, nms) = lsd_extract_segments_nms(
+        coarsest,
+        scaled_opts,
+        scaled_opts.magnitude_threshold,
+    );
+
+    println!("        l0: {:5.2} ms", pyr_lo_ms);
+    println!("       pyr: {:5.2} ms", pyr_ms);
+    println!("  lsd full: {:5.2} ms ({} segments)", lsd_full_ms, segments_full.len());
+    println!("       nms: {:5.2} ms (edges {})", nms.nms_ms, nms.edges.len());
+    println!("lsd seeded: {:5.2} ms ({} segments)", lsd_nms.elapsed_ms, lsd_nms.segments.len());
+
     save_grayscale_f32(coarsest, &config.output.coarsest_image)?;
 
     let summary = Report {
-        segments,
+        segments: lsd_nms.segments,
         pyr_ms,
         pyr_lo_ms,
-        lsd_ms,
+        lsd_full_ms,
+        lsd_nms_ms: lsd_nms.elapsed_ms,
+        nms_ms: nms.nms_ms,
+        nms_gradient_ms: nms.gradient_ms,
+        nms_edges: nms.edges.len(),
     };
     write_json_file(&config.output.segments_json, &summary)?;
 
@@ -85,11 +105,6 @@ fn run() -> Result<(), String> {
         "Saved coarsest level image to {} (level {})",
         config.output.coarsest_image.display(),
         pyramid.levels.len()
-    );
-    println!(
-        "Saved {} line segments to {}",
-        summary.segments.len(),
-        config.output.segments_json.display()
     );
 
     Ok(())

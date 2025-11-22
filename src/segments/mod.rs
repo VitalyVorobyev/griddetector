@@ -53,19 +53,21 @@ pub use extractor::LsdResult;
 pub use options::LsdOptions;
 pub use segment::{Segment, SegmentId};
 
+use crate::edges::nms::detect_edges_nms;
 use crate::edges::Grad;
 use crate::image::ImageF32;
 use crate::pyramid::Pyramid;
+use extractor::{seeds_from_edges, LsdExtractor};
 
 /// Lightweight LSD-like extractor (region growing on gradient orientation, PCA fit, simple significance test)
 pub fn lsd_extract_segments(l: &ImageF32, options: LsdOptions) -> LsdResult {
-    extractor::LsdExtractor::new(l, options).extract()
+    LsdExtractor::from_image(l, options).extract_full_scan()
 }
 
 pub fn lsd_extract_segments_coarse(pyramid: &Pyramid, options: LsdOptions) -> LsdResult {
     if let Some(coarse_level) = pyramid.levels.last() {
         let scale = pyramid.scale_for_level(coarse_level);
-        extractor::LsdExtractor::new(coarse_level, options.with_scale(scale)).extract()
+        LsdExtractor::from_image(coarse_level, options.with_scale(scale)).extract_full_scan()
     } else {
         LsdResult {
             segments: Vec::new(),
@@ -73,6 +75,19 @@ pub fn lsd_extract_segments_coarse(pyramid: &Pyramid, options: LsdOptions) -> Ls
             elapsed_ms: 0.0,
         }
     }
+}
+
+/// Run NMS once, reuse its gradients, and seed LSD from the sparse edge set.
+pub fn lsd_extract_segments_nms(
+    l: &ImageF32,
+    options: LsdOptions,
+    nms_mag_threshold: f32,
+) -> (LsdResult, crate::edges::nms::NmsEdgesResult) {
+    let mut nms = detect_edges_nms(l, nms_mag_threshold);
+    let seeds = seeds_from_edges(&nms.edges, l.w);
+    let grad = std::mem::take(&mut nms.grad);
+    let lsd = LsdExtractor::from_grad(grad, options).extract_from_seeds(&seeds);
+    (lsd, nms)
 }
 
 #[cfg(test)]

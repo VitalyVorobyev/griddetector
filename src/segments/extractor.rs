@@ -1,6 +1,7 @@
 use super::options::LsdOptions;
 use super::region_accumulator::RegionAccumulator;
 use super::segment::{Segment, SegmentId};
+use crate::edges::nms::EdgeElement;
 use crate::edges::{scharr_gradients, Grad};
 use crate::image::ImageF32;
 use nalgebra::{Matrix2, SymmetricEigen};
@@ -54,10 +55,15 @@ pub(super) struct LsdExtractor {
 impl LsdExtractor {
     /// Build a new extractor for a single image. This keeps allocations local to the
     /// extractor instance; reuse an extractor if you need zero-allocation across frames.
-    pub(super) fn new(l: &ImageF32, options: LsdOptions) -> Self {
+    pub(super) fn from_image(l: &ImageF32, options: LsdOptions) -> Self {
         let grad = scharr_gradients(l);
-        let width = l.w;
-        let height = l.h;
+        Self::from_grad(grad, options)
+    }
+
+    /// Build an extractor reusing precomputed gradients (e.g. from NMS).
+    pub(super) fn from_grad(grad: Grad, options: LsdOptions) -> Self {
+        let width = grad.gx.w;
+        let height = grad.gx.h;
         let n = width * height;
         let cos_tol = options.angle_tolerance_deg.to_radians().cos();
         Self {
@@ -75,10 +81,10 @@ impl LsdExtractor {
         }
     }
 
-    pub(super) fn extract(mut self) -> LsdResult {
+    pub(super) fn extract_full_scan(mut self) -> LsdResult {
         let start = Instant::now();
         for idx in 0..(self.width * self.height) {
-            self.process_seed(idx);
+            self.process_seed_full(idx);
         }
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         LsdResult {
@@ -88,22 +94,41 @@ impl LsdExtractor {
         }
     }
 
-    fn process_seed(&mut self, idx: usize) {
+    pub(super) fn extract_from_seeds(mut self, seeds: &[Seed]) -> LsdResult {
+        let start = Instant::now();
+        for seed in seeds {
+            if seed.idx >= self.used.len() {
+                continue;
+            }
+            self.process_seed_with_dir(seed.idx, seed.dir, seed.bin_bit);
+        }
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        LsdResult {
+            segments: self.segments,
+            grad: self.grad,
+            elapsed_ms,
+        }
+    }
+
+    fn process_seed_full(&mut self, idx: usize) {
+        let (dir, bin_bit) = match self.seed_direction_and_bin(idx) {
+            Some(v) => v,
+            None => return,
+        };
+        self.process_seed_with_dir(idx, dir, bin_bit);
+    }
+
+    fn process_seed_with_dir(&mut self, idx: usize, seed_dir: [f32; 2], bin_bit: u8) {
         let state = self.used[idx];
         if state == STATE_CLAIMED || state == STATE_DISCARDED {
+            return;
+        }
+        if self.bins[idx] & bin_bit != 0 {
             return;
         }
         let x = idx % self.width;
         let y = idx / self.width;
         if self.grad.mag.get(x, y) < self.options.magnitude_threshold {
-            return;
-        }
-
-        let (seed_dir, bin_bit) = match self.seed_direction_and_bin(idx) {
-            Some(v) => v,
-            None => return,
-        };
-        if self.bins[idx] & bin_bit != 0 {
             return;
         }
 
@@ -307,4 +332,29 @@ fn direction_bin(dx: f32, dy: f32) -> u8 {
     let scaled = angle * (8.0 / std::f32::consts::PI);
     let bin = scaled.floor() as i32;
     bin.clamp(0, 7) as u8
+}
+
+#[derive(Clone)]
+pub(super) struct Seed {
+    pub idx: usize,
+    pub dir: [f32; 2],
+    pub bin_bit: u8,
+}
+
+/// Build seeds from NMS edges using their direction for binning.
+pub(super) fn seeds_from_edges(edges: &[EdgeElement], width: usize) -> Vec<Seed> {
+    let mut seeds = Vec::with_capacity(edges.len());
+    for e in edges {
+        let x = e.x as usize;
+        let y = e.y as usize;
+        let dx = e.direction.cos();
+        let dy = e.direction.sin();
+        let bin_bit = 1u8 << direction_bin(dx, dy);
+        seeds.push(Seed {
+            idx: y * width + x,
+            dir: [dx, dy],
+            bin_bit,
+        });
+    }
+    seeds
 }
