@@ -59,11 +59,12 @@ use crate::image::ImageF32;
 use crate::pyramid::Pyramid;
 use extractor::{seeds_from_edges, LsdExtractor};
 
-/// Lightweight LSD-like extractor (region growing on gradient orientation, PCA fit, simple significance test)
+/// Lightweight LSD-like extractor (region growing on gradient orientation, PCA fit, significance tests).
 pub fn lsd_extract_segments(l: &ImageF32, options: LsdOptions) -> LsdResult {
     LsdExtractor::from_image(l, options).extract_full_scan()
 }
 
+/// Run the extractor on the coarsest pyramid level (scaled thresholds).
 pub fn lsd_extract_segments_coarse(pyramid: &Pyramid, options: LsdOptions) -> LsdResult {
     if let Some(coarse_level) = pyramid.levels.last() {
         let scale = pyramid.scale_for_level(coarse_level);
@@ -77,7 +78,9 @@ pub fn lsd_extract_segments_coarse(pyramid: &Pyramid, options: LsdOptions) -> Ls
     }
 }
 
-/// Run NMS once, reuse its gradients, and seed LSD from the sparse edge set.
+/// NMS-seeded LSD: reuse gradients from Scharr+NMS, and grow segments only from sparse edge seeds.
+///
+/// This path avoids a full image scan and can reduce runtime on large frames.
 pub fn lsd_extract_segments_nms(
     l: &ImageF32,
     options: LsdOptions,
