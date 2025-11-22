@@ -252,19 +252,6 @@ fn level_scale_map(coarse: &ImageF32, fine: &ImageF32) -> LevelScaleMap {
     LevelScaleMap::new(sx, sy)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::segments::SegmentId;
-
-    #[test]
-    fn roi_rejects_degenerate_segments() {
-        let seg = Segment::new(SegmentId(1), [10.0, 10.0], [10.1, 10.1], 1.0, 1.0);
-        assert!(compute_roi(&seg, 0.0, 32, 32, 0).is_some());
-        assert!(compute_roi(&seg, 0.0, 1, 1, 0).is_none());
-    }
-}
-
 #[cfg(feature = "profile_refine")]
 fn dump_refine_profile(workspace: &RefinementWorkspace) {
     let profile = take_profile();
@@ -286,5 +273,18 @@ fn dump_refine_profile(workspace: &RefinementWorkspace) {
             "  L{}: grad_ms={:.2} roi_count={} avg_roi_px={:.1} bilinear_samples={}",
             entry.level_index, grad_ms, entry.roi_count, avg_roi, entry.bilinear_samples
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::segments::SegmentId;
+
+    #[test]
+    fn roi_rejects_degenerate_segments() {
+        let seg = Segment::new(SegmentId(1), [10.0, 10.0], [10.1, 10.1], 1.0, 1.0);
+        assert!(compute_roi(&seg, 0.0, 32, 32, 0).is_some());
+        assert!(compute_roi(&seg, 0.0, 1, 1, 0).is_none());
     }
 }
