@@ -1,7 +1,8 @@
-use super::SegmentRoi;
+use super::roi::SegmentRoi;
+use serde::Serialize;
 use std::sync::{Mutex, OnceLock};
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct LevelProfile {
     pub level_index: usize,
     pub roi_count: u64,

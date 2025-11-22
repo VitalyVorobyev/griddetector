@@ -80,7 +80,7 @@ pub struct SegmentsRefinementResult {
     pub elapsed_ms: f64,
     pub segments: Vec<Segment>,
     #[cfg(feature = "profile_refine")]
-    pub profile: LevelProfile,
+    pub profile: Vec<LevelProfile>,
 }
 
 /// Refine a set of coarse segments down the pyramid using cached gradients.
@@ -147,7 +147,7 @@ pub fn refine_coarse_segments(
     }
 
     #[cfg(feature = "profile_refine")]
-    set_profile(&result, &workspace);
+    set_profile(&mut result, &workspace);
 
     result.segments = current_segments;
     result.elapsed_ms = refine_total_start.elapsed().as_secs_f64() * 1000.0;
@@ -234,7 +234,7 @@ pub(crate) fn compute_roi(
 ) -> Option<SegmentRoi> {
     let roi = segment_roi_from_points(seg.p0, seg.p1, pad, width, height)?;
     #[cfg(feature = "profile_refine")]
-    profile::record_roi(level_index, &roi);
+    super::profile::record_roi(level_index, &roi);
     Some(roi)
 }
 
