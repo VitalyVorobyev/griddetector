@@ -8,8 +8,7 @@
 use super::bundling::{Bundle, BundleId};
 use super::histogram::OrientationHistogram;
 use crate::angle::{angular_difference, normalize_half_pi};
-use nalgebra::Vector3;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 const VP_EPS: f32 = 1e-6;
 
@@ -24,7 +23,7 @@ pub enum FamilyLabel {
 /// Vanishing point estimate with support information.
 #[derive(Clone, Debug, Serialize)]
 pub struct VanishingPoint {
-    pub pos: Vector3<f32>,
+    pub pos: [f32; 3],
     pub dir: [f32; 2],
     pub support: Vec<BundleId>,
     pub score: f32,
@@ -33,7 +32,7 @@ pub struct VanishingPoint {
 impl VanishingPoint {
     pub fn at_infinity(dir: [f32; 2], support: Vec<BundleId>, score: f32) -> Self {
         Self {
-            pos: Vector3::new(dir[0], dir[1], 0.0),
+            pos: [dir[0], dir[1], 0.0],
             dir,
             support,
             score,
@@ -51,7 +50,7 @@ pub struct VanishingPair {
 }
 
 /// Options controlling VP estimation robustness.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VpEstimationOptions {
     /// Minimum separation between dominant peaks (degrees).
     pub min_peak_sep_deg: f32,
@@ -168,21 +167,18 @@ fn fit_vp(bundles: &[Bundle], indices: &[usize], fallback_theta: f32) -> Option<
     let pos = if det.abs() <= 1e-6f32.max(1e-6 * trace * trace) {
         let dir_x = fallback_theta.cos();
         let dir_y = fallback_theta.sin();
-        Vector3::new(dir_x, dir_y, 0.0)
+        [dir_x, dir_y, 0.0]
     } else {
         let inv11 = a22 / det;
         let inv12 = -a12 / det;
         let inv22 = a11 / det;
         let x = inv11 * bx + inv12 * by;
         let y = inv12 * bx + inv22 * by;
-        Vector3::new(x, y, 1.0)
+        [x, y, 1.0]
     };
 
-    let dir = vp_direction(&pos, &Vector3::new(0.0, 0.0, 1.0))?;
-    let support_ids = indices
-        .iter()
-        .map(|&i| bundles[i].id)
-        .collect::<Vec<_>>();
+    let dir = vp_direction(&pos, &[0.0, 0.0, 1.0])?;
+    let support_ids = indices.iter().map(|&i| bundles[i].id).collect::<Vec<_>>();
     Some(VanishingPoint {
         pos,
         dir,
@@ -194,7 +190,7 @@ fn fit_vp(bundles: &[Bundle], indices: &[usize], fallback_theta: f32) -> Option<
 /// Computes a unit direction in image space from the translation anchor
 /// towards the vanishing point. For VPs at infinity (vp.z≈0), returns the
 /// normalized direction encoded by `(vp.x, vp.y, 0)`.
-pub fn vp_direction(vp: &Vector3<f32>, anchor: &Vector3<f32>) -> Option<[f32; 2]> {
+pub fn vp_direction(vp: &[f32; 3], anchor: &[f32; 3]) -> Option<[f32; 2]> {
     if vp[2].abs() <= VP_EPS {
         let norm = (vp[0] * vp[0] + vp[1] * vp[1]).sqrt();
         if norm <= 1e-6 {
@@ -214,5 +210,57 @@ pub fn vp_direction(vp: &Vector3<f32>, anchor: &Vector3<f32>) -> Option<[f32; 2]
         } else {
             Some([dx / norm, dy / norm])
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::grid::bundling::{Bundle, BundleId};
+
+    fn make_bundle(angle: f32, rho: f32, weight: f32, id: u32) -> Bundle {
+        let n = [angle.cos(), angle.sin()];
+        Bundle {
+            id: BundleId(id),
+            line: [n[0], n[1], -rho],
+            center: [rho * -n[0], rho * -n[1]],
+            weight,
+            members: vec![],
+        }
+    }
+
+    #[test]
+    fn estimate_two_finite_vps() {
+        // Lines x = 10 and y = 20 should yield finite VPs.
+        let bundles = vec![
+            make_bundle(0.0, 10.0, 5.0, 0),
+            make_bundle(std::f32::consts::FRAC_PI_2, 20.0, 5.0, 1),
+        ];
+        let opts = VpEstimationOptions {
+            min_support: 1,
+            min_peak_sep_deg: 20.0,
+            assign_tol_deg: 25.0,
+        };
+        let vp = estimate_vanishing_pair(&bundles, &opts).expect("vp pair");
+        assert!((vp.u.pos[0] - 10.0).abs() < 1e-2 && (vp.u.pos[2] - 1.0).abs() < 1e-3);
+        assert!((vp.v.pos[1] - 20.0).abs() < 1e-2 && (vp.v.pos[2] - 1.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn fallback_for_parallel_lines() {
+        let angle = std::f32::consts::FRAC_PI_4;
+        let bundles = vec![
+            make_bundle(angle, 10.0, 3.0, 0),
+            make_bundle(angle, 12.0, 3.0, 1),
+        ];
+        let opts = VpEstimationOptions {
+            min_support: 1,
+            ..Default::default()
+        };
+        let vp = estimate_vanishing_pair(&bundles, &opts).expect("vp pair");
+        assert!(
+            vp.u.pos[2].abs() <= 1e-6,
+            "expected VP at infinity for parallel lines"
+        );
     }
 }

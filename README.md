@@ -93,6 +93,13 @@ python tools/plot_segment_refinement.py \
     -l 0
 ```
 
+Grid hypothesis demo (bundles + vanishing points):
+
+```sh
+cargo run --release --bin grid_hyp_demo config/grid_hyp_demo_sample.json
+python tools/plot_grid_hypothesis.py -r out/grid_hyp_demo/result.json --image out/grid_hyp_demo/pyramid_L0.png
+```
+
 LSD options in `config/coarse_segments.json`:
 
 - `magnitude_threshold`, `angle_tolerance_deg`, `min_length`

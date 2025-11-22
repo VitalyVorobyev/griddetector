@@ -18,7 +18,7 @@ const EPS: f32 = 1e-6;
 pub struct BundleId(pub u32);
 
 /// Tunable parameters controlling bundling sensitivity.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BundlingParams {
     /// Orientation tolerance (radians) between a segment and a bundle tangent.
     pub orientation_tol_rad: f32,
@@ -236,13 +236,7 @@ pub fn bundle_segments(segs: &[Segment], params: &BundlingParams) -> Vec<Bundle>
     bundles
 }
 
-fn merge_bundle(
-    target: &mut Bundle,
-    line: &[f32; 3],
-    seg: &Segment,
-    weight: f32,
-    seg_idx: usize,
-) {
+fn merge_bundle(target: &mut Bundle, line: &[f32; 3], seg: &Segment, weight: f32, seg_idx: usize) {
     let total = target.weight + weight;
     if total <= EPS {
         return;
@@ -310,8 +304,7 @@ mod tests {
             min_strength: 0.0,
         };
 
-        let mut nbins =
-            (std::f32::consts::PI / params.orientation_tol_rad).ceil() as usize;
+        let mut nbins = (std::f32::consts::PI / params.orientation_tol_rad).ceil() as usize;
         nbins = nbins.clamp(8, 90);
         let bin_width = std::f32::consts::PI / nbins as f32;
 
